@@ -748,6 +748,28 @@ Tests: 5 clawback cases (no-op on empty history, partial consumption, idempotent
 - A mid-day `resetCapital` zeroes `cumulativePnl`/`cumulativeCharges` while the day record keeps its trades, so the counters permanently disagree with the day (paper currently off by +4,301 / −1,869). Decide whether a reset should also clear the day record.
 - A reset still does not clear `seededAt` (harmless on paper; on a LIVE book a reset leaves the book marked seeded so it never re-reads Dhan).
 
+### T97 [REPLAY] — Replay runs: isolated storage, model selection, comparison — BUILT 2026-07-20 ✅
+
+Replay is now a **model-quality harness**, not a shadow of paper trading.
+
+**The bug it fixes:** replay trades took the live path and landed in `paper` with NO marker at all — replayed and genuine paper trades were byte-indistinguishable. Today's "120 paper trades" were replay output. A replay also moved paper's capital and, with the AI menu on LIVE, would have placed REAL orders.
+
+**Design — isolation by construction.** Runs live in their own `replay_runs` collection, connected to nothing: no capital pool, no day index, no compounding, no EOD square-off, no kill switch. The alternative (tag trades inside the paper book) needs every aggregation site — day P&L, charges, capital, clawback, day completion, summary row, session summary — to remember to exclude them, and missing one silently corrupts real numbers. That exact failure mode bit twice on 2026-07-20 (T96 clawback, the FutureRow cell).
+
+- `portfolioAgent.appendTrade` redirects to the active run — ONE choke point, so executor/sizing/risk run unchanged and only the destination differs.
+- `tickHandler` substitutes the run for the `paper` tick slot while replaying, so run trades get real SL/TSL/TP. This also FREEZES the paper book during a replay — deliberate: replayed ticks are recorded prices from another day, and marking live positions to them corrupts real P&L with fictional quotes.
+- `startReplay` takes a model version per instrument, applies it via `setModelVersion` and records it on the run, so every trade is attributable to the model under test.
+- Runs close on completion AND on stop; stale RUNNING runs are marked ABORTED at boot so a crash can't leave a dead experiment as the trade sink.
+- Refuses to start while AI trades are LIVE.
+
+**UI:** Replay tab beside Watchlist listing runs (model, id, date, P&L, trade count); selecting one puts the desk into a read-only view of that run via a synthetic day, so every existing row / filter / summary component is reused. A banner marks the desk as showing a run. Two runs can be ticked to compare.
+
+**Comparison reports more than net P&L** — gross, charges, win rate, avg win/loss, and per-cohort/strategy/exit-reason splits — because over one replayed day a model can win on net off a couple of large trades while losing on hit rate, and a model that fires more often loses more to charges (a real finding, but a different one from predicting worse). It warns when the two runs replayed different dates.
+
+**AppBar now shows what SEA is RUNNING** — model version + enabled cohorts, not just a liveness dot.
+
+10 tests. **Not yet exercised end-to-end** — no replay has been run against this.
+
 ## P2 — parked features (small enough to wait)
 
 ### T91 [ARCH] — SEA cohort control is global across BOTH SEA instances — PARKED 2026-07-20 🆕

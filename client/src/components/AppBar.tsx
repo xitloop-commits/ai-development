@@ -115,6 +115,21 @@ function MarketStatusIndicator() {
   const seaByInst = new Map(sea.instruments.map((i) => [i.instrument, i]));
   // Always show the engines we auto-start, plus any others that have pinged.
   const seaInsts = Array.from(new Set(['nifty50', 'banknifty', ...sea.instruments.map((i) => i.instrument)]));
+  // What SEA is RUNNING — model + cohorts. Pushed over /ws/ticks on every
+  // change (seaControl broadcasts to browsers), so no polling.
+  const cohortState = trpc.trading.seaCohortState.useQuery(undefined, { refetchInterval: 10_000 });
+  const seaModels = (cohortState.data?.models ?? {}) as Record<string, string>;
+  const distinctModels = Array.from(new Set(Object.values(seaModels)));
+  const seaModelLabel = distinctModels.length === 0
+    ? null
+    : distinctModels.length === 1
+      // Both instruments on the same version — show it once.
+      ? distinctModels[0].slice(0, 8)
+      : 'mixed';
+  const enabledCohorts = (['scalp', 'trend', 'ma'] as const).filter((c) => (cohortState.data as any)?.[c]);
+  const seaCohortLabel = enabledCohorts.length
+    ? enabledCohorts.map((c) => (c === 'ma' ? 'MA' : c[0].toUpperCase() + c.slice(1))).join('/')
+    : null;
 
   const light = (label: string, open: boolean, title: string) => (
     <span className="flex items-center gap-1" title={title}>
@@ -133,7 +148,17 @@ function MarketStatusIndicator() {
         {seaInsts.map((inst) => {
           const st = seaByInst.get(inst);
           const alive = !!st?.alive;
-          const title = `SEA ${inst}: ${alive ? 'running' : st ? `last ping ${st.ageSec}s ago` : 'not running'}`;
+          // T97 — say WHAT the engine is running, not just that it is. The
+          // model version and enabled cohorts are the two things that change
+          // what SEA emits, and both were previously invisible on screen.
+          const modelV = cohortState.data?.models?.[inst];
+          const on = ['scalp', 'trend', 'ma'].filter((c) => (cohortState.data as any)?.[c]);
+          const title =
+            `SEA ${inst}: ${alive ? 'running' : st ? `last ping ${st.ageSec}s ago` : 'not running'}` +
+            `
+model: ${modelV ?? 'LATEST'}` +
+            `
+cohorts: ${on.length ? on.join(', ') : 'none enabled'}`;
           return (
             <span
               key={inst}
@@ -143,6 +168,25 @@ function MarketStatusIndicator() {
             />
           );
         })}
+        {/* Visible readout of what SEA is actually running. A dot only says the
+            engine is alive; these say which model and which cohorts, which is
+            what determines the signals you get. */}
+        {seaModelLabel && (
+          <span
+            className="text-[0.5rem] tabular-nums text-muted-foreground/80"
+            title="Model version SEA is scoring with · enabled cohorts"
+          >
+            {seaModelLabel}
+          </span>
+        )}
+        {seaCohortLabel && (
+          <span
+            className="text-[0.5rem] uppercase tracking-wide text-info-cyan/80"
+            title="Cohorts currently enabled"
+          >
+            {seaCohortLabel}
+          </span>
+        )}
       </span>
     </div>
   );

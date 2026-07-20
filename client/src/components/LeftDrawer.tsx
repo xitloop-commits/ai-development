@@ -16,6 +16,9 @@ import { IndexOptionRow } from '@/components/IndexOptionRow';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { useDrawerPin } from '@/hooks/useDrawerPin';
 import { PinButton } from '@/components/PinButton';
+import { ReplayPane } from '@/components/ReplayPane';
+import { useState } from 'react';
+import { useSelectedRunId } from '@/lib/replaySelection';
 
 /** Minimal tab descriptor (kept for the MainScreen prop shape). */
 interface SidebarInstrument {
@@ -72,18 +75,39 @@ function IndexRow({ name, label, color }: { name: string; label: string; color: 
 export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) {
   const { hexOf } = useInstrumentColors();
   const { pinned, togglePin } = useDrawerPin('left');
+  const [tab, setTab] = useState<'watchlist' | 'replay'>('watchlist');
+  const viewingRun = useSelectedRunId() != null;
   if (!visible) return null;
 
   return (
     <aside className="w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
       {/* Single Watchlist tab */}
+      {/* Watchlist | Replay. Replay shows a dot while a run is being viewed on
+          the desk, so it's obvious the desk isn't showing the live book. */}
       <div className="flex items-stretch border-b border-border bg-secondary/50">
-        <div className="flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase text-foreground">
-          Watchlist
-        </div>
+        {(['watchlist', 'replay'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`flex-1 px-3 py-2 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
+              tab === t ? 'text-foreground bg-secondary' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t === 'watchlist' ? 'Watchlist' : 'Replay'}
+            {t === 'replay' && viewingRun && (
+              <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-info-cyan align-middle" />
+            )}
+          </button>
+        ))}
         <PinButton pinned={pinned} onToggle={togglePin} />
       </div>
 
+      {tab === 'replay' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ReplayPane />
+        </div>
+      ) : (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Indices — underlying LTP list */}
         <div className="shrink-0 pt-1">
@@ -107,6 +131,7 @@ export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) 
           </div>
         </div>
       </div>
+      )}
     </aside>
   );
 }

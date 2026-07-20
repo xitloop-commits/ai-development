@@ -10,6 +10,7 @@
  */
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
+import { trpc } from '@/lib/trpc';
 import { TodayPnlBar } from './TodayPnlBar';
 import { TradeFilterBar, EMPTY_TRADE_FILTER, type TradeFilter } from './TradeFilterBar';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
@@ -21,6 +22,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
+import { useSelectedRunId, setSelectedRunId } from '@/lib/replaySelection';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -90,6 +92,58 @@ export default function TradingDesk({
     channel,
   });
 
+  // ── Replay-run view (T97) ────────────────────────────────────────
+  // A selected run replaces the whole day list with ONE synthetic day holding
+  // that run's trades, so every existing row/filter/summary component is reused
+  // unchanged. Read-only: these trades belong to an experiment, and exiting one
+  // would route the call to a real channel.
+  const selectedRunId = useSelectedRunId();
+  const runQuery = trpc.replay.run.useQuery(
+    { runId: selectedRunId ?? '' },
+    { enabled: !!selectedRunId, refetchInterval: selectedRunId ? 4000 : false },
+  );
+  const run = selectedRunId ? runQuery.data : null;
+
+  /**
+   * What the table actually renders. Normally the live book; with a run selected,
+   * ONE synthetic day carrying that run's trades — so PastRow / TodaySection /
+   * the filters / the summary all work unchanged rather than needing a parallel
+   * "replay desk".
+   */
+  const { viewDays, viewCapital } = useMemo(() => {
+    if (!run) return { viewDays: allDays, viewCapital: capital };
+    const trades = run.trades ?? [];
+    const totalPnl = trades.reduce(
+      (s: number, t: any) => s + (t.status === 'OPEN' ? (t.unrealizedPnl ?? 0) : (t.pnl ?? 0)),
+      0,
+    );
+    const totalCharges = trades.reduce((s: number, t: any) => s + (t.charges ?? 0), 0);
+    const cap = run.openingCapital ?? 100000;
+    const day: any = {
+      dayIndex: 1,
+      date: run.date,
+      tradeCapital: cap,
+      targetPercent: 0,
+      targetAmount: 0,           // a run has no target — it isn't chasing one
+      projCapital: cap,
+      originalProjCapital: cap,
+      actualCapital: cap + totalPnl,
+      deviation: 0,
+      trades,
+      totalPnl,
+      totalCharges,
+      totalQty: trades.reduce((s: number, t: any) => s + Math.abs(t.qty ?? 0), 0),
+      instruments: Array.from(new Set(trades.map((t: any) => t.instrument))),
+      status: 'ACTIVE',
+      rating: 'future',
+      channel,
+    };
+    return {
+      viewDays: [day],
+      viewCapital: { ...capital, currentDayIndex: 1, tradingPool: cap, netWorth: cap + totalPnl },
+    };
+  }, [run, allDays, capital, channel]);
+
   // Distinct instruments + cohorts traded today — populate the filter's options.
   // MUST stay above the early returns below so hook order never changes.
   const { todayInstruments, todayCohorts, todayStrategies, todayExitReasons } = useMemo(() => {
@@ -158,6 +212,27 @@ export default function TradingDesk({
           narrower than the top bar it sits under, leaving dead space after the
           Rating column. The scroll perf it bought is not worth a table that
           doesn't fill. */}
+      {/* Unmissable banner while a run is on the desk. Without it the desk looks
+          like the live book showing unfamiliar numbers — the worst possible
+          ambiguity on a trading screen. */}
+      {run && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1 bg-info-cyan/15 border-b border-info-cyan/40">
+          <span className="text-[0.5625rem] font-bold uppercase tracking-wider text-info-cyan">Replay run</span>
+          <span className="text-[0.625rem] font-bold text-foreground">{run.runId}</span>
+          <span className="text-[0.5rem] text-muted-foreground">
+            {run.date} · {run.tradeCount} trades ·{' '}
+            {Object.entries(run.models ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ') || 'model n/a'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedRunId(null)}
+            className="ml-auto px-1.5 py-0.5 rounded text-[0.5625rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30"
+          >
+            Back to live book
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 relative overflow-hidden w-full">
         <div ref={tableContainerRef} className={`h-full w-full overflow-y-auto overflow-x-hidden scrollbar-thin bg-card transition-opacity duration-150 ${
           workspace === 'my' ? 'scrollbar-bullish' :
@@ -220,8 +295,8 @@ export default function TradingDesk({
                 </tr>
               </thead>
               <tbody>
-                {allDays.map((day) => {
-                  const isToday = day.dayIndex === capital.currentDayIndex;
+                {viewDays.map((day) => {
+                  const isToday = day.dayIndex === viewCapital.currentDayIndex;
                   const isDay250 = day.dayIndex === 250;
 
                   if (isToday) {
@@ -229,7 +304,7 @@ export default function TradingDesk({
                       <TodaySection
                         key={`${channel}-${day.dayIndex}`}
                         day={day}
-                        capital={capital}
+                        capital={viewCapital}
                         showNet={showNet}
                         onExitTrade={handleExitTrade}
                         onExitAll={handleExitAll}
@@ -240,8 +315,9 @@ export default function TradingDesk({
                         getLiveLtp={getLiveLtp}
                         todayRef={todayRef}
                         channel={channel}
-                        allDays={allDays}
+                        allDays={viewDays}
                         filter={tradeFilter}
+                        readOnly={!!run}
                       />
                     );
                   }

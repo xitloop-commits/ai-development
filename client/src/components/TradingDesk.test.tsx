@@ -45,6 +45,13 @@ vi.mock("@/lib/trpc", () => ({
     trading: {
       aiConfig: { useQuery: () => ({ data: undefined }) },
     },
+    // TradingDesk queries the selected replay run (T97); none selected here.
+    replay: {
+      run: { useQuery: () => ({ data: undefined }) },
+      runs: { useQuery: () => ({ data: [] }) },
+      compare: { useQuery: () => ({ data: undefined }) },
+      deleteRun: { useMutation: () => noopMutation },
+    },
     broker: {
       config: { get: { useQuery: () => ({ data: undefined }) } },
       feed: {

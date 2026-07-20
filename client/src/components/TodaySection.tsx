@@ -46,6 +46,10 @@ export interface TodaySectionProps {
   /** Client-only view filter (from the P&L-bar filter). Narrows only the visible
    *  trade rows — the day summary + live feed subscriptions stay on the full day. */
   filter?: TradeFilter;
+  /** T97 — viewing a replay run. Kills every write path: no exits, no staged
+   *  orders, no repeat-order. A replay trade must not be exitable, since the
+   *  executor would route the call to a real channel. */
+  readOnly?: boolean;
 }
 
 export function TodaySection({
@@ -63,6 +67,7 @@ export function TodaySection({
   channel,
   allDays,
   filter,
+  readOnly = false,
 }: TodaySectionProps) {
   // Trailing stop is a workspace-wide switch (Settings), no longer per-trade.
   // Read it once here and pass to every row so the TSL status reflects the
@@ -133,7 +138,7 @@ export function TodaySection({
   }, [visibleTrades]);
   const isFiltered = visibleTrades.length !== trades.length;
   const totalPnl = showNet ? visiblePnl : visiblePnl + visibleCharges;
-  const canManageTrades = supportsManualControls(channel);
+  const canManageTrades = !readOnly && supportsManualControls(channel);
   const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
 
@@ -181,7 +186,7 @@ export function TodaySection({
   // the watchlist stages a draft BUY row at the top of today's trades, where you
   // set quantity + MIS/CNC and place it. Paper places immediately; live goes
   // through the confirm below.
-  const showStaged = true;
+  const showStaged = !readOnly;
   const isPaper = isPaperChannel(channel);
   // Live buys route to the real Dhan account, so they go through a confirmation
   // dialog first. Paper buys place immediately.
