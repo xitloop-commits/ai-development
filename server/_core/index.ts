@@ -250,6 +250,17 @@ async function startServer() {
   const { initExitConfig } = await import("../portfolio/exitConfig");
   initExitConfig();
 
+      // T97 — a replay run left RUNNING by a crash can never receive more
+      // trades, but it would still read as the active sink. Mark stale runs
+      // aborted at boot so nothing routes into a dead experiment.
+      try {
+        const { abandonStaleRuns } = await import("../replay/replayRuns");
+        const n = await abandonStaleRuns();
+        if (n > 0) bootLog.warn(`marked ${n} stale replay run(s) ABORTED`);
+      } catch (err) {
+        bootLog.warn(`replay-run cleanup failed: ${(err as Error)?.message ?? err}`);
+      }
+
   // T85 AI menu: hydrate the per-mode (paper/live) AI config store.
   const { initAiConfig } = await import("../portfolio/aiModeConfig");
   initAiConfig();

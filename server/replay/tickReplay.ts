@@ -20,6 +20,8 @@ import zlib from "zlib";
 import readline from "readline";
 import { spawn, type ChildProcess } from "child_process";
 import { tickBus } from "../broker/tickBus";
+import { setModelVersion, getCohortState } from "../seaControl";
+import { startRun, endRun } from "./replayRuns";
 import type { TickData, ExchangeSegment, MarketDepthLevel } from "../broker/types";
 import { createLogger } from "../broker/logger";
 
@@ -267,10 +269,25 @@ export function isReplayActive(): boolean {
  * (streaming runs in the background); throws if already running or the date is
  * missing.
  */
-export async function startReplay(date: string, speed = 1): Promise<void> {
+export async function startReplay(
+  date: string,
+  speed = 1,
+  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number } = {},
+): Promise<{ runId: string }> {
   if (running) throw new Error("A replay is already running — stop it first.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Bad date: ${date}`);
   if (!(speed > 0)) throw new Error(`Bad speed: ${speed}`);
+
+  // ── Model selection (T97) ────────────────────────────────────────
+  // Point SEA at the versions under test BEFORE the run opens, so every trade
+  // it produces is attributable to them. setModelVersion validates the version
+  // exists, pushes it over /ws/sea-control (SEA hot-swaps at its next row) and
+  // writes LATEST so a SEA restart mid-run comes back on the same model.
+  if (opts.models) {
+    for (const [inst, version] of Object.entries(opts.models)) {
+      setModelVersion(inst, version);
+    }
+  }
 
   const files: string[] = [];
   for (const inst of REPLAY_INSTRUMENTS) {
@@ -287,6 +304,20 @@ export async function startReplay(date: string, speed = 1): Promise<void> {
   const t0RecvTs = Math.min(...firsts);
   const t0Wall = Date.now();
 
+  // Record what this run is testing. Models come from the live SEA control state
+  // so the run reflects what SEA will ACTUALLY use — including anything already
+  // set outside this call — rather than only what was passed in.
+  const cohortState = getCohortState();
+  const run = await startRun({
+    date,
+    speed,
+    models: { ...cohortState.models, ...(opts.models ?? {}) },
+    cohorts: { scalp: cohortState.scalp, trend: cohortState.trend, ma: cohortState.ma },
+    openingCapital: opts.openingCapital,
+    note: opts.note ?? null,
+  });
+  log.important(`Replay run ${run.runId} — ${date} @${speed}x, models ${JSON.stringify(run.models)}`);
+
   running = true;
   aborted = false;
   currentDate = date;
@@ -300,15 +331,23 @@ export async function startReplay(date: string, speed = 1): Promise<void> {
   startFeatureReplay(date, speed);
 
   // Fire all streams concurrently; flip `running` off when the last one ends.
-  void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(() => {
+  void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(async () => {
     running = false;
+    // Close the run so it stops being the trade sink — otherwise a live signal
+    // arriving after the replay finished would be filed into this experiment.
+    await endRun(aborted ? "ABORTED" : "COMPLETED");
     log.important(`Replay END ${date} — ${ticksEmitted} ticks emitted${aborted ? " (stopped)" : ""}`);
   });
+
+  return { runId: run.runId };
 }
 
 /** Stop an in-flight replay: abort the tick streams and kill the SEA feeders. */
 export function stopReplay(): void {
   stopFeatureReplay();
+  // Close the run even if the tick stream already finished on its own — the run
+  // must stop being the trade sink, or later live signals would land in it.
+  void endRun("ABORTED");
   if (!running) return;
   aborted = true;
   log.important("Replay STOP requested");

@@ -61,6 +61,7 @@ import type { ChargeRate } from "./charges";
 import { chargeRatesForTrade } from "../../shared/chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
+import { getActiveRunId, appendTrade as appendTradeToRun } from "../replay/replayRuns";
 import { disciplineAgent } from "../discipline";
 import { notifyOrderRejected } from "../_core/tradeEventNotifier";
 import type {
@@ -291,6 +292,23 @@ class PortfolioAgentImpl {
    * the migration window.
    */
   async appendTrade(channel: Channel, trade: TradeRecord): Promise<DayRecord> {
+    // T97 — while a replay run is open, EVERY new trade belongs to that run and
+    // must not touch a real book. Redirecting here rather than at the router
+    // keeps one choke point: the executor, sizing and risk chain run unchanged,
+    // only the destination differs. A replay cannot move paper's capital or P&L
+    // because its trades never enter paper's document.
+    const runId = getActiveRunId();
+    if (runId) {
+      if (trade.source == null) trade.source = "ai";
+      if (trade.breakevenPrice == null && trade.entryPrice > 0 && trade.qty > 0) {
+        trade.breakevenPrice = await this.computeBreakevenPrice(trade);
+      }
+      await appendTradeToRun(runId, trade);
+      // Return a throwaway day so callers that read the result don't crash.
+      // Nothing downstream persists it.
+      return createDayRecord(0, 0, 0, 0, channel, "ACTIVE");
+    }
+
     const day = await this.ensureCurrentDay(channel);
     // Stamp AI-vs-My attribution from the channel prefix (T87) — persisted so it
     // survives the paper-channel merge; explicit callers may pre-set it.

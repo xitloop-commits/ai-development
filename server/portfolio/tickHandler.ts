@@ -22,8 +22,9 @@ import {
   dayAggregateFields,
 } from "./state";
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
-import { recalculateDayAggregates } from "./compounding";
+import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit } from "./exitStrategies";
+import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig } from "./aiModeConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
@@ -244,6 +245,32 @@ class TickHandler extends EventEmitter {
     const now = Date.now();
     const cached = this.stateCache.get(channel);
     if (cached && cached.expiresAt > now) return cached;
+
+    // T97 — while a replay run is open it OWNS the `paper` tick slot: the run's
+    // trades get the exits, and the real paper book is left frozen.
+    //
+    // That freeze is deliberate, not a side effect. The ticks arriving during a
+    // replay are RECORDED prices from another day; marking genuine paper
+    // positions to them would corrupt real P&L with fictional quotes. No new
+    // paper trades can appear either — appendTrade redirects them to the run.
+    const runId = getActiveRunId();
+    if (runId && channel === "paper") {
+      const run = await getRun(runId);
+      if (!run) return null;
+      const day = {
+        ...createDayRecord(1, run.openingCapital, 5, run.openingCapital, channel, "ACTIVE"),
+        trades: run.trades ?? [],
+      };
+      const brokerConfig = await getActiveBrokerConfig();
+      const entry: ChannelStateCache = {
+        state: { tradingPool: run.openingCapital, reservePool: 0, currentDayIndex: 1 } as CapitalState,
+        day,
+        brokerConfig,
+        expiresAt: now + STATE_CACHE_TTL_MS,
+      };
+      this.stateCache.set(channel, entry);
+      return entry;
+    }
 
     let state: CapitalState;
     try {
@@ -688,6 +715,15 @@ class TickHandler extends EventEmitter {
       return; // updates remain in the cached day; a later pass persists them
     }
     this.lastPersistAt.set(channel, Date.now());
+
+    // T97 — a replay run persists to its own document. No merge-on-fresh-read
+    // dance is needed: the run is single-writer (nothing else appends to it
+    // while it is the active sink), so writing the trades we hold is safe.
+    const activeRun = getActiveRunId();
+    if (activeRun && channel === "paper") {
+      await updateRunTrades(activeRun, day.trades);
+      return;
+    }
 
     // Persist by MERGING onto a fresh read of the day — never write back the whole
     // cached snapshot, or we'd clobber trades that were placed (appended) since the

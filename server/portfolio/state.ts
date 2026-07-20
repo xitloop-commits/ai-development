@@ -337,7 +337,8 @@ const chargeBreakdownSchema = new Schema(
   { _id: false }
 );
 
-const tradeRecordSchema = new Schema(
+/** Exported so replay runs can embed the identical trade shape (T97). */
+export const tradeRecordSchema = new Schema(
   {
     id: { type: String, required: true },
     instrument: { type: String, required: true },
