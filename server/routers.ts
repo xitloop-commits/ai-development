@@ -17,7 +17,8 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
-import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig } from "./seaControl";
+import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion } from "./seaControl";
+import { listModelVersions } from "./modelVersions";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
@@ -113,6 +114,16 @@ export const appRouter = router({
     setSeaRevPct: publicProcedure
       .input(z.object({ value: z.number() }))
       .mutation(({ input }) => setRevPct(input.value)),
+
+    // T94 — model switch. `modelVersions` lists what's trained on disk for each
+    // instrument (newest first) with its headline metrics, so the pick is made
+    // on evidence rather than a timestamp. `setModel` points the RUNNING SEA at
+    // one: it pushes over /ws/sea-control (hot-swap, no restart) and writes
+    // models/<inst>/LATEST so a restart comes up on the same version.
+    modelVersions: publicProcedure.query(() => listModelVersions()),
+    setModel: publicProcedure
+      .input(z.object({ instrument: z.string().min(1), version: z.string().min(1) }))
+      .mutation(({ input }) => setModelVersion(input.instrument, input.version)),
 
     // T84 exit-strategy race config (Runway/Anchor). Read the effective config;
     // set the cooling window live from the SEA panel (applied on the next tick).

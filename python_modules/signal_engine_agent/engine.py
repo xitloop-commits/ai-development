@@ -815,7 +815,7 @@ def run(
         "ma": ma_signal_thresholds.enabled,
         "rev_pct": ma_signal_thresholds.rev_pct,  # MA reversal size, live-tunable
     }
-    start_control_listener(_live_cohorts)
+    start_control_listener(_live_cohorts, instrument)
     # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
     # EXIT signal can close the exact trade — they ride with no auto-exit.
     _ma_open: dict[str, str] = {}
@@ -860,6 +860,36 @@ def run(
     dashboard.__enter__()
     try:
         for line in _row_stream(live_path, port):
+            # ── Live model swap (T94) ─────────────────────────────
+            # The AI menu can point the running engine at a different trained
+            # version without a restart. Done HERE, at the top of the row loop,
+            # so no row is ever scored half by one model and half by another —
+            # and the preprocessor is rebuilt WITH the model, because it is
+            # built from that model's own feature_config. Swapping one without
+            # the other would select one column set and score it with another.
+            # (LiveTickPreprocessor holds no rolling state — just a reusable
+            # buffer — so rebuilding it costs nothing.)
+            _req_model = _live_cohorts.get("model")
+            if _req_model and _req_model != models.version:
+                _t0 = time.time()
+                try:
+                    _new = load_models(instrument, version=_req_model)
+                    live_preprocessor = LiveTickPreprocessor(_new.feature_config)
+                    models = _new
+                    print(
+                        f"  [model] swapped -> {models.version} "
+                        f"({len(models.feature_names)} features, {time.time() - _t0:.1f}s)",
+                        flush=True,
+                    )
+                except Exception as exc:  # noqa: BLE001 — never kill the engine
+                    print(
+                        f"  [model] swap to {_req_model!r} FAILED, staying on "
+                        f"{models.version}: {exc}",
+                        file=sys.stderr, flush=True,
+                    )
+                # Clear either way: a bad version must not retry on every row.
+                _live_cohorts["model"] = None
+
             if not line.strip():
                 continue
             try:

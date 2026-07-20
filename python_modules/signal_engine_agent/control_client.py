@@ -32,10 +32,17 @@ def control_url() -> str:
     return f"{ws}/ws/sea-control"
 
 
-def start_control_listener(live: dict) -> threading.Thread | None:
+def start_control_listener(live: dict, instrument: str | None = None) -> threading.Thread | None:
     """Spawn the control-ws listener. ``live`` is a mutable ``{cohort: bool}``
     dict the engine reads every tick; this thread mutates it on server pushes.
     Bool assignment is atomic under the GIL, so no lock is needed for reads.
+
+    When ``instrument`` is given, a ``models`` map on the pushed state selects
+    THIS instrument's requested model version and lands on ``live["model"]``.
+    The engine picks it up at the top of its row loop and hot-swaps. We only
+    record the request here — loading happens on the engine thread so a row is
+    never scored against a half-swapped model.
+
     Returns the thread, or None if the websockets lib is unavailable."""
     if websockets is None:
         print("  MA/cohort control: websockets lib missing — live toggles OFF "
@@ -64,6 +71,12 @@ def start_control_listener(live: dict) -> threading.Thread | None:
                                 live["rev_pct"] = float(st["revPct"])
                             except (TypeError, ValueError):
                                 pass
+                        # Requested model version for THIS instrument. Recorded
+                        # only — the engine thread does the actual load.
+                        if instrument and isinstance(st.get("models"), dict):
+                            req = st["models"].get(instrument)
+                            if isinstance(req, str) and req.strip():
+                                live["model"] = req.strip()
             except Exception:
                 await asyncio.sleep(3.0)  # reconnect backoff
 

@@ -185,6 +185,9 @@ const COHORTS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
  * text is never duplicated per group.
  */
 const HELP = {
+  model:
+    "Which trained model version the running SEA scores signals with. Switching applies immediately — SEA swaps the model and its feature preprocessor together at the next tick, no restart. It also becomes the startup default. Each option shows its mean AUC and head count; AUC is only comparable between versions with the SAME head count, since it averages over whichever heads that version trained.",
+
   // Strategy-level: what the whole strategy does.
   sprint:
     "Simplest strategy. Sets a fixed stop and target at entry from the percentages below, then trails the stop up behind the running peak. No staged phases — the stop starts where you set it and only ever ratchets in your favour.",
@@ -230,6 +233,9 @@ const HELP = {
     "Once trailing is active, the stop sits this % below the running peak — with a floor at half the target gain, so a winner can't give everything back.",
 } as const;
 
+/** Instruments with trained models (the two index books SEA runs). */
+const MODEL_INSTRUMENTS = ["nifty50", "banknifty"] as const;
+
 const STRATEGIES: { key: "sprint" | "runway" | "anchor"; label: string }[] = [
   { key: "sprint", label: "Sprint" },
   { key: "runway", label: "Runway" },
@@ -255,6 +261,13 @@ export function AiControl() {
   // Master switch for AI-sourced trades in BOTH modes. Defaults ON so a settings
   // doc predating the field doesn't silently stop AI trading.
   const aiTradesEnabled: boolean = settingsQuery.data?.tradingMode?.aiTradesEnabled ?? true;
+
+  // Trained model versions on disk. Static between retrains, so no polling —
+  // refetched after a switch so the new pick shows as active.
+  const modelsQuery = trpc.trading.modelVersions.useQuery(undefined, { staleTime: Infinity });
+  const setModel = trpc.trading.setModel.useMutation({
+    onSuccess: () => utils.trading.modelVersions.invalidate(),
+  });
   const setAiMode = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => utils.settings.get.invalidate(),
   });
@@ -459,6 +472,39 @@ export function AiControl() {
                   <Num label="MA reversal size" value={d.cohorts.revPct} step={0.02} min={0.02} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.cohorts.revPct = v; })} />
                 </div>
+
+                {/* ②b Model — which trained version the RUNNING SEA scores with.
+                    Applies immediately (hot-swap, no restart) and is NOT part of
+                    the paper/live draft: there is one SEA process, so the model
+                    is global, not per-mode. */}
+                <Group title="Model" help={HELP.model}>
+                  {MODEL_INSTRUMENTS.map((inst) => {
+                    const list = modelsQuery.data?.[inst] ?? [];
+                    const active = list.find((m) => m.isLatest)?.version ?? "";
+                    return (
+                      <Row key={inst} label={inst === "nifty50" ? "NIFTY 50" : "BANK NIFTY"}>
+                        <select
+                          value={active}
+                          disabled={!list.length || setModel.isPending}
+                          onChange={(e) => setModel.mutate({ instrument: inst, version: e.target.value })}
+                          className="max-w-[10.5rem] rounded border border-border bg-background px-1 py-0.5 text-[0.5625rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
+                        >
+                          {!list.length && <option value="">no models</option>}
+                          {list.map((m) => (
+                            <option key={m.version} value={m.version}>
+                              {m.version}
+                              {m.auc != null ? ` · auc ${m.auc}` : ""}
+                              {m.heads != null ? ` · ${m.heads}h` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </Row>
+                    );
+                  })}
+                  {setModel.isError && (
+                    <p className="text-[0.5625rem] text-destructive">{setModel.error.message}</p>
+                  )}
+                </Group>
 
                 {/* ③ Strategies */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">

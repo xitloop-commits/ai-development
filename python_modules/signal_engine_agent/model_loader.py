@@ -66,26 +66,56 @@ class LoadedModels:
         return float(cmap.apply(raw_prob))
 
 
+def list_versions(instrument: str, models_root: Path = Path("models")) -> list[str]:
+    """Every trained version on disk for `instrument`, newest first.
+
+    Version dirs are timestamp-named (YYYYMMDD_HHMMSS), so a reverse string sort
+    is chronological. Non-version entries (LATEST, LATEST_HEADS.json, the
+    LATEST.bak-* files) are skipped.
+    """
+    root = models_root / instrument
+    if not root.is_dir():
+        return []
+    return sorted(
+        (d.name for d in root.iterdir() if d.is_dir() and d.name[:8].isdigit()),
+        reverse=True,
+    )
+
+
 def load_models(
     instrument: str,
     models_root: Path = Path("models"),
     config_dir: Path = Path("config/model_feature_config"),
+    version: str | None = None,
 ) -> LoadedModels:
     """
-    Load the LATEST trained models for `instrument`, plus any per-head
-    isotonic calibration sidecars (T25).
+    Load trained models for `instrument`, plus any per-head isotonic calibration
+    sidecars (T25).
+
+    `version` pins an explicit version directory; None (the default) follows the
+    LATEST pointer. The override exists so the AI menu can hot-swap the running
+    model without rewriting LATEST — the pointer stays the restart default while
+    the live engine can be pointed elsewhere.
 
     Raises FileNotFoundError with actionable error message if anything is missing.
     """
-    latest = models_root / instrument / "LATEST"
-    if not latest.exists():
-        raise FileNotFoundError(
-            f"No trained model found for {instrument}.\n"
-            f"  Missing: {latest}\n"
-            f"  Run MTA first: python -m model_training_agent.cli "
-            f"--instrument {instrument} --date-from YYYY-MM-DD --date-to YYYY-MM-DD"
-        )
-    version = latest.read_text(encoding="utf-8").strip()
+    if version is not None:
+        version = version.strip()
+        if not (models_root / instrument / version).is_dir():
+            avail = ", ".join(list_versions(instrument, models_root)) or "(none)"
+            raise FileNotFoundError(
+                f"Model version {version!r} not found for {instrument}. Available: {avail}"
+            )
+    else:
+        latest = models_root / instrument / "LATEST"
+        if not latest.exists():
+            raise FileNotFoundError(
+                f"No trained model found for {instrument}.\n"
+                f"  Missing: {latest}\n"
+                f"  Run MTA first: python -m model_training_agent.cli "
+                f"--instrument {instrument} --date-from YYYY-MM-DD --date-to YYYY-MM-DD"
+            )
+        version = latest.read_text(encoding="utf-8").strip()
     version_dir = models_root / instrument / version
     if not version_dir.is_dir():
         raise FileNotFoundError(

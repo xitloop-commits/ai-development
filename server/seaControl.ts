@@ -32,6 +32,13 @@ export interface CohortState {
   /** MA-Signal reversal size (%). >0 = reversal mode (flip on a peak/trough
    *  pullback of this %); 0 = legacy 20-EMA slope mode. Live-tunable. */
   revPct: number;
+  /**
+   * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
+   * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
+   * Absent/empty for an instrument means "leave it alone"; the version written to
+   * models/<inst>/LATEST remains the restart default.
+   */
+  models: Record<string, string>;
 }
 
 const REV_MIN = 0.02, REV_MAX = 0.6;
@@ -47,7 +54,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, revPct: 0.18 };
+const state: CohortState = { scalp: true, trend: false, ma: true, revPct: 0.18, models: {} };
 let wss: WebSocketServer | null = null;
 
 function readFlag(cohort: Cohort): boolean | null {
@@ -143,6 +150,33 @@ export function setRevPct(value: number): CohortState {
   if (state.revPct === v) return { ...state };
   state.revPct = v;
   persistRevPct(v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/**
+ * T94 — point a running SEA at a different trained model version.
+ *
+ * Pushes over /ws/sea-control; SEA loads it at the top of its row loop, swapping
+ * the model and its preprocessor together. ALSO writes models/<inst>/LATEST so a
+ * later restart comes up on the same version — otherwise a restart would
+ * silently revert to the previous one, which is exactly the class of drift that
+ * bit the cohort toggles.
+ */
+export function setModelVersion(instrument: string, version: string): CohortState {
+  const inst = instrument.toLowerCase();
+  const dir = resolve(process.cwd(), "models", inst, version);
+  if (!existsSync(dir)) {
+    throw new Error(`Model version "${version}" not found for ${inst}`);
+  }
+  if (state.models[inst] === version) return { ...state };
+  state.models = { ...state.models, [inst]: version };
+  try {
+    writeFileSync(resolve(process.cwd(), "models", inst, "LATEST"), `${version}\n`, "utf8");
+  } catch {
+    /* live push still works; the restart default just won't follow */
+  }
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
