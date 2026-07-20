@@ -335,8 +335,16 @@ class TickHandler extends EventEmitter {
 
     if (ticks.length === 0) return;
 
-    // Update every channel that gets MTM-driven updates
+    // Update every channel that gets MTM-driven updates.
+    //
+    // T97 — while a replay run is open, `paper` is substituted for the run and
+    // the LIVE books are skipped entirely. These ticks are recorded prices from
+    // another day: marking a real ai-live / my-live position to them would show
+    // fictional P&L and, worse, could trip its SL/TP and fire a REAL exit order
+    // at a price that never existed today.
+    const replaying = getActiveRunId() != null;
     for (const channel of TICK_CHANNELS) {
+      if (replaying && channel !== "paper") continue;
       try {
         await this.updateChannel(channel, ticks);
       } catch (err) {

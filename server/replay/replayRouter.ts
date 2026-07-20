@@ -15,18 +15,22 @@ import { TRPCError } from "@trpc/server";
 import { getISTNow } from "../discipline/types";
 import { listReplayDates, getReplayStatus, startReplay, stopReplay } from "./tickReplay";
 
-/** True while either exchange's market is open (weekday, within hours). Replay is
- *  blocked then so recorded ticks can't collide with a live feed. NSE 09:15–15:30,
- *  MCX 09:00–23:30 IST, Mon–Fri (holidays not checked — hours already exclude
- *  most of the risk window and this is a deliberately conservative gate). */
+/**
+ * True while the exchange we REPLAY is open (weekday, within hours).
+ *
+ * NSE only, 09:15–15:30 IST. Replay streams nifty50 + banknifty and nothing
+ * else, so MCX hours are irrelevant — and because MCX runs to 23:30, including
+ * it blocked replay for almost the entire evening, which is exactly when you
+ * want to run one.
+ *
+ * Holidays aren't checked; the hours already exclude most of the risk window.
+ */
 function isMarketHoursNow(): boolean {
   const ist = getISTNow();
   const dow = ist.getUTCDay(); // getISTNow() carries IST in its UTC fields
   if (dow === 0 || dow === 6) return false; // weekend
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  const nse = mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
-  const mcx = mins >= 9 * 60 && mins <= 23 * 60 + 30;
-  return nse || mcx;
+  return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
 }
 
 export const replayRouter = router({
