@@ -528,6 +528,14 @@ export const portfolioRouter = router({
           sessionTradeCount: 0,
           sessionPnl: 0,
           sessionDate: today,
+          // T96: a reset MUST clear the high-water mark. replaceCapitalState
+          // uses $set, so any field omitted here SURVIVES — peakCapital was
+          // found stale at 1,940,930 after a reset to 100,000, meaning every
+          // drawdownPercent (and the capital-protection rules that read it) was
+          // measured against a peak the account had never held.
+          peakCapital: Math.round(input.initialFunding * 100) / 100,
+          drawdownPercent: 0,
+          peakUpdatedAt: now,
           createdAt: now,
           updatedAt: now,
         };
@@ -605,6 +613,11 @@ export const portfolioRouter = router({
         sessionTradeCount: 0,
         sessionPnl: 0,
         sessionDate: today,
+        // T96 — same as resetCapital: $set means an omitted field survives, so
+        // the high-water mark has to be cleared explicitly.
+        peakCapital: Math.round(input.initialFunding * 100) / 100,
+        drawdownPercent: 0,
+        peakUpdatedAt: now,
         createdAt: now,
         updatedAt: now,
       };

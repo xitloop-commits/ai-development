@@ -123,3 +123,33 @@ describe("T92 — capital ops honour the requested channel", () => {
     expect(res.reservePool).toBe(0); // seed capital is 100% Trading
   });
 });
+
+/**
+ * T96 — a reset must clear the high-water mark.
+ *
+ * replaceCapitalState uses $set, so any field the reset omits SURVIVES.
+ * peakCapital wasn't in the field list, so it persisted across resets: found at
+ * 1,940,930 on the paper book after a reset to 100,000, which had
+ * drawdownPercent reading 96.44% and the capital-protection rules acting on it.
+ */
+describe("T96 — resetCapital clears the high-water mark", () => {
+  it("sets peakCapital to the new funding, not the old peak", async () => {
+    seed("paper", 100_000);
+    (stateStore["paper"] as any).peakCapital = 1_940_930.29;
+    (stateStore["paper"] as any).drawdownPercent = 96.44;
+
+    await caller.resetCapital({ channel: "paper", initialFunding: 200_000, force: true });
+
+    expect((stateStore["paper"] as any).peakCapital).toBe(200_000);
+    expect((stateStore["paper"] as any).drawdownPercent).toBe(0);
+  });
+
+  it("clearWorkspace clears it too", async () => {
+    seed("paper", 100_000);
+    (stateStore["paper"] as any).peakCapital = 1_940_930.29;
+
+    await caller.clearWorkspace({ channel: "paper", initialFunding: 200_000 });
+
+    expect((stateStore["paper"] as any).peakCapital).toBe(200_000);
+  });
+});
