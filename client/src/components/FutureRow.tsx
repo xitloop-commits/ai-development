@@ -43,7 +43,6 @@ function _FutureRow({ day, isDay250, highlighted = false }: FutureRowProps) {
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
-      <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-1 py-2 text-center whitespace-nowrap">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
       </td>
