@@ -183,15 +183,15 @@ function _TodayTradeRow({
     >
       {/* Trade identity, packed into the five FIXED day-level columns (Day, Date,
           Capital, Profit+, Capital+ = 22.5rem) which carry no per-trade value.
-          Two lines rather than one: everything on a single line either wrapped or
-          truncated the instrument. Line 1 answers "when / which trade", line 2
-          "what position". That leaves the whole flexible Instrument column for
-          the TradeBar, which is the one element that genuinely benefits from
-          width. */}
+          One line: at 22.5rem it fits with tight gaps, and a single line keeps
+          the row height down so more trades are visible at once. `min-w-0` +
+          `overflow-hidden` mean an unusually long instrument truncates rather
+          than wrapping the row to two heights.
+
+          That leaves the whole flexible Instrument column for the TradeBar,
+          which is the one element that genuinely benefits from width. */}
       <td colSpan={5} className="px-2 py-1.5 border-r border-border align-middle">
-        <div className="flex flex-col gap-0.5 overflow-hidden">
-          {/* Line 1 — when, and which trade */}
-          <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap min-w-0">
             {/* Entry date + clock time (IST). The date matters once the desk
                 shows a replayed or historical day — a bare HH:MM silently reads
                 as "today". Full timestamp with seconds stays in the tooltip. */}
@@ -220,12 +220,9 @@ function _TodayTradeRow({
                 #{tradeNo}
               </span>
             ) : null}
-          </div>
-
-          {/* Line 2 — what the position IS. Expiry moved to the instrument's
-              copy tooltip: at this width it cost more than it told you, and the
-              strike + side are what you scan for. */}
-          <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap min-w-0">
+            {/* Expiry lives in the instrument's copy tooltip: at this width it
+                cost more than it told you, and the strike + side are what you
+                actually scan for. */}
               {(() => {
                 const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
                 return copyText ? (
@@ -296,7 +293,6 @@ function _TodayTradeRow({
                     <LineChart className="h-3 w-3" />
                   </button>
                 )}
-            </div>
         </div>
       </td>
 
