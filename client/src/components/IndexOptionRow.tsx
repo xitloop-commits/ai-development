@@ -80,7 +80,11 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
     // server size from capital. Default to 1 lot when nothing is configured.
     const useLots = !sizing || sizing.mode === 'lots';
     const trade = {
-      instrument: name,
+      // Canonical instrument spelling: "NIFTY50" / "BANKNIFTY", matching what
+      // SEA signals send. The row's own prop is "NIFTY_50" (the client feed key)
+      // — sending that would give trade records two spellings of one instrument
+      // and break per-instrument lookups keyed on the canonical form.
+      instrument: key.toUpperCase(),
       type: type as 'CALL_BUY' | 'PUT_BUY',
       strike: atmStrike,
       expiry: '', // server resolves the current expiry

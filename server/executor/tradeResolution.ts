@@ -54,7 +54,12 @@ export async function getTradeTargetPercent(
 export async function resolveUnderlyingForExpiry(
   instrument: string,
 ): Promise<{ underlying: string; exchangeSegment: string } | null> {
-  const norm = instrument.toUpperCase().replace(/\s+/g, "");
+  // Strip BOTH spaces and underscores: callers spell the same instrument three
+  // ways — "NIFTY 50" (UI label), "NIFTY50" (SEA signals) and "NIFTY_50" (the
+  // client instrument key). Whitespace-only normalisation silently missed the
+  // underscore form, so lot size / expiry came back null and the order went to
+  // the broker with qty in LOTS instead of units.
+  const norm = instrument.toUpperCase().replace(/[\s_]+/g, "");
   const config = await getActiveBrokerConfig();
   const isPaper = config?.isPaperBroker ?? true;
 
@@ -177,7 +182,12 @@ export async function resolveContract(
 export async function resolveLotSize(instrument: string): Promise<number | null> {
   const broker = getActiveBroker();
   if (!broker?.getLotSize) return null;
-  const norm = instrument.toUpperCase().replace(/\s+/g, "");
+  // Strip BOTH spaces and underscores: callers spell the same instrument three
+  // ways — "NIFTY 50" (UI label), "NIFTY50" (SEA signals) and "NIFTY_50" (the
+  // client instrument key). Whitespace-only normalisation silently missed the
+  // underscore form, so lot size / expiry came back null and the order went to
+  // the broker with qty in LOTS instead of units.
+  const norm = instrument.toUpperCase().replace(/[\s_]+/g, "");
   const lotSymbol =
     norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
     : norm === "BANKNIFTY" ? "BANKNIFTY"
