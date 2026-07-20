@@ -209,7 +209,7 @@ function _TodayTradeRow({
                 shows a replayed or historical day — a bare HH:MM silently reads
                 as "today". Full timestamp with seconds stays in the tooltip. */}
             <span
-              className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+              className="text-[0.5rem] tabular-nums text-muted-foreground/80 shrink-0"
               title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
             >
               {formatIstDayClock(trade.openedAt)}
