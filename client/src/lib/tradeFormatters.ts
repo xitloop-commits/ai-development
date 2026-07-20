@@ -107,18 +107,27 @@ export function formatIstClock(ts: number): string {
 }
 
 /**
- * Compact IST day + clock for trade rows, e.g. "4 Jul 09:18".
+ * Compact IST day + 12-hour clock for trade rows, e.g. "4 Jul 2:15PM".
  *
  * The year is deliberately omitted — the desk shows one day at a time and the
  * full timestamp is a tooltip away, so the year would cost width for a fact you
  * already know. A bare HH:MM was silently reading as "today" on replayed and
  * historical days.
+ *
+ * 12-hour with no space before AM/PM: the row is dense, and "2:15PM" reads as
+ * one token where "14:15" needs converting and "2:15 PM" wraps.
  */
 export function formatIstDayClock(ts: number): string {
   if (!ts || Number.isNaN(ts)) return '';
   const d = new Date(ts);
   const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
-  return `${day} ${formatIstClock(ts)}`;
+  // en-US gives "2:15 PM"; drop the separator (a narrow no-break space in some
+  // runtimes, hence \s rather than a literal space) and uppercase it.
+  const time = d
+    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+    .replace(/\s+/g, '')
+    .toUpperCase();
+  return `${day} ${time}`;
 }
 
 /** Full IST date + time for tooltips, e.g. "17 Jul 2026, 09:18:23". */

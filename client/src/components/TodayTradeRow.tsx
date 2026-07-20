@@ -16,7 +16,6 @@ import {
   getTradeDirectionLabel,
   getTradeContractLabel,
   contractCopyText,
-  formatIstClock,
   formatIstDayClock,
   formatIstDateTime,
 } from '@/lib/tradeFormatters';
