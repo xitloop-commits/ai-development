@@ -152,8 +152,14 @@ export default function TradingDesk({
         />
       </div>
 
-      <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
-        <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin bg-card transition-opacity duration-150 ${
+      {/* No `content-visibility: auto` here. It applies containment (size
+          containment when the box is off-screen), which collapses the box the
+          table resolves its `width: 100%` against — the table then rendered
+          narrower than the top bar it sits under, leaving dead space after the
+          Rating column. The scroll perf it bought is not worth a table that
+          doesn't fill. */}
+      <div className="flex-1 relative overflow-hidden w-full">
+        <div ref={tableContainerRef} className={`h-full w-full overflow-y-auto overflow-x-hidden scrollbar-thin bg-card transition-opacity duration-150 ${
           workspace === 'my' ? 'scrollbar-bullish' :
           'scrollbar-violet'
         }`}>
