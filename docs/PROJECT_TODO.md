@@ -716,6 +716,16 @@ Design is locked in [07 Portfolio & Reporting §4–5](systems/07_portfolio_repo
 
 **Cross-cutting risk (belongs to [06 Risk & Discipline](systems/06_risk_discipline.md), not this task):** `checkPositionSize` and `checkExposure` both `return { passed: true }` when `currentCapital <= 0` (`discipline/positionSizing.ts:27`, `:67`). Under the new model an unseeded live book sits at ₹0 and would run **completely unguarded**. Discipline must block orders on unseeded books rather than trust the percentage checks.
 
+### T93 [EXEC] — Runway/Anchor are buy-only; shorts fall back to Sprint — GUARDED 2026-07-20, fix pending 🆕
+
+`exitStrategies.ts` assumes a BOUGHT option (profit = premium UP). Its staged stop is `entry × (1 − slPct/100)`, which for a SHORT sits on the **profitable** side and can never fire, while the target at `entry + gain` **banks as a loss**. Silent, not an error.
+
+Guarded in `tickHandler.ts` — the staged branch is gated on `isBuy`, so a short falls through to the legacy Sprint path, which IS direction-aware (`isBuy = type.includes("BUY")`, every comparison branches on it). 3 tests pin it; 2 fail without the guard.
+
+Open work: mirror the maths so Runway/Anchor handle shorts natively. **Do not just flip the signs** — the thresholds (25% cooling stop, 12.5% cooled, breakeven at 50% of target) were tuned on a backtest of *bought* options, where the loss is bounded by the premium paid. On a short the loss is unbounded and a 25% adverse move is a materially different event, so the numbers need their own backtest before they mean anything.
+
+Related, belongs to [06 Risk & Discipline](systems/06_risk_discipline.md): short options block **margin**, but `calculateAvailableCapital` counts `entryPrice × qty` — the premium RECEIVED — so a short reads as far cheaper than it is in every capital and exposure figure.
+
 ## P2 — parked features (small enough to wait)
 
 ### T91 [ARCH] — SEA cohort control is global across BOTH SEA instances — PARKED 2026-07-20 🆕

@@ -12,11 +12,21 @@
  * `atm_ce_security_id`, `atm_pe_security_id`, `hours_to_expiry` — pushed over
  * the TFA websocket, so there's no option-chain fetch on this path.
  *
- * BUY only. Selling is not offered here: `exitStrategies.ts` assumes a bought
- * option (profit = premium UP), so Runway/Anchor would compute a short's stop on
- * the profitable side and bank its target as a loss. Sprint handles both
- * directions, but shipping a short that silently breaks two of three strategies
- * isn't worth the button.
+ * Long BUYS the selected side, Short SELLS it.
+ *
+ * ⚠️ Short is only safe here because these trades get SPRINT: `placeTradeUiSchema`
+ * carries no exitStrategy, so tradeExecutor defaults to "sprint", and Sprint's
+ * exit path is direction-aware (`isBuy = type.includes("BUY")`, every comparison
+ * branches on it). Runway and Anchor are NOT — `exitStrategies.ts` states it
+ * assumes a bought option (profit = premium UP), so a short's staged stop lands
+ * on the profitable side and can never fire while its target banks as a loss.
+ * If manual strategy-pick ever reaches this row, Runway/Anchor must be made
+ * direction-aware first or shorts must be pinned to Sprint.
+ *
+ * Also note short options block MARGIN, but `calculateAvailableCapital` counts
+ * `entryPrice × qty` — the premium RECEIVED — so a short reads as far cheaper
+ * than it is in every capital and exposure figure. Order gating is Discipline's
+ * to own; this row does not attempt to model it.
  */
 import { useState } from 'react';
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
@@ -73,9 +83,11 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
 
   const ready = !!contractSecurityId && atmStrike != null && premium > 0;
 
-  function place() {
+  function place(direction: 'LONG' | 'SHORT') {
     if (!ready) return;
-    const type = side === 'CE' ? 'CALL_BUY' : 'PUT_BUY';
+    const type = side === 'CE'
+      ? (direction === 'LONG' ? 'CALL_BUY' : 'CALL_SELL')
+      : (direction === 'LONG' ? 'PUT_BUY' : 'PUT_SELL');
     // "lots" → qty in lots (server multiplies by lotSize); "percent" → let the
     // server size from capital. Default to 1 lot when nothing is configured.
     const useLots = !sizing || sizing.mode === 'lots';
@@ -85,7 +97,7 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
       // — sending that would give trade records two spellings of one instrument
       // and break per-instrument lookups keyed on the canonical form.
       instrument: key.toUpperCase(),
-      type: type as 'CALL_BUY' | 'PUT_BUY',
+      type: type as 'CALL_BUY' | 'PUT_BUY' | 'CALL_SELL' | 'PUT_SELL',
       strike: atmStrike,
       expiry: '', // server resolves the current expiry
       entryPrice: premium,
@@ -147,20 +159,26 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
             ))}
           </div>
 
-          {/* Long — ctrl+click places */}
-          <button
-            type="button"
-            disabled={!ready}
-            onClick={(e) => { if (e.ctrlKey || e.metaKey) place(); }}
-            title={
-              ready
-                ? `Ctrl+click to BUY ${label} ${atmStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord})`
-                : 'Waiting for the ATM contract and its premium'
-            }
-            className="px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 bg-bullish/15 text-bullish border-bullish/40 hover:bg-bullish/25"
-          >
-            Long
-          </button>
+          {/* Long / Short — ctrl+click places */}
+          {([
+            { dir: 'LONG' as const, verb: 'BUY', cls: 'bg-bullish/15 text-bullish border-bullish/40 hover:bg-bullish/25' },
+            { dir: 'SHORT' as const, verb: 'SELL', cls: 'bg-bearish/15 text-bearish border-bearish/40 hover:bg-bearish/25' },
+          ]).map(({ dir, verb, cls }) => (
+            <button
+              key={dir}
+              type="button"
+              disabled={!ready}
+              onClick={(e) => { if (e.ctrlKey || e.metaKey) place(dir); }}
+              title={
+                ready
+                  ? `Ctrl+click to ${verb} ${label} ${atmStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord})`
+                  : 'Waiting for the ATM contract and its premium'
+              }
+              className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${cls}`}
+            >
+              {dir === 'LONG' ? 'Long' : 'Short'}
+            </button>
+          ))}
         </div>
       </div>
 

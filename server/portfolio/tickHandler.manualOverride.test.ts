@@ -155,3 +155,34 @@ describe("Sprint — already ratchet-only, so a manual level survives as a floor
     expect(t.stopLossPrice).toBeCloseTo(117.6, 2);
   });
 });
+
+/**
+ * Shorts must never run the staged engine. exitStrategies.ts assumes a bought
+ * option, so a short on Runway/Anchor would hold a stop on the profitable side
+ * (never fires) and bank its target as a loss. They fall through to Sprint,
+ * which branches every comparison on isBuy.
+ */
+describe("SELL trades never run Runway/Anchor", () => {
+  it("a short tagged runway does NOT get the staged stop", async () => {
+    // For a BUY this tick would set the staged stop to 87.5 (see baseline test).
+    const t = trade({ type: "SELL", exitStrategy: "runway", stopLossPrice: 105, tslMode: "manual" });
+    await push(t, 101);
+    expect(t.stopLossPrice).toBe(105); // untouched by the staged engine
+  });
+
+  it("a short tagged anchor does NOT bank at the config target", async () => {
+    // Anchor would exit at entry + gain = 110 the moment ltp reached it. For a
+    // short that price is a LOSS, so it must not fire.
+    let exited: any = null;
+    tickHandler.once("autoExitDetected", (e: any) => { exited = e; });
+    const t = trade({ type: "SELL", exitStrategy: "anchor", stopLossPrice: 130, targetPrice: null, tslMode: "manual" });
+    await push(t, 115);
+    expect(exited).toBeNull();
+  });
+
+  it("a LONG still runs the staged engine (guard is direction-specific)", async () => {
+    const t = trade({ type: "BUY", exitStrategy: "runway", stopLossPrice: 80 });
+    await push(t, 101);
+    expect(t.stopLossPrice).toBeCloseTo(87.5, 2);
+  });
+});
