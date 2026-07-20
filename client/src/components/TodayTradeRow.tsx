@@ -17,6 +17,7 @@ import {
   getTradeContractLabel,
   contractCopyText,
   formatIstClock,
+  formatIstDayClock,
   formatIstDateTime,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
@@ -189,21 +190,34 @@ function _TodayTradeRow({
         <div className="flex items-center gap-2 w-full">
           {/* Instrument identity (left) */}
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
-            {/* Entry clock time (IST). Full date + time in the tooltip. */}
+            {/* Entry date + clock time (IST). The date matters once the desk
+                shows a replayed or historical day — a bare HH:MM silently reads
+                as "today". Full timestamp with seconds stays in the tooltip. */}
             <span
               className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
               title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
             >
-              {formatIstClock(trade.openedAt)}
+              {formatIstDayClock(trade.openedAt)}
             </span>
-            {trade.signalSeq != null && (
+            {/* Signal # when the trade came from a SEA signal (it matches the
+                tray card). Manual trades have no signalSeq, so they fall back to
+                their 1-based position in the day — previously they showed no
+                number at all and were the only rows you couldn't refer to. */}
+            {trade.signalSeq != null ? (
               <span
                 className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
                 title="Signal # — matches the tray card"
               >
                 #{trade.signalSeq}
               </span>
-            )}
+            ) : tradeNo != null ? (
+              <span
+                className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+                title={`Trade ${tradeNo} of the day (manual — no signal)`}
+              >
+                #{tradeNo}
+              </span>
+            ) : null}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
               {(() => {
@@ -261,9 +275,19 @@ function _TodayTradeRow({
                 </>
               )}
               <span className="text-border">|</span>
-              <span className={`text-[0.5625rem] ${isOpen ? 'font-bold' : ''} ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
-              <span className="text-border">|</span>
-              <span className={`text-[0.5625rem] ${isOpen ? 'font-semibold' : ''} ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+              {/* ONE pill carrying both facts: "CE Long" / "PE Short". Two
+                  separate CE|B chips made the reader assemble the position
+                  themselves, and "B" next to a PE is easy to misread as bullish
+                  when a bought put is a bearish position. Colour follows the
+                  DIRECTION (bought vs sold), not the option type. */}
+              <span
+                className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap ${isOpen ? 'font-bold' : 'font-semibold'} ${
+                  isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
+                }`}
+                title={`${contractLabel} ${isBuy ? 'Long (bought)' : 'Short (sold)'}`}
+              >
+                {contractLabel} {isBuy ? 'Long' : 'Short'}
+              </span>
               {(contractLabel === 'CE' || contractLabel === 'PE') &&
                 trade.contractSecurityId &&
                 trade.strike != null && (

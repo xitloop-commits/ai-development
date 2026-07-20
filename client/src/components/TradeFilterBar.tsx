@@ -16,6 +16,8 @@ import { cohortLabel, cohortPillStyle, strategyLabel, strategyPillStyle } from '
 
 export type StatusFilter = 'OPEN' | 'CLOSED';
 export type SideFilter = 'CE' | 'PE';
+/** Long = bought the option, Short = sold it. Independent of CE/PE. */
+export type DirectionFilter = 'LONG' | 'SHORT';
 export type OutcomeFilter = 'WIN' | 'LOSS';
 export type SourceFilter = 'ai' | 'my';
 
@@ -24,7 +26,11 @@ export interface TradeFilter {
   instrument: string | null;
   status: StatusFilter | null;
   side: SideFilter | null;
+  /** Bought vs sold — orthogonal to CE/PE, so "PE Short" is side=PE + direction=SHORT. */
+  direction: DirectionFilter | null;
   outcome: OutcomeFilter | null;
+  /** Exit reason (SL_HIT / TSL_HIT / TP_HIT / AGE_EXIT / EOD_SQUAREOFF / …), or null = all. */
+  exitReason: string | null;
   /** Strategy cohort (scalp | trend | swing | multi_day_swing | ma_signal), or null = all. */
   cohort: string | null;
   /** Exit strategy (sprint | runway | anchor) from the T84 race, or null = all. */
@@ -37,7 +43,9 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
   instrument: null,
   status: null,
   side: null,
+  direction: null,
   outcome: null,
+  exitReason: null,
   cohort: null,
   exitStrategy: null,
   source: null,
@@ -45,7 +53,8 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort && !f.exitStrategy && !f.source;
+  return !f.instrument && !f.status && !f.side && !f.direction && !f.outcome
+    && !f.exitReason && !f.cohort && !f.exitStrategy && !f.source;
 }
 
 /** Does a trade pass the active filter? Empty axes are ignored. */
@@ -67,6 +76,15 @@ export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
     if (f.side === 'CE' && !isCE) return false;
     if (f.side === 'PE' && !isPE) return false;
   }
+
+  if (f.direction) {
+    // BUY on an option = long it; SELL = short it. Equity BUY/SELL reads the same.
+    const isLong = t.type.includes('BUY');
+    if (f.direction === 'LONG' && !isLong) return false;
+    if (f.direction === 'SHORT' && isLong) return false;
+  }
+
+  if (f.exitReason && t.exitReason !== f.exitReason) return false;
 
   if (f.outcome) {
     // Outcome is only meaningful for a settled trade; open trades have no result.
@@ -137,9 +155,28 @@ export interface TradeFilterBarProps {
   /** Distinct `trade.exitStrategy` values present today (T84 race); empty hides
    *  the strategy group so single-strategy days stay uncluttered. */
   strategies: string[];
+  /** Distinct `trade.exitReason` values present today; empty hides the group. */
+  exitReasons: string[];
 }
 
-function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: TradeFilterBarProps) {
+/** Short labels for the exit-reason pills — the raw codes are shouty and wide. */
+const EXIT_REASON_LABEL: Record<string, string> = {
+  TP_HIT: 'TP',
+  SL_HIT: 'SL',
+  TSL_HIT: 'TSL',
+  AGE_EXIT: 'Age',
+  EOD_SQUAREOFF: 'EOD',
+  EOD: 'EOD',
+  STALE_PRICE_EXIT: 'Stale',
+  MOMENTUM_EXIT: 'Momentum',
+  VOLATILITY_EXIT: 'Volatility',
+  DISCIPLINE_EXIT: 'Discipline',
+  AI_EXIT: 'AI exit',
+  MANUAL: 'Manual',
+  EXPIRY: 'Expiry',
+};
+
+function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies, exitReasons }: TradeFilterBarProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -159,7 +196,7 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: 
   }, [open]);
 
   // Single-select toggle: click an active value clears it, else it becomes active.
-  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort' | 'exitStrategy' | 'source'>(axis: K, v: TradeFilter[K]) =>
+  const toggle = <K extends 'status' | 'side' | 'direction' | 'outcome' | 'exitReason' | 'cohort' | 'exitStrategy' | 'source'>(axis: K, v: TradeFilter[K]) =>
     onChange({ ...value, [axis]: value[axis] === v ? null : v });
 
   const dirty = !isEmptyTradeFilter(value);
@@ -231,6 +268,11 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: 
             <Pill active={value.side === 'PE'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('side', 'PE')} title="Show only PUT (PE) trades">PE</Pill>
           </Group>
 
+          <Group label="Direction">
+            <Pill active={value.direction === 'LONG'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('direction', 'LONG')} title="Show only bought (long) trades">Long</Pill>
+            <Pill active={value.direction === 'SHORT'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('direction', 'SHORT')} title="Show only sold (short) trades">Short</Pill>
+          </Group>
+
           <Group label="Outcome">
             <Pill active={value.outcome === 'WIN'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('outcome', 'WIN')} title="Show only winning trades">Win</Pill>
             <Pill active={value.outcome === 'LOSS'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('outcome', 'LOSS')} title="Show only losing trades">Loss</Pill>
@@ -248,6 +290,18 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: 
               {cohorts.map((c) => (
                 <Pill key={c} active={value.cohort === c} activeStyle={cohortPillStyle(c)} onClick={() => toggle('cohort', c)} title={`Show only ${cohortLabel(c)} trades`}>
                   {cohortLabel(c)}
+                </Pill>
+              ))}
+            </Group>
+          )}
+
+          {/* Exit reason — only the reasons actually present today, so the row
+              doesn't list a dozen states that never occur. */}
+          {exitReasons.length > 0 && (
+            <Group label="Exit reason">
+              {exitReasons.map((r) => (
+                <Pill key={r} active={value.exitReason === r} activeClass="bg-warning-amber/20 text-warning-amber" onClick={() => toggle('exitReason', r)} title={`Show only trades that exited via ${r}`}>
+                  {EXIT_REASON_LABEL[r] ?? r}
                 </Pill>
               ))}
             </Group>

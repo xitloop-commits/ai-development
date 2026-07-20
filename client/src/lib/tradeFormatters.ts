@@ -106,6 +106,21 @@ export function formatIstClock(ts: number): string {
   });
 }
 
+/**
+ * Compact IST day + clock for trade rows, e.g. "4 Jul 09:18".
+ *
+ * The year is deliberately omitted — the desk shows one day at a time and the
+ * full timestamp is a tooltip away, so the year would cost width for a fact you
+ * already know. A bare HH:MM was silently reading as "today" on replayed and
+ * historical days.
+ */
+export function formatIstDayClock(ts: number): string {
+  if (!ts || Number.isNaN(ts)) return '';
+  const d = new Date(ts);
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+  return `${day} ${formatIstClock(ts)}`;
+}
+
 /** Full IST date + time for tooltips, e.g. "17 Jul 2026, 09:18:23". */
 export function formatIstDateTime(ts: number): string {
   if (!ts || Number.isNaN(ts)) return '';

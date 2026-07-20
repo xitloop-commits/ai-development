@@ -114,7 +114,25 @@ export function TodaySection({
         mode: 'full' as const,
       })),
   );
-  const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
+  // Summary figures follow the ACTIVE FILTER. With a filter on, a summary that
+  // still describes the whole day answers a different question than the rows
+  // below it — which is how you end up reading a day's P&L as if it belonged to
+  // the three trades you're looking at.
+  //
+  // Mirrors recalculateDayAggregates exactly (compounding.ts:570) — open trades
+  // contribute GROSS unrealised, closed contribute NET pnl — so with no filter
+  // these totals equal day.totalPnl / day.totalCharges.
+  const { visiblePnl, visibleCharges } = useMemo(() => {
+    let pnl = 0;
+    let charges = 0;
+    for (const t of visibleTrades) {
+      charges += t.charges ?? 0;
+      pnl += t.status === 'OPEN' ? (t.unrealizedPnl ?? 0) : (t.pnl ?? 0);
+    }
+    return { visiblePnl: Math.round(pnl * 100) / 100, visibleCharges: Math.round(charges * 100) / 100 };
+  }, [visibleTrades]);
+  const isFiltered = visibleTrades.length !== trades.length;
+  const totalPnl = showNet ? visiblePnl : visiblePnl + visibleCharges;
   const canManageTrades = supportsManualControls(channel);
   const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
@@ -243,8 +261,10 @@ export function TodaySection({
       {/* Day summary banner — bottom of the today cycle, below the trade rows. */}
       <TodaySummaryRow
         day={day}
-        trades={trades}
+        trades={visibleTrades}
         totalPnl={totalPnl}
+        totalCharges={visibleCharges}
+        isFiltered={isFiltered}
         showNet={showNet}
         canManageTrades={canManageTrades}
         openTradeCount={openTrades.length}

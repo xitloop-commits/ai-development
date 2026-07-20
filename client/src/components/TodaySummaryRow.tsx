@@ -16,8 +16,16 @@ import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 export interface TodaySummaryRowProps {
   day: DayRecord;
   trades: TradeRecord[];
-  /** Net (showNet) or gross day P&L — computed by the parent. */
+  /** Net (showNet) or gross P&L — computed by the parent. Reflects the ACTIVE
+   *  FILTER: with a filter on, this is the filtered subset's P&L, not the day's. */
   totalPnl: number;
+  /** Charges for the same (possibly filtered) set the P&L covers. */
+  totalCharges: number;
+  /** True when a view filter is narrowing `trades`. The figures derived from
+   *  trades then describe the SUBSET, so the row says so — a summary that
+   *  silently answers a different question than the one on screen is worse than
+   *  no summary. Day-level constants (Capital, Profit+) are unaffected. */
+  isFiltered?: boolean;
   /** Net-vs-gross toggle — so per-cohort P&L uses the same basis as the day P&L. */
   showNet: boolean;
   canManageTrades: boolean;
@@ -51,6 +59,8 @@ function Stat({ label, color, align = 'right', children }: {
 export function TodaySummaryRow({
   day,
   trades,
+  totalCharges,
+  isFiltered = false,
   totalPnl,
   showNet,
   canManageTrades,
@@ -114,6 +124,14 @@ export function TodaySummaryRow({
         <div className="flex flex-col leading-tight">
           <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
           <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
+          {isFiltered && (
+            <span
+              className="text-[0.5rem] font-bold uppercase tracking-wider rounded px-1 py-0.5 bg-info-cyan/20 text-info-cyan"
+              title="A view filter is active — these figures cover only the matching trades, not the whole day"
+            >
+              filtered
+            </span>
+          )}
         </div>
       </td>
 
@@ -122,8 +140,10 @@ export function TodaySummaryRow({
         <div className="flex items-center justify-between gap-2">
           <Stat label="Capital" align="left">{fmt(day.tradeCapital, true)}</Stat>
           <Stat label="Profit+" align="center">{day.targetAmount > 0 ? fmt(day.targetAmount) : '—'}</Stat>
-          <Stat label="Capital+" align="right">
-            {hasTrades && day.actualCapital > 0 ? (
+          <Stat label={isFiltered ? 'Matching' : 'Capital+'} align="right">
+            {isFiltered ? (
+              <span className="text-info-cyan">{trades.length} trade{trades.length === 1 ? '' : 's'}</span>
+            ) : hasTrades && day.actualCapital > 0 ? (
               <>
                 {fmt(day.actualCapital, true)}
                 <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
@@ -212,8 +232,8 @@ export function TodaySummaryRow({
       {/* 11 Charges */}
       <td colSpan={1} className={`${cell} text-right`}>
         <Stat label="Charges">
-          {hasTrades && day.totalCharges > 0
-            ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
+          {hasTrades && totalCharges > 0
+            ? <ChargesBreakdownTip total={totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
             : '—'}
         </Stat>
       </td>

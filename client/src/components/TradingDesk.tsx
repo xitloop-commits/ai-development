@@ -92,7 +92,7 @@ export default function TradingDesk({
 
   // Distinct instruments + cohorts traded today — populate the filter's options.
   // MUST stay above the early returns below so hook order never changes.
-  const { todayInstruments, todayCohorts, todayStrategies } = useMemo(() => {
+  const { todayInstruments, todayCohorts, todayStrategies, todayExitReasons } = useMemo(() => {
     const t = allDays.find((d) => d.dayIndex === capital?.currentDayIndex)?.trades ?? [];
     // Only surface the strategy filter once the race is actually running (>1
     // distinct strategy today) — a single-strategy day keeps the bar clean.
@@ -106,6 +106,14 @@ export default function TradingDesk({
         new Set(t.map((x) => x.cohort).filter((c): c is string => !!c)),
       ),
       todayStrategies: strats.length > 1 ? strats : [],
+      // Exit reasons actually seen today — ordered most-common first so the
+      // reason you're most likely to filter on sits leftmost.
+      todayExitReasons: Object.entries(
+        t.reduce<Record<string, number>>((acc, x) => {
+          if (x.exitReason) acc[x.exitReason] = (acc[x.exitReason] ?? 0) + 1;
+          return acc;
+        }, {}),
+      ).sort((a, b) => b[1] - a[1]).map(([r]) => r),
     };
   }, [allDays, capital?.currentDayIndex]);
 
@@ -140,6 +148,7 @@ export default function TradingDesk({
           instruments={todayInstruments}
           cohorts={todayCohorts}
           strategies={todayStrategies}
+          exitReasons={todayExitReasons}
         />
       </div>
 

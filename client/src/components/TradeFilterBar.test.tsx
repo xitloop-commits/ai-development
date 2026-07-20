@@ -96,6 +96,7 @@ describe('TradeFilterBar — icon opens the filter panel', () => {
     instruments: ['NIFTY 50'],
     cohorts: [],
     strategies: [],
+    exitReasons: [],
   };
 
   it('keeps the axis controls hidden until the funnel icon is clicked', () => {
@@ -120,5 +121,54 @@ describe('TradeFilterBar — icon opens the filter panel', () => {
     // Two active axes → the trigger carries a "2" badge; panel still closed.
     expect(screen.getByLabelText('Filter trades').textContent).toContain('2');
     expect(screen.queryByText('Clear all')).toBeNull();
+  });
+});
+
+/**
+ * Direction and exit-reason axes.
+ *
+ * Direction is orthogonal to CE/PE — "PE Short" is side=PE AND direction=SHORT —
+ * which is the whole reason the row now shows one combined pill rather than
+ * separate CE and B chips.
+ */
+describe("direction + exit-reason filters", () => {
+  const t = (over: Partial<TradeRecord>): TradeRecord =>
+    ({ id: "x", instrument: "NIFTY50", type: "CALL_BUY", status: "CLOSED", pnl: 0, exitReason: "TP_HIT", ...over } as TradeRecord);
+  const f = (over: Partial<TradeFilter>): TradeFilter => ({ ...EMPTY_TRADE_FILTER, ...over });
+
+  it("LONG matches bought options, SHORT matches sold", () => {
+    expect(tradeMatchesFilter(t({ type: "CALL_BUY" }), f({ direction: "LONG" }))).toBe(true);
+    expect(tradeMatchesFilter(t({ type: "CALL_SELL" }), f({ direction: "LONG" }))).toBe(false);
+    expect(tradeMatchesFilter(t({ type: "PUT_SELL" }), f({ direction: "SHORT" }))).toBe(true);
+    expect(tradeMatchesFilter(t({ type: "PUT_BUY" }), f({ direction: "SHORT" }))).toBe(false);
+  });
+
+  it("side and direction are independent — PE Short needs both", () => {
+    const peShort = t({ type: "PUT_SELL" });
+    const peLong = t({ type: "PUT_BUY" });
+    const both = f({ side: "PE", direction: "SHORT" });
+    expect(tradeMatchesFilter(peShort, both)).toBe(true);
+    expect(tradeMatchesFilter(peLong, both)).toBe(false);
+    expect(tradeMatchesFilter(t({ type: "CALL_SELL" }), both)).toBe(false); // right direction, wrong side
+  });
+
+  it("applies to equity BUY/SELL too", () => {
+    expect(tradeMatchesFilter(t({ type: "BUY" }), f({ direction: "LONG" }))).toBe(true);
+    expect(tradeMatchesFilter(t({ type: "SELL" }), f({ direction: "LONG" }))).toBe(false);
+  });
+
+  it("exit reason matches exactly", () => {
+    expect(tradeMatchesFilter(t({ exitReason: "SL_HIT" }), f({ exitReason: "SL_HIT" }))).toBe(true);
+    expect(tradeMatchesFilter(t({ exitReason: "TSL_HIT" }), f({ exitReason: "SL_HIT" }))).toBe(false);
+  });
+
+  it("does not match an open trade that has no exit reason yet", () => {
+    expect(tradeMatchesFilter(t({ status: "OPEN", exitReason: undefined }), f({ exitReason: "SL_HIT" }))).toBe(false);
+  });
+
+  it("counts the new axes as active", () => {
+    expect(isEmptyTradeFilter(f({ direction: "LONG" }))).toBe(false);
+    expect(isEmptyTradeFilter(f({ exitReason: "SL_HIT" }))).toBe(false);
+    expect(isEmptyTradeFilter(EMPTY_TRADE_FILTER)).toBe(true);
   });
 });

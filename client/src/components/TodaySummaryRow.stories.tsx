@@ -38,6 +38,7 @@ const meta = {
   args: {
     day,
     trades: day.trades,
+    totalCharges: 0,
     totalPnl: day.totalPnl,
     showNet: true,
     canManageTrades: true,
@@ -56,12 +57,14 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 
 export const TargetHit: Story = {
-  args: { totalPnl: day.targetAmount + 50 },
+  args: { totalCharges: 0,
+    totalPnl: day.targetAmount + 50 },
   parameters: { docs: { description: { story: "Target reached — row tints green." } } },
 };
 
 export const HeavyLoss: Story = {
-  args: { totalPnl: -(day.targetAmount + 50) },
+  args: { totalCharges: 0,
+    totalPnl: -(day.targetAmount + 50) },
   parameters: { docs: { description: { story: "Loss ≥ the day's target — row tints red." } } },
 };
 
@@ -69,6 +72,7 @@ export const NoTrades: Story = {
   args: {
     day: makeDay({ dayIndex: 3, trades: [] }),
     trades: [],
+    totalCharges: 0,
     totalPnl: 0,
     openTradeCount: 0,
     lastClosedTrade: null,
