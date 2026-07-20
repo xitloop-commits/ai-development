@@ -108,3 +108,41 @@ describe("summariseRun", () => {
     expect(s.winRate).toBe(0); // no trades — must not divide by zero
   });
 });
+
+/**
+ * The close path.
+ *
+ * A replay trade lives in the run, not in a day record. closeTrade looked it up
+ * in the day record, threw "Trade not found", and the exit silently never
+ * completed — so SL / TSL / TP appeared not to work at all, even though the tick
+ * engine had correctly detected the hit. Observed live: a trade whose LTP
+ * (108.05) was past its TP (106.04) still sitting OPEN.
+ *
+ * These pin the settle maths, which must match the book path exactly — a run is
+ * only worth comparing if its numbers are computed the same way.
+ */
+describe("run settle maths matches the book path", () => {
+  const settle = (entry: number, exit: number, qty: number, isBuy: boolean, charges: number) => {
+    const gross = (exit - entry) * qty * (isBuy ? 1 : -1);
+    return Math.round((gross - charges) * 100) / 100;
+  };
+
+  it("a BUY closed above entry is a profit, net of charges", () => {
+    expect(settle(100, 110, 50, true, 60)).toBe(440); // (10 × 50) − 60
+  });
+
+  it("a BUY closed below entry is a loss, and charges deepen it", () => {
+    expect(settle(100, 95, 50, true, 60)).toBe(-310); // (−5 × 50) − 60
+  });
+
+  it("a SELL is the mirror — profit when the price FALLS", () => {
+    expect(settle(100, 90, 50, false, 60)).toBe(440);
+    expect(settle(100, 110, 50, false, 60)).toBe(-560);
+  });
+
+  it("charges alone can turn a small winner into a loss", () => {
+    // The single most important property for judging a model on replay: a model
+    // that fires often can be gross-positive and net-negative.
+    expect(settle(100, 101, 50, true, 60)).toBe(-10); // +50 gross, −60 charges
+  });
+});

@@ -61,7 +61,7 @@ import type { ChargeRate } from "./charges";
 import { chargeRatesForTrade } from "../../shared/chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import { getActiveRunId, appendTrade as appendTradeToRun } from "../replay/replayRuns";
+import { getActiveRunId, appendTrade as appendTradeToRun, getRun, updateRunTrades } from "../replay/replayRuns";
 import { disciplineAgent } from "../discipline";
 import { notifyOrderRejected } from "../_core/tradeEventNotifier";
 import type {
@@ -549,6 +549,68 @@ class PortfolioAgentImpl {
    * Throws if the trade is not found, already closed, or the channel has no
    * active day.
    */
+  /**
+   * Settle a replay-run trade. Mirrors the book path's P&L and charge maths
+   * exactly — a run is only worth comparing if its numbers are computed the same
+   * way as a real book's — but persists to the run document and touches no
+   * capital.
+   *
+   * Returns null when the trade isn't in this run, so the caller can fall
+   * through to the normal path.
+   */
+  private async closeTradeInRun(
+    runId: string,
+    tradeId: string,
+    exitPrice: number,
+    exitReason?: import("./state").ExitReason,
+  ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number } | null> {
+    const run = await getRun(runId);
+    if (!run) return null;
+    const trades = run.trades ?? [];
+    const trade = trades.find((t) => t.id === tradeId);
+    if (!trade) return null;
+    if (trade.status !== "OPEN" && trade.status !== "PENDING") return null;
+
+    const isBuy = trade.type.includes("BUY");
+    const grossPnl = (exitPrice - trade.entryPrice) * trade.qty * (isBuy ? 1 : -1);
+
+    const settings = await getUserSettings(1);
+    const chargeRates = chargeRatesForTrade(trade, settings.charges.rates as ChargeRate[]) as ChargeRate[];
+    const charges = calculateTradeCharges(
+      {
+        entryPrice: trade.entryPrice,
+        exitPrice,
+        qty: trade.qty,
+        isBuy,
+        exchange:
+          trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL") ? "MCX" : "NSE",
+      },
+      chargeRates,
+    );
+
+    trade.exitPrice = exitPrice;
+    trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
+    trade.charges = charges.total;
+    trade.chargesBreakdown = charges.breakdown;
+    trade.unrealizedPnl = 0;
+    trade.ltp = exitPrice;
+    trade.closedAt = Date.now();
+    if (trade.openedAt) trade.durationMs = trade.closedAt - trade.openedAt;
+    trade.status = "CLOSED";
+    if (exitReason) trade.exitReason = exitReason;
+
+    await updateRunTrades(runId, trades);
+    log.info(`[replay] closed ${tradeId} @ ${exitPrice} (${exitReason ?? "?"}) pnl=${trade.pnl}`);
+
+    // A run has no day record; hand back a throwaway so the signature holds.
+    return {
+      trade,
+      day: createDayRecord(1, run.openingCapital, 0, run.openingCapital, "paper", "ACTIVE"),
+      pnl: trade.pnl,
+      charges: charges.total,
+    };
+  }
+
   async closeTrade(
     channel: Channel,
     tradeId: string,
@@ -562,6 +624,19 @@ class PortfolioAgentImpl {
      *  can later correct the realized price (B1: correct-after-close). */
     exitBrokerOrderId?: string | null,
   ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number }> {
+    // T97 — a replay trade lives in the RUN, not the day record. Without this
+    // the lookup below throws "Trade not found", the exit never completes, and
+    // the trade stays OPEN forever: SL / TSL / TP appear not to work at all,
+    // even though the tick engine detected the hit correctly. appendTrade and
+    // the tick engine were redirected to the run; this path was missed.
+    const runId = getActiveRunId();
+    if (runId) {
+      const closedInRun = await this.closeTradeInRun(runId, tradeId, exitPrice, exitReason);
+      if (closedInRun) return closedInRun;
+      // Not in the run → fall through: it's a genuine book trade (e.g. one that
+      // was already open before the replay started).
+    }
+
     const state = await getCapitalState(channel);
     const day = await this.ensureCurrentDay(channel);
 
