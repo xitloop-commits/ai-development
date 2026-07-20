@@ -17,8 +17,8 @@ import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { useDrawerPin } from '@/hooks/useDrawerPin';
 import { PinButton } from '@/components/PinButton';
 import { ReplayPane } from '@/components/ReplayPane';
-import { useState } from 'react';
-import { useSelectedRunId } from '@/lib/replaySelection';
+import { useState, useEffect } from 'react';
+import { useSelectedRunId, useReplayTabNonce } from '@/lib/replaySelection';
 
 /** Minimal tab descriptor (kept for the MainScreen prop shape). */
 interface SidebarInstrument {
@@ -77,6 +77,12 @@ export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) 
   const { pinned, togglePin } = useDrawerPin('left');
   const [tab, setTab] = useState<'watchlist' | 'replay'>('watchlist');
   const viewingRun = useSelectedRunId() != null;
+  // Starting a replay switches this drawer to the Replay tab, so the run you
+  // just started is on screen rather than something you have to go and find.
+  const tabNonce = useReplayTabNonce();
+  useEffect(() => {
+    if (tabNonce > 0) setTab('replay');
+  }, [tabNonce]);
   if (!visible) return null;
 
   return (

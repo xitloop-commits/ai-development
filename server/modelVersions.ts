@@ -25,6 +25,21 @@ export interface ModelVersionInfo {
   /** Training window from the manifest, when present. */
   trainedFrom: string | null;
   trainedTo: string | null;
+  /** Feature count this version was TRAINED on (training_manifest.feature_count). */
+  featureCount: number | null;
+  /**
+   * Can this version actually run right now?
+   *
+   * The feature config is SHARED across versions (config/model_feature_config/
+   * <inst>_feature_config.json), not stored per model. So a version trained on a
+   * different column count can never be loaded — the pipeline always builds the
+   * CURRENT feature set, and LightGBM rejects the shape:
+   *   "number of features in data (482) is not the same as in training data (470)"
+   * Older pre-retrain models are therefore permanently unusable, not merely old.
+   */
+  compatible: boolean;
+  /** Why it can't run, for the UI to show. Null when it can. */
+  incompatibleReason: string | null;
 }
 
 const INSTRUMENTS = ["nifty50", "banknifty"];
@@ -43,8 +58,25 @@ function readLatest(inst: string): string | null {
 }
 
 /** Pull the headline numbers out of a version's sidecars. Never throws. */
+/** Feature count the CURRENT pipeline builds for an instrument. */
+function currentFeatureCount(inst: string): number | null {
+  try {
+    const p = resolve(process.cwd(), "config", "model_feature_config", `${inst}_feature_config.json`);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    return Array.isArray(j.final_features) ? j.final_features.length : null;
+  } catch {
+    return null;
+  }
+}
+
 function readMetrics(inst: string, version: string): Omit<ModelVersionInfo, "version" | "isLatest"> {
-  const out = { auc: null as number | null, heads: null as number | null, trainedFrom: null as string | null, trainedTo: null as string | null };
+  const out = {
+    auc: null as number | null, heads: null as number | null,
+    trainedFrom: null as string | null, trainedTo: null as string | null,
+    featureCount: null as number | null,
+    compatible: true, incompatibleReason: null as string | null,
+  };
   const dir = join(modelsRoot(), inst, version);
   try {
     const mp = join(dir, "metrics.json");
@@ -70,12 +102,22 @@ function readMetrics(inst: string, version: string): Omit<ModelVersionInfo, "ver
       out.trainedFrom = t.date_from ?? t.dateFrom ?? null;
       out.trainedTo = t.date_to ?? t.dateTo ?? null;
       if (out.heads == null && Array.isArray(t.targets)) out.heads = t.targets.length;
+      if (typeof t.feature_count === "number") out.featureCount = t.feature_count;
     }
     if (out.heads == null) {
       out.heads = readdirSync(dir).filter((f) => f.endsWith(".lgbm")).length || null;
     }
   } catch {
     /* best-effort — a version with no readable metrics still lists */
+  }
+
+  // Compatibility LAST, so it sees whatever featureCount we managed to read.
+  const need = currentFeatureCount(inst);
+  if (need != null && out.featureCount != null && out.featureCount !== need) {
+    out.compatible = false;
+    out.incompatibleReason =
+      `trained on ${out.featureCount} features, the pipeline now builds ${need} — ` +
+      `the feature config is shared across versions, so this model cannot be loaded`;
   }
   return out;
 }

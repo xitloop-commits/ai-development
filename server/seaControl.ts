@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { tickBus } from "./broker/tickBus";
 import { getAiConfig } from "./portfolio/aiModeConfig";
+import { listModelVersions } from "./modelVersions";
 
 export type Cohort = "scalp" | "trend" | "ma";
 export interface CohortState {
@@ -169,6 +170,15 @@ export function setModelVersion(instrument: string, version: string): CohortStat
   const dir = resolve(process.cwd(), "models", inst, version);
   if (!existsSync(dir)) {
     throw new Error(`Model version "${version}" not found for ${inst}`);
+  }
+  // REFUSE an incompatible version. The feature config is shared across versions,
+  // so a model trained on a different column count can never load — LightGBM
+  // rejects the shape and SEA dies mid-run. Checking only that the directory
+  // exists let a pre-retrain model be selected, which crashed the engine with
+  // "number of features in data (482) is not the same as in training data (470)".
+  const info = listModelVersions()[inst]?.find((m) => m.version === version);
+  if (info && !info.compatible) {
+    throw new Error(`Model ${version} can't run: ${info.incompatibleReason}`);
   }
   if (state.models[inst] === version) return { ...state };
   state.models = { ...state.models, [inst]: version };

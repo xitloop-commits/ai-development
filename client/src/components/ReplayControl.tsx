@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { setSelectedRunId, openReplayTab } from '@/lib/replaySelection';
 import { toast } from 'sonner';
 
 const SPEEDS = [1, 10, 30, 60] as const;
@@ -37,7 +38,11 @@ export function ReplayControl() {
   const [models, setModels] = useState<Record<string, string>>({});
   const pickFor = (inst: string) => {
     const list = modelsQ.data?.[inst] ?? [];
-    const current = seaQ.data?.models?.[inst] ?? list.find((m) => m.isLatest)?.version ?? '';
+    // Never DEFAULT to something that can't run, even if LATEST points at it.
+    const usable = list.filter((m) => m.compatible);
+    const fromSea = seaQ.data?.models?.[inst];
+    const seaOk = fromSea && usable.some((m) => m.version === fromSea) ? fromSea : null;
+    const current = seaOk ?? usable.find((m) => m.isLatest)?.version ?? usable[0]?.version ?? '';
     return { list, selected: models[inst] || current };
   };
   const chosenModels = Object.fromEntries(
@@ -48,7 +53,18 @@ export function ReplayControl() {
 
   const refresh = () => void utils.replay.status.invalidate();
   const startMut = trpc.replay.start.useMutation({
-    onSuccess: () => { refresh(); toast.success(`Replay started · ${selectedDate} @ ${speed}×`); },
+    onSuccess: (res: any) => {
+      refresh();
+      void utils.replay.runs.invalidate();
+      // Jump straight to the run: switch the left drawer to Replay and select
+      // the new run, so the desk shows the experiment as it fills rather than
+      // leaving you to go and find it.
+      if (res?.runId) {
+        openReplayTab();
+        setSelectedRunId(res.runId);
+      }
+      toast.success(`Replay started · ${selectedDate} @ ${speed}×`);
+    },
     onError: (e: any) => toast.error(e?.message ?? 'Replay failed to start'),
   });
   const stopMut = trpc.replay.stop.useMutation({
@@ -113,8 +129,13 @@ export function ReplayControl() {
             className="max-w-[7.5rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
           >
             {list.map((m) => (
-              <option key={m.version} value={m.version}>
-                {inst === 'nifty50' ? 'N' : 'BN'} {m.version.slice(0, 8)}{m.auc != null ? ` · ${m.auc}` : ''}
+              <option key={m.version} value={m.version} disabled={!m.compatible}>
+                {inst === 'nifty50' ? 'N' : 'BN'} {m.version.slice(0, 8)}
+                {m.auc != null ? ` · ${m.auc}` : ''}
+                {/* Pre-retrain models can NEVER load — the feature config is
+                    shared, so their column count no longer matches. Showing them
+                    greyed is honest; hiding them would look like data loss. */}
+                {m.compatible ? '' : ' · incompatible'}
               </option>
             ))}
           </select>

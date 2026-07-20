@@ -11,7 +11,24 @@
 import { useSyncExternalStore } from "react";
 
 let selectedRunId: string | null = null;
+/** Bumped to ask the left drawer to switch to the Replay tab. A counter rather
+ *  than a boolean so a second request still fires after the user navigates away. */
+let openTabNonce = 0;
 const listeners = new Set<() => void>();
+
+/** Ask the left drawer to show the Replay tab (used when a replay starts). */
+export function openReplayTab(): void {
+  openTabNonce += 1;
+  listeners.forEach((l) => l());
+}
+
+export function useReplayTabNonce(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => openTabNonce,
+    () => openTabNonce,
+  );
+}
 
 export function setSelectedRunId(runId: string | null): void {
   // Clicking the selected run again clears it and returns to the live book.
