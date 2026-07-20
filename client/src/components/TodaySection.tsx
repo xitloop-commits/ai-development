@@ -20,6 +20,7 @@ import {
   supportsManualControls,
 } from '@/lib/tradeThemes';
 import { trpc } from '@/lib/trpc';
+import { liveStockConfirm } from '@/lib/optionOrderConfirm';
 import { TodayTradeRow } from './TodayTradeRow';
 import { TodaySummaryRow } from './TodaySummaryRow';
 import { tradeMatchesFilter, type TradeFilter } from './TradeFilterBar';
@@ -153,13 +154,16 @@ export function TodaySection({
 
   const lastClosedTrade = getLastClosedTrade();
 
-  // Staged BUY orders — only in the Stocks workspace, paper only (live equity
-  // execution is not enabled yet). Clicking a watchlist stock stages a draft
-  // here; Buy places a market order for `qty` shares and clears the draft.
+  // Staged BUY orders. Clicking a watchlist stock stages a draft here; Buy places
+  // a market order for `qty` shares and clears the draft. Enabled for BOTH paper
+  // and live — live routes to the real Dhan account behind the confirm below.
   const { orders: stagedOrders, unstage, setQty, setProductType } = useStagedOrders();
-  // T87: the stocks workspace is gone (stocks fold into My). Staged stock-order
-  // placement moves into the desk table in a later step — hidden for now.
-  const showStaged = false;
+  // T87 folded stocks into My Trades and hid this pending "move it into the desk
+  // table" — which is where it already renders. Re-enabled: clicking a stock in
+  // the watchlist stages a draft BUY row at the top of today's trades, where you
+  // set quantity + MIS/CNC and place it. Paper places immediately; live goes
+  // through the confirm below.
+  const showStaged = true;
   const isPaper = isPaperChannel(channel);
   // Live buys route to the real Dhan account, so they go through a confirmation
   // dialog first. Paper buys place immediately.
@@ -206,13 +210,8 @@ export function TodaySection({
         createPortal(
           <ConfirmDialog
             open
-            title="Place LIVE stock order?"
-            message={
-              `BUY ${liveConfirm.order.qty} ${liveConfirm.order.symbol} ` +
-              `(${liveConfirm.order.productType === 'CNC' ? 'Delivery / CNC' : 'Intraday / MIS'}) ` +
-              `at market ≈ ₹${Math.round(liveConfirm.entryPrice * liveConfirm.order.qty).toLocaleString('en-IN')}. ` +
-              `This is a REAL order on your live Dhan account.`
-            }
+            title={liveStockConfirm(channel, liveConfirm.order, liveConfirm.entryPrice)?.title ?? ''}
+            message={liveStockConfirm(channel, liveConfirm.order, liveConfirm.entryPrice)?.message ?? ''}
             onConfirm={() => {
               placeStockOrder(liveConfirm.order, liveConfirm.entryPrice);
               setLiveConfirm(null);

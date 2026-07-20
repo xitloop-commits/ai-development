@@ -21,6 +21,31 @@ export interface OptionOrderLike {
   qty: number;
 }
 
+/**
+ * Confirmation for a LIVE stock (equity) order, or null on paper.
+ *
+ * Kept beside the option version so both money-facing confirmations live in one
+ * place and can be tested. Equity is a separate flow — it carries a share count
+ * and MIS/CNC rather than a strike and CE/PE — hence a separate function rather
+ * than one over-general helper.
+ */
+export function liveStockConfirm(
+  channel: Channel,
+  order: { symbol: string; qty: number; productType: "INTRADAY" | "CNC" },
+  entryPrice: number,
+): { title: string; message: string } | null {
+  if (!isLiveChannel(channel)) return null;
+  const value = Math.round(entryPrice * order.qty);
+  return {
+    title: "Place LIVE stock order?",
+    message:
+      `BUY ${order.qty} ${order.symbol} ` +
+      `(${order.productType === "CNC" ? "Delivery / CNC" : "Intraday / MIS"}) ` +
+      `at market ≈ ₹${value.toLocaleString("en-IN")}. ` +
+      `This is a REAL order on your live Dhan account.`,
+  };
+}
+
 /** True when `type` is an option trade (as opposed to an equity BUY/SELL). */
 export function isOptionTrade(type: string): boolean {
   return /^(CALL|PUT)_/.test(type);

@@ -4,7 +4,7 @@
  * regression here silently un-guards every entry point at once.
  */
 import { describe, it, expect } from "vitest";
-import { liveOptionConfirm, isOptionTrade } from "./optionOrderConfirm";
+import { liveOptionConfirm, liveStockConfirm, isOptionTrade } from "./optionOrderConfirm";
 
 const buy = { instrument: "NIFTY_50", type: "CALL_BUY", strike: 24_500, entryPrice: 120.5, qty: 75 };
 
@@ -54,5 +54,27 @@ describe("liveOptionConfirm", () => {
     // 120.5 × 75 = 9037.5 → 9038
     const c = liveOptionConfirm("my-live", buy);
     expect(c!.message).toContain("9,038");
+  });
+});
+
+describe("liveStockConfirm", () => {
+  const order = { symbol: "ICICIBANK", qty: 50, productType: "INTRADAY" as const };
+
+  it("confirms a LIVE stock order with share count and total value", () => {
+    const c = liveStockConfirm("my-live", order, 1234.5);
+    expect(c).not.toBeNull();
+    expect(c!.message).toContain("BUY 50 ICICIBANK");
+    expect(c!.message).toContain("Intraday / MIS");
+    expect(c!.message).toContain("61,725"); // 1234.5 × 50
+    expect(c!.message).toContain("REAL order");
+  });
+
+  it("names CNC as Delivery", () => {
+    const c = liveStockConfirm("my-live", { ...order, productType: "CNC" }, 100);
+    expect(c!.message).toContain("Delivery / CNC");
+  });
+
+  it("does NOT confirm on paper", () => {
+    expect(liveStockConfirm("paper", order, 100)).toBeNull();
   });
 });
