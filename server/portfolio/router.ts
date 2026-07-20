@@ -103,6 +103,25 @@ export const portfolioRouter = router({
         .reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
 
       const available = calculateAvailableCapital(state.tradingPool, openMargin);
+
+      // T96 — the pools only move when a day COMPLETES, so `tradingPool +
+      // reservePool` alone understates the true position for the whole of an
+      // in-flight day (observed: 69,011 shown against a real 98,084).
+      //
+      // REALISED only — closed trades. `day.totalPnl` can't be used: it folds in
+      // open trades' unrealised P&L (compounding.ts:578), which would make the
+      // headline balance move on every tick and show money that isn't banked.
+      // Unrealised is reported separately as `unrealisedPnl`.
+      const realisedToday = Math.round(
+        day.trades
+          .filter((t) => t.status !== "OPEN")
+          .reduce((sum, t) => sum + (t.pnl ?? 0), 0) * 100,
+      ) / 100;
+      const unrealisedToday = Math.round(
+        day.trades
+          .filter((t) => t.status === "OPEN")
+          .reduce((sum, t) => sum + (t.unrealizedPnl ?? 0), 0) * 100,
+      ) / 100;
       const daysElapsed = Math.floor((Date.now() - state.createdAt) / 86400000);
       const quarterly = calculateQuarterlyProjection(
         state.tradingPool,
@@ -117,7 +136,14 @@ export const portfolioRouter = router({
         ...state,
         availableCapital: available,
         openPositionMargin: openMargin,
-        netWorth: Math.round((state.tradingPool + state.reservePool) * 100) / 100,
+        // True cash position: banked pools + what today has actually realised.
+        // Once the day completes its profit folds into the pools and the new
+        // day's realised resets to 0, so this never double-counts.
+        netWorth: Math.round((state.tradingPool + state.reservePool + realisedToday) * 100) / 100,
+        /** Pools only — what has been folded in by completed days. */
+        bankedNetWorth: Math.round((state.tradingPool + state.reservePool) * 100) / 100,
+        realisedToday,
+        unrealisedPnl: unrealisedToday,
         quarterlyProjection: quarterly,
         allQuarterlyProjections: calculateAllQuarterlyProjections(
           state.tradingPool,

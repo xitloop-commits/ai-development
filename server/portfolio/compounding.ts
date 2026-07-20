@@ -306,7 +306,22 @@ export function processClawback(
   const history = [...state.profitHistory];
   const consumedDayIndices: number[] = [];
   let partialDay: { dayIndex: number; remainingTarget: number } | null = null;
-  let newPool = state.tradingPool - Math.abs(loss);
+  /**
+   * T96 — the pool is debited by what is ACTUALLY consumed from booked profit,
+   * not by the raw loss.
+   *
+   * It used to be `tradingPool − |loss|` regardless of history, which meant:
+   *   1. with an empty history it "clawed back" profit that was never banked,
+   *      taking the loss straight out of SEED capital; and
+   *   2. because the caller re-runs on every trade close while the day is still
+   *      under target, the same running loss was debited again and again — a
+   *      day losing 7,000 drained 36,100 across six closes.
+   *
+   * Tying the debit to consumption fixes both: entries are marked `consumed`, so
+   * a second call finds nothing left, consumes 0 and debits 0. Loss beyond the
+   * banked profit simply stays in the day's P&L, where it is already counted.
+   */
+  let consumedFromHistory = 0;
 
   // Walk backward through profit history (newest first)
   for (let i = history.length - 1; i >= 0 && remainingLoss > 0; i--) {
@@ -315,10 +330,12 @@ export function processClawback(
 
     if (remainingLoss >= entry.tradingPoolShare) {
       // Fully consume this day
+      consumedFromHistory = round(consumedFromHistory + entry.tradingPoolShare);
       remainingLoss = round(remainingLoss - entry.tradingPoolShare);
       entry.consumed = true;
       consumedDayIndices.push(entry.dayIndex);
     } else {
+      consumedFromHistory = round(consumedFromHistory + remainingLoss);
       // Partially consume — this becomes the new active day
       const remaining = round(entry.tradingPoolShare - remainingLoss);
       const originalTarget = round(entry.totalProfit);
@@ -335,6 +352,7 @@ export function processClawback(
     newDayIndex = Math.max(1, partialDay ? partialDay.dayIndex : lowestConsumed);
   }
 
+  let newPool = round(state.tradingPool - consumedFromHistory);
   // Floor at 0
   if (newPool < 0) newPool = 0;
 

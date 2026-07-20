@@ -1347,8 +1347,14 @@ class PortfolioAgentImpl {
       return;
     }
 
-    // Clawback path — significant loss eats previous days' profits.
-    if (day.totalPnl < 0 && Math.abs(day.totalPnl) >= day.targetAmount) {
+    // Clawback path — a significant loss eats previous days' banked profits.
+    //
+    // T96: gated on NO OPEN TRADES, mirroring checkDayCompletion. `day.totalPnl`
+    // includes open trades' unrealised P&L (compounding.ts:578), so without this
+    // a position temporarily under water triggers a clawback that a recovery
+    // never undoes. A day is only judged once everything in it is settled.
+    const hasOpen = day.trades.some((t) => t.status === "OPEN");
+    if (!hasOpen && day.totalPnl < 0 && Math.abs(day.totalPnl) >= day.targetAmount) {
       const clawback = processClawback(day.totalPnl, state);
       await updateCapitalState(channel, {
         tradingPool: clawback.newTradingPool,

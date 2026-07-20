@@ -389,10 +389,58 @@ describe("processClawback", () => {
     // Remaining 2000 partially consumes day 1
   });
 
-  it("should not make trading pool negative", () => {
+  it("T96: does NOT debit the pool when there is no banked profit to consume", () => {
+    // Clawback means "give back gains you banked". With nothing banked there is
+    // nothing to give back — the loss stays in the day's P&L. Previously this
+    // took the loss straight out of SEED capital.
+    const state = makeState({ tradingPool: 1000, profitHistory: [] });
+
+    const result = processClawback(-5000, state);
+    expect(result.newTradingPool).toBe(1000);
+  });
+
+  it("T96: debits only what it actually consumes, not the raw loss", () => {
+    // 2,000 of banked trading-pool profit, but a 5,000 loss. Only the 2,000 is
+    // clawed back; the remaining 3,000 stays in the day's P&L.
     const state = makeState({
-      tradingPool: 1000,
-      profitHistory: [],
+      tradingPool: 50_000,
+      profitHistory: [
+        { dayIndex: 1, totalProfit: 2666.67, tradingPoolShare: 2000, reservePoolShare: 666.67, consumed: false },
+      ],
+    });
+
+    const result = processClawback(-5000, state);
+    expect(result.newTradingPool).toBe(48_000);
+  });
+
+  it("T96: is idempotent — a second call finds nothing left and debits nothing", () => {
+    // The caller re-runs after EVERY trade close while the day is under target.
+    // This is the drain that took 30,989 out of the paper book.
+    const state = makeState({
+      tradingPool: 50_000,
+      profitHistory: [
+        { dayIndex: 1, totalProfit: 2666.67, tradingPoolShare: 2000, reservePoolShare: 666.67, consumed: false },
+      ],
+    });
+
+    const first = processClawback(-5000, state);
+    expect(first.newTradingPool).toBe(48_000);
+
+    // Same running loss, state advanced as the caller would.
+    const second = processClawback(-5000, {
+      ...state,
+      tradingPool: first.newTradingPool,
+      profitHistory: first.updatedHistory,
+    });
+    expect(second.newTradingPool).toBe(48_000); // unchanged
+  });
+
+  it("floors the pool at zero when consumption exceeds it", () => {
+    const state = makeState({
+      tradingPool: 1500,
+      profitHistory: [
+        { dayIndex: 1, totalProfit: 2666.67, tradingPoolShare: 2000, reservePoolShare: 666.67, consumed: false },
+      ],
     });
 
     const result = processClawback(-5000, state);
@@ -403,12 +451,13 @@ describe("processClawback", () => {
     const state = makeState({
       tradingPool: 75000,
       reservePool: 25000,
-      profitHistory: [],
+      profitHistory: [
+        { dayIndex: 1, totalProfit: 4000, tradingPoolShare: 3000, reservePoolShare: 1000, consumed: false },
+      ],
     });
 
-    // Reserve should remain unchanged after clawback
     const result = processClawback(-75000, state);
-    expect(result.newTradingPool).toBe(0);
+    expect(result.newTradingPool).toBe(72000); // only the 3,000 banked share
     // Reserve is not returned by processClawback — it's never modified
   });
 });
