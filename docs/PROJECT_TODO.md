@@ -740,10 +740,13 @@ Related, belongs to [06 Risk & Discipline](systems/06_risk_discipline.md): short
 
 Tests: 5 clawback cases (no-op on empty history, partial consumption, idempotent re-fire, floor at zero, reserve untouched). Two older tests asserted the seed-capital drain and were rewritten — they encoded the bug.
 
+4. **A reset now clears the high-water mark** (`portfolio/router.ts`, BOTH `resetCapital` and `clearWorkspace`). `replaceCapitalState` uses `$set`, so any field a reset omits SURVIVES — `peakCapital` was never in the list and persisted at 1,940,930 after a reset to 100,000, leaving `drawdownPercent` reading **96.44%**. The capital-protection rules in Discipline read that figure, so they were acting on a 96% drawdown that never happened. 2 tests.
+
+**Data repaired on disk (2026-07-20):** paper pool 69,011 → 200,000 with day 1 re-based to match (`scripts/t96_repair_paper_capital.ts`); `peakCapital` 1,940,930 → 198,083.81 and drawdown 96.44% → 0% (`scripts/t96_reset_peak.ts`). The 120 trades and their P&L were left untouched — they are the evidence for how the strategies performed.
+
 **Still open from the same audit (NOT fixed):**
-- A mid-day `resetCapital` zeroes `cumulativePnl`/`cumulativeCharges` while the day record keeps its trades, so the counters permanently disagree with the day. Decide whether a reset should also clear the day record.
-- `replaceCapitalState` uses `$set`, so a reset clears neither `peakCapital` (observed stale at 1,940,930 after a reset to 100,000 — drawdown % measured against a dead peak) nor `seededAt` (harmless on paper; on a LIVE book a reset leaves it marked seeded so it never re-reads Dhan).
-- The paper book's pool is still the drained 69,011 on disk. It needs correcting to the true position before the numbers can be trusted.
+- A mid-day `resetCapital` zeroes `cumulativePnl`/`cumulativeCharges` while the day record keeps its trades, so the counters permanently disagree with the day (paper currently off by +4,301 / −1,869). Decide whether a reset should also clear the day record.
+- A reset still does not clear `seededAt` (harmless on paper; on a LIVE book a reset leaves the book marked seeded so it never re-reads Dhan).
 
 ## P2 — parked features (small enough to wait)
 
