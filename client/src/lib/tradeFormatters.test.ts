@@ -30,22 +30,22 @@ describe('formatIstDateTime', () => {
 describe('formatIstDayClock', () => {
   const at = (iso: string) => new Date(iso).getTime();
 
-  it('renders day + 12-hour time with no space before AM/PM', () => {
-    expect(formatIstDayClock(at('2026-07-04T14:15:00+05:30'))).toBe('4 Jul 2:15PM');
-    expect(formatIstDayClock(at('2026-07-04T08:45:00+05:30'))).toBe('4 Jul 8:45AM');
+  it('renders day + 12-hour time with lowercase, no space before am/pm', () => {
+    expect(formatIstDayClock(at('2026-07-04T14:15:00+05:30'))).toBe('4 Jul 2:15pm');
+    expect(formatIstDayClock(at('2026-07-04T08:45:00+05:30'))).toBe('4 Jul 8:45am');
   });
 
-  it('renders midnight as 12:xxAM, not 0:xx', () => {
-    expect(formatIstDayClock(at('2026-07-04T00:05:00+05:30'))).toBe('4 Jul 12:05AM');
+  it('renders midnight as 12:xxam, not 0:xx', () => {
+    expect(formatIstDayClock(at('2026-07-04T00:05:00+05:30'))).toBe('4 Jul 12:05am');
   });
 
-  it('renders noon as 12:00PM, not 12:00AM', () => {
-    expect(formatIstDayClock(at('2026-07-04T12:00:00+05:30'))).toBe('4 Jul 12:00PM');
+  it('renders noon as 12:00pm, not 12:00am', () => {
+    expect(formatIstDayClock(at('2026-07-04T12:00:00+05:30'))).toBe('4 Jul 12:00pm');
   });
 
   it('converts a non-IST timestamp into IST', () => {
     // 23:00 UTC on 3 Jul is 04:30 IST on 4 Jul — the DATE has to roll too.
-    expect(formatIstDayClock(at('2026-07-03T23:00:00Z'))).toBe('4 Jul 4:30AM');
+    expect(formatIstDayClock(at('2026-07-03T23:00:00Z'))).toBe('4 Jul 4:30am');
   });
 
   it('returns empty for a missing or invalid timestamp', () => {

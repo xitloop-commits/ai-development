@@ -114,19 +114,20 @@ export function formatIstClock(ts: number): string {
  * already know. A bare HH:MM was silently reading as "today" on replayed and
  * historical days.
  *
- * 12-hour with no space before AM/PM: the row is dense, and "2:15PM" reads as
- * one token where "14:15" needs converting and "2:15 PM" wraps.
+ * 12-hour with a lowercase, unspaced suffix: the row is dense, and "2:15pm"
+ * reads as one token where "14:15" needs converting and "2:15 PM" wraps. Lower
+ * case keeps the emphasis on the digits rather than the meridiem.
  */
 export function formatIstDayClock(ts: number): string {
   if (!ts || Number.isNaN(ts)) return '';
   const d = new Date(ts);
   const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
   // en-US gives "2:15 PM"; drop the separator (a narrow no-break space in some
-  // runtimes, hence \s rather than a literal space) and uppercase it.
+  // runtimes, hence \s rather than a literal space) and lowercase it.
   const time = d
     .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
     .replace(/\s+/g, '')
-    .toUpperCase();
+    .toLowerCase();
   return `${day} ${time}`;
 }
 
