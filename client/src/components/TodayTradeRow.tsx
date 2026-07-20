@@ -12,7 +12,6 @@ import {
   pnlColor,
   formatAge,
   formatDuration,
-  formatExpiryLabel,
   getTradeDirectionLabel,
   getTradeContractLabel,
   contractCopyText,
@@ -160,7 +159,6 @@ function _TodayTradeRow({
           expiry: trade.expiry,
         }
       : null;
-  const expiryLabel = formatExpiryLabel(trade.expiry);
 
   // Tray→desk selection: highlight + scroll this row when its signal card is clicked.
   const selectedSeq = useSelectedSignalSeq();
@@ -183,12 +181,17 @@ function _TodayTradeRow({
       } ${isOpen ? '' : 'opacity-60'} ${isSelected ? 'outline outline-2 -outline-offset-2 outline-info-cyan' : ''}`}
       style={{ backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08) }}
     >
-      {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
-          numbers that used to sit here are now in the top summary banner. */}
-      <td colSpan={6} className="px-2 py-1.5 border-r border-border">
-        <div className="flex items-center gap-2 w-full">
-          {/* Instrument identity (left) */}
-          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
+      {/* Trade identity, packed into the five FIXED day-level columns (Day, Date,
+          Capital, Profit+, Capital+ = 22.5rem) which carry no per-trade value.
+          Two lines rather than one: everything on a single line either wrapped or
+          truncated the instrument. Line 1 answers "when / which trade", line 2
+          "what position". That leaves the whole flexible Instrument column for
+          the TradeBar, which is the one element that genuinely benefits from
+          width. */}
+      <td colSpan={5} className="px-2 py-1.5 border-r border-border align-middle">
+        <div className="flex flex-col gap-0.5 overflow-hidden">
+          {/* Line 1 — when, and which trade */}
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
             {/* Entry date + clock time (IST). The date matters once the desk
                 shows a replayed or historical day — a bare HH:MM silently reads
                 as "today". Full timestamp with seconds stays in the tooltip. */}
@@ -217,8 +220,12 @@ function _TodayTradeRow({
                 #{tradeNo}
               </span>
             ) : null}
-            {/* Instrument identity (the whole closed row is dimmed at row level). */}
-            <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
+          </div>
+
+          {/* Line 2 — what the position IS. Expiry moved to the instrument's
+              copy tooltip: at this width it cost more than it told you, and the
+              strike + side are what you scan for. */}
+          <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap min-w-0">
               {(() => {
                 const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
                 return copyText ? (
@@ -261,19 +268,9 @@ function _TodayTradeRow({
                   {strategyLabel(trade.exitStrategy)}
                 </span>
               )}
-              {expiryLabel && (
-                <>
-                  <span className="text-border">|</span>
-                  <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{expiryLabel}</span>
-                </>
-              )}
               {trade.strike !== null && (
-                <>
-                  <span className="text-border">|</span>
-                  <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{trade.strike}</span>
-                </>
+                <span className="text-[0.5625rem] font-semibold tabular-nums text-foreground shrink-0">{trade.strike}</span>
               )}
-              <span className="text-border">|</span>
               {/* ONE pill carrying both facts: "CE Long" / "PE Short". Two
                   separate CE|B chips made the reader assemble the position
                   themselves, and "B" next to a PE is easy to misread as bullish
@@ -300,17 +297,19 @@ function _TodayTradeRow({
                   </button>
                 )}
             </div>
-          </div>
+        </div>
+      </td>
 
-          {/* TradeBar fills the middle, on the same line. Closed trades keep the
-              bar as a FROZEN snapshot of how the trade finished — where it
-              exited relative to entry / SL / TP. `frozen` renders the markers
-              statically and skips the hit callbacks, and the LTP is pinned to
-              the exit price: liveLtp keeps ticking after the close, so feeding
-              it in would drift the marker away from where the trade actually
-              ended. */}
-          {(
-            <div className="flex-1 min-w-0">
+      {/* TradeBar gets the Instrument column to itself — the only column with no
+          fixed width, so it absorbs every pixel the fixed columns don't use.
+          Closed trades keep the bar as a FROZEN snapshot of how the trade
+          finished: `frozen` renders the markers statically and skips the hit
+          callbacks, and the LTP is pinned to the exit price, since liveLtp keeps
+          ticking after the close and would drift the marker away from where the
+          trade actually ended. */}
+      <td className="px-2 py-1.5 border-r border-border">
+        <div className="flex items-center gap-2 w-full">
+          <div className="flex-1 min-w-0">
               <TradeBar
                 isBuy={isBuy}
                 frozen={!isOpen}
@@ -361,11 +360,12 @@ function _TodayTradeRow({
                   if (import.meta.env.DEV) console.log(`[XSYNC-CLI] predict TP-HIT trade=${trade.id} ${trade.instrument} ltp=${displayLtp.toFixed(2)} target=${trade.targetPrice}`);
                 }}
               />
-            </div>
-          )}
+          </div>
 
-          {/* Age + exit / reconcile controls (right) */}
-          <div className="flex items-center gap-1 shrink-0 ml-auto">
+          {/* Age + exit / reconcile controls — beside the bar, not in the
+              identity cell: they act on the trade's CURRENT state, which is what
+              the bar shows. */}
+          <div className="flex items-center gap-1 shrink-0">
             {/* Sustained duration: live age while open, final hold once closed */}
             {isOpen ? (
               <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums" title="Time in trade (live)">
