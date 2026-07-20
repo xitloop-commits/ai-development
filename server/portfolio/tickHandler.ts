@@ -483,21 +483,18 @@ class TickHandler extends EventEmitter {
         // engine (cooling → 12.5% → breakeven → ride/bank) instead of the legacy
         // TP/SL/TSL below. Sprint (or undefined) falls through unchanged. Uses the
         // live `newPeak` so it works even while persisted peakLtp lags.
-        // `&& isBuy` is a SAFETY GUARD, not an optimisation. exitStrategies.ts
-        // assumes a BOUGHT option (profit = premium UP): its staged stop is
-        // `entry × (1 − slPct/100)`, which for a SHORT sits on the PROFITABLE
-        // side and can never fire, while the target at `entry + gain` banks as a
-        // loss. Rather than exit a short backwards, fall through to the legacy
-        // Sprint path below, which IS direction-aware (every comparison branches
-        // on isBuy). Manual shorts default to Sprint anyway; this catches the
-        // case where a strategy gets attached to one later.
-        if (isBuy && (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor")) {
+        // T93: the staged engine is direction-aware now, so shorts run it too.
+        // (It previously assumed a bought option, which put a short's stop on the
+        // profitable side and banked its target as a loss — so this branch was
+        // gated on isBuy and shorts fell through to Sprint.)
+        if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") {
           // SHARED staged-stop config from the AI menu (same for every book);
           // independent Runway vs Anchor knobs.
           const exits = getExitConfig();
           const stratCfg = trade.exitStrategy === "runway" ? exits.runway : exits.anchor;
           const out = decideExit(trade.exitStrategy, {
             entry: trade.entryPrice,
+            isBuy,
             ltp: tick.ltp,
             peak: newPeak,
             // Feed the SIGNAL's original target (null when it sent none), NOT the

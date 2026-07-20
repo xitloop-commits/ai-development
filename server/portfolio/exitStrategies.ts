@@ -6,13 +6,23 @@
  * level, whether to exit now, and a phase label (for the TradeBar). The tick
  * engine dispatches runway/anchor trades here; "sprint" keeps the legacy path.
  *
- * Assumes a BOUGHT option (profit = premium UP) — all scalp/ma trades are buys.
- * Mirrors the validated backtest (research/ma_signal_tune/sim_runway.py):
- *   cooling window: stop = entry − 25%   (wide; never naked)
- *   after cooling:  stop = entry − 12.5%
- *   peak ≥ 50% of target gain: stop → breakeven (entry)
- *   RUNWAY, peak ≥ 90% of target gain: trailing — stop = max(entry+50% gain,
- *                                       peak − trail%) → rides the winner
+ * DIRECTION-AWARE (T93). Levels mirror around entry: a BUY stops below / targets
+ * above, a SELL stops above / targets below. Before this the engine assumed a
+ * bought option, so a short exited winners at its "stop" and banked losses as
+ * "target reached" — silently, in both directions.
+ *
+ * ⚠️ The THRESHOLDS below were tuned by backtest on BOUGHT options, where the
+ * most you can lose is the premium paid. A short's loss is unbounded, so a 25%
+ * adverse move is a materially different event. The mechanics are now correct for
+ * shorts; the numbers are not yet validated for them.
+ *
+ * Mirrors the validated backtest (research/ma_signal_tune/sim_runway.py). Read
+ * "against"/"in favour" rather than up/down — the direction flips for a SELL:
+ *   cooling window: stop = entry ∓ 25%   (wide; never naked)
+ *   after cooling:  stop = entry ∓ 12.5%
+ *   peak ≥ 50% of target gain in favour: stop → breakeven (entry)
+ *   RUNWAY, peak ≥ 90% of target gain: trailing — stop = the tighter of
+ *                                       (entry ± 50% gain) and (peak ∓ trail%)
  *   ANCHOR: bank at the target (exit when ltp reaches it) — no ride
  */
 
@@ -49,7 +59,16 @@ export const DEFAULT_EXIT_CFG: ExitStrategyConfig = {
 export interface ExitInput {
   entry: number;
   ltp: number;
-  /** Running peak ltp since entry (max premium seen). */
+  /**
+   * Direction. BUY = profit when premium rises; SELL = profit when it falls.
+   * Every level below is mirrored around `entry` for a SELL — without this the
+   * stop lands on the profitable side (exiting winners) and the target lands on
+   * the losing side (banking losses as "target reached").
+   */
+  isBuy: boolean;
+  /** Running peak since entry — the MOST FAVOURABLE price seen, so the highest
+   *  premium on a BUY and the lowest on a SELL. tickHandler already tracks it
+   *  direction-aware (max vs min). */
   peak: number;
   /** Target premium (absolute), or null → use defaultTargetPct. */
   target: number | null;
@@ -86,33 +105,60 @@ function targetGain(i: ExitInput, c: ExitStrategyConfig): number {
   return i.entry * (c.defaultTargetPct / 100);
 }
 
-/** Shared staged downside: cooling(25%) → cooled(12.5%) → breakeven. */
+/**
+ * Direction sign: +1 for a BUY, −1 for a SELL.
+ *
+ * Every level is expressed as `entry + dir × distance`, so a SELL mirrors around
+ * entry: its stop sits ABOVE (loss = premium rising) and its target BELOW
+ * (profit = premium falling). `dir × (price − entry)` is therefore "how far this
+ * price is in my favour", positive or negative, whichever way the trade points.
+ */
+const sign = (i: ExitInput): 1 | -1 => (i.isBuy ? 1 : -1);
+
+/** How far `price` sits in the trade's favour (negative = against). */
+const favour = (i: ExitInput, price: number): number => sign(i) * (price - i.entry);
+
+/** Shared staged downside: cooling(wide) → cooled(tighter) → breakeven. */
 function stagedStop(i: ExitInput, c: ExitStrategyConfig, gain: number): { stop: number; phase: ExitPhase } {
+  const d = sign(i);
   const cooling = i.now < i.openedAt + c.coolingSec * 1000;
-  if (cooling) return { stop: i.entry * (1 - c.defaultSlPct / 100), phase: "cooling" };
-  if (i.peak >= i.entry + c.breakevenAtFrac * gain) return { stop: i.entry, phase: "breakeven" };
-  return { stop: i.entry * (1 - c.cooledSlPct / 100), phase: "wide" };
+  // Stops sit AGAINST the trade: below entry on a buy, above it on a sell.
+  if (cooling) return { stop: i.entry * (1 - d * c.defaultSlPct / 100), phase: "cooling" };
+  if (favour(i, i.peak) >= c.breakevenAtFrac * gain) return { stop: i.entry, phase: "breakeven" };
+  return { stop: i.entry * (1 - d * c.cooledSlPct / 100), phase: "wide" };
 }
+
+/** Has price breached the stop? Buy: at or below. Sell: at or above. */
+const stopBreached = (i: ExitInput, stop: number): boolean => favour(i, i.ltp) <= favour(i, stop);
 
 /** RUNWAY — staged stops, then ride the winner on a trailing stop past target. */
 export function runwayDecide(i: ExitInput, c: ExitStrategyConfig): ExitOutput {
+  const d = sign(i);
   const gain = targetGain(i, c);
   let { stop, phase } = stagedStop(i, c, gain);
-  if (i.peak >= i.entry + c.nearTargetFrac * gain) {
-    stop = Math.max(i.entry + 0.5 * gain, i.peak * (1 - c.trailPct / 100));
+  if (favour(i, i.peak) >= c.nearTargetFrac * gain) {
+    // Floor at half the target gain, then trail behind the peak — whichever is
+    // TIGHTER (further in the trade's favour) wins, in both directions.
+    const floor = i.entry + d * 0.5 * gain;
+    const trail = i.peak * (1 - d * c.trailPct / 100);
+    stop = favour(i, floor) > favour(i, trail) ? floor : trail;
     phase = "trailing";
   }
-  const exit = i.ltp <= stop;
-  return { stop, exit, exitPrice: exit ? stop : undefined, target: i.entry + gain, phase };
+  const exit = stopBreached(i, stop);
+  return { stop, exit, exitPrice: exit ? stop : undefined, target: i.entry + d * gain, phase };
 }
 
 /** ANCHOR — staged stops, but bank the sure profit at the target (no ride). */
 export function anchorDecide(i: ExitInput, c: ExitStrategyConfig): ExitOutput {
+  const d = sign(i);
   const gain = targetGain(i, c);
   const { stop, phase } = stagedStop(i, c, gain);
-  if (i.ltp >= i.entry + gain) return { stop, exit: true, exitPrice: i.entry + gain, target: i.entry + gain, phase: "target-bank" };
-  const exit = i.ltp <= stop;
-  return { stop, exit, exitPrice: exit ? stop : undefined, target: i.entry + gain, phase };
+  const target = i.entry + d * gain;
+  if (favour(i, i.ltp) >= gain) {
+    return { stop, exit: true, exitPrice: target, target, phase: "target-bank" };
+  }
+  const exit = stopBreached(i, stop);
+  return { stop, exit, exitPrice: exit ? stop : undefined, target, phase };
 }
 
 /** Registry dispatch. Returns null for "sprint" (legacy engine handles it). */

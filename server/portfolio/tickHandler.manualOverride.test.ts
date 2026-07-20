@@ -157,30 +157,42 @@ describe("Sprint — already ratchet-only, so a manual level survives as a floor
 });
 
 /**
- * Shorts must never run the staged engine. exitStrategies.ts assumes a bought
- * option, so a short on Runway/Anchor would hold a stop on the profitable side
- * (never fires) and bank its target as a loss. They fall through to Sprint,
- * which branches every comparison on isBuy.
+ * T93 — shorts now RUN the staged engine, with every level mirrored around
+ * entry. Previously the engine assumed a bought option, so this block asserted
+ * the opposite: shorts were routed away to Sprint because Runway/Anchor would
+ * have stopped them out of winners and banked their losses as "target reached".
  */
-describe("SELL trades never run Runway/Anchor", () => {
-  it("a short tagged runway does NOT get the staged stop", async () => {
-    // For a BUY this tick would set the staged stop to 87.5 (see baseline test).
-    const t = trade({ type: "SELL", exitStrategy: "runway", stopLossPrice: 105, tslMode: "manual" });
+describe("SELL trades run the staged engine with mirrored levels", () => {
+  it("a short on runway gets the staged stop ABOVE entry", async () => {
+    // Buy would be entry − 12.5% = 87.5; short mirrors to entry + 12.5% = 112.5.
+    const t = trade({ type: "SELL", exitStrategy: "runway", stopLossPrice: 130, tslMode: "manual" });
     await push(t, 101);
-    expect(t.stopLossPrice).toBe(105); // untouched by the staged engine
+    expect(t.stopLossPrice).toBeCloseTo(112.5, 2);
   });
 
-  it("a short tagged anchor does NOT bank at the config target", async () => {
-    // Anchor would exit at entry + gain = 110 the moment ltp reached it. For a
-    // short that price is a LOSS, so it must not fire.
+  it("a short's target sits BELOW entry", async () => {
+    const t = trade({ type: "SELL", exitStrategy: "runway", targetPrice: null, tslMode: "manual" });
+    await push(t, 101);
+    expect(t.targetPrice).toBeCloseTo(90, 2); // entry − 10%, not 110
+  });
+
+  it("a short is NOT stopped out when premium falls (that is its profit)", async () => {
     let exited: any = null;
     tickHandler.once("autoExitDetected", (e: any) => { exited = e; });
-    const t = trade({ type: "SELL", exitStrategy: "anchor", stopLossPrice: 130, targetPrice: null, tslMode: "manual" });
-    await push(t, 115);
+    const t = trade({ type: "SELL", exitStrategy: "runway", stopLossPrice: 130, tslMode: "manual" });
+    await push(t, 70); // a 30-point WIN — the old code exited here
     expect(exited).toBeNull();
   });
 
-  it("a LONG still runs the staged engine (guard is direction-specific)", async () => {
+  it("a short IS stopped out when premium rises through the stop", async () => {
+    let exited: any = null;
+    tickHandler.once("autoExitDetected", (e: any) => { exited = e; });
+    const t = trade({ type: "SELL", exitStrategy: "runway", stopLossPrice: 130, tslMode: "manual" });
+    await push(t, 120); // above the 112.5 staged stop
+    expect(exited).not.toBeNull();
+  });
+
+  it("a LONG is unaffected", async () => {
     const t = trade({ type: "BUY", exitStrategy: "runway", stopLossPrice: 80 });
     await push(t, 101);
     expect(t.stopLossPrice).toBeCloseTo(87.5, 2);

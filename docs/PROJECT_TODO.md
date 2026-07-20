@@ -716,13 +716,15 @@ Design is locked in [07 Portfolio & Reporting §4–5](systems/07_portfolio_repo
 
 **Cross-cutting risk (belongs to [06 Risk & Discipline](systems/06_risk_discipline.md), not this task):** `checkPositionSize` and `checkExposure` both `return { passed: true }` when `currentCapital <= 0` (`discipline/positionSizing.ts:27`, `:67`). Under the new model an unseeded live book sits at ₹0 and would run **completely unguarded**. Discipline must block orders on unseeded books rather than trust the percentage checks.
 
-### T93 [EXEC] — Runway/Anchor are buy-only; shorts fall back to Sprint — GUARDED 2026-07-20, fix pending 🆕
+### T93 [EXEC] — Runway/Anchor made direction-aware — BUILT 2026-07-20 ✅
 
-`exitStrategies.ts` assumes a BOUGHT option (profit = premium UP). Its staged stop is `entry × (1 − slPct/100)`, which for a SHORT sits on the **profitable** side and can never fire, while the target at `entry + gain` **banks as a loss**. Silent, not an error.
+`exitStrategies.ts` assumed a BOUGHT option, so a SHORT got its stop BELOW entry (the profitable side — it exited winners) and its target ABOVE (the losing side — Anchor banked losses as "target reached"). Silent in both directions, never an error. Verified against the live config: a short sold at 100 was stopped out at 98.50 while 1.50 in PROFIT, and Anchor banked at 105 for a 5.00 LOSS.
 
-Guarded in `tickHandler.ts` — the staged branch is gated on `isBuy`, so a short falls through to the legacy Sprint path, which IS direction-aware (`isBuy = type.includes("BUY")`, every comparison branches on it). 3 tests pin it; 2 fail without the guard.
+Fixed by expressing every level as `entry + dir × distance` (`dir` = +1 buy / −1 sell) with a `favour()` helper meaning "how far this price is in my favour". `ExitInput.isBuy` is now required, so no caller can silently omit direction again. `tickHandler` already tracked `peak` direction-aware (max for buy, min for sell), so it needed only to pass the flag; the temporary `isBuy` guard that routed shorts to Sprint is removed.
 
-Open work: mirror the maths so Runway/Anchor handle shorts natively. **Do not just flip the signs** — the thresholds (25% cooling stop, 12.5% cooled, breakeven at 50% of target) were tuned on a backtest of *bought* options, where the loss is bounded by the premium paid. On a short the loss is unbounded and a 25% adverse move is a materially different event, so the numbers need their own backtest before they mean anything.
+25 tests (14 original buy cases unchanged + 11 short cases mirroring them). Same config now stops the short at 101.50 and banks at 95.
+
+⚠️ **STILL UNVALIDATED FOR SHORTS.** The mechanics are correct; the NUMBERS are not proven. The thresholds (25% cooling stop, 12.5% cooled, breakeven at 50% of target) were tuned by backtest on bought options, where the maximum loss is the premium paid. A short's loss is unbounded, so a 25% adverse move is a materially different event. **Run a short-side backtest before trading shorts on Runway/Anchor with real money.**
 
 Related, belongs to [06 Risk & Discipline](systems/06_risk_discipline.md): short options block **margin**, but `calculateAvailableCapital` counts `entryPrice × qty` — the premium RECEIVED — so a short reads as far cheaper than it is in every capital and exposure figure.
 
