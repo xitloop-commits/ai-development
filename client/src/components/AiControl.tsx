@@ -252,6 +252,9 @@ export function AiControl() {
   // The Paper/Live toggle also routes AI trades (aiTradesMode).
   const settingsQuery = trpc.settings.get.useQuery(undefined, { enabled: open });
   const activeMode: Mode = (settingsQuery.data?.tradingMode?.aiTradesMode as Mode) ?? "paper";
+  // Master switch for AI-sourced trades in BOTH modes. Defaults ON so a settings
+  // doc predating the field doesn't silently stop AI trading.
+  const aiTradesEnabled: boolean = settingsQuery.data?.tradingMode?.aiTradesEnabled ?? true;
   const setAiMode = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => utils.settings.get.invalidate(),
   });
@@ -381,8 +384,35 @@ export function AiControl() {
       {open && (
         <>
           <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
-            {/* ① Mode toggle — fixed header */}
+            {/* ⓪ AI trades master switch — sits ABOVE the mode toggle because it
+                governs BOTH modes. Applies immediately (no Apply button): it's a
+                safety control, so it must not sit in a draft. */}
             <div className="p-3 border-b border-border flex items-center justify-between">
+              <div className="flex flex-col">
+                <SectionLabel>AI trades</SectionLabel>
+                <span className="text-[0.5625rem] text-muted-foreground">
+                  {aiTradesEnabled
+                    ? "signals are placed as trades"
+                    : "signals still logged — nothing placed"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {!aiTradesEnabled && (
+                  <span className="text-[0.5rem] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                    Off
+                  </span>
+                )}
+                <Pill
+                  label={aiTradesEnabled ? "ON" : "OFF"}
+                  on={aiTradesEnabled}
+                  disabled={setAiMode.isPending}
+                  onClick={() => setAiMode.mutate({ aiTradesEnabled: !aiTradesEnabled })}
+                />
+              </div>
+            </div>
+
+            {/* ① Mode toggle — fixed header */}
+            <div className={`p-3 border-b border-border flex items-center justify-between ${aiTradesEnabled ? "" : "opacity-50"}`}>
               <div className="flex flex-col">
                 <SectionLabel>Mode</SectionLabel>
                 <span className="text-[0.5625rem] text-muted-foreground">config + where AI trades go</span>

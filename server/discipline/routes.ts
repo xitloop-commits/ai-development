@@ -140,15 +140,31 @@ export function registerDisciplineRoutes(app: Express): void {
     validateBody(validateTradeSchema),
     async (req: Request, res: Response) => {
       const body = req.body as z.infer<typeof validateTradeSchema>;
+      const t0 = Date.now();
       // T87 — AI trades route by the SEA menu's aiTradesMode setting (the server
       // owns it), NOT the caller's posted channel: PAPER → the shared paper book,
       // LIVE → the real ai-live Dhan account. Default paper (safe). My/manual
       // trades (origin USER/RCA) keep their posted channel.
       if (body.origin === "AI") {
-        const aiMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
+        const tm = (await getUserSettings(1)).tradingMode;
+        // Master switch (AI menu, above the mode toggle). Blocks AI-sourced
+        // trades in BOTH modes — the aiKillSwitch can't do this, because
+        // isChannelKillSwitchActive deliberately exempts paper. SEA keeps
+        // emitting and logging signals; we just stop acting on them, so the
+        // signal history stays intact for analysis. Not queued — a signal that
+        // arrives while this is off is dropped.
+        if (tm?.aiTradesEnabled === false) {
+          log.info(`AI trade blocked — AI trades are switched off (${body.instrument})`);
+          return res.json({
+            approved: false,
+            reason: "AI trades are switched off",
+            checks: [],
+            latencyMs: Date.now() - t0,
+          });
+        }
+        const aiMode = tm?.aiTradesMode ?? "paper";
         body.channel = aiMode === "live" ? "ai-live" : "paper";
       }
-      const t0 = Date.now();
       try {
         // 0. Thin AI path — when the caller omits quantity, the server sizes the
         //    trade and sources capital/exposure itself (single source of truth),

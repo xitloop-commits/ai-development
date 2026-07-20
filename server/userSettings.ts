@@ -69,6 +69,12 @@ export interface ChargesSettings {
 
 export interface TradingModeSettings {
   aiTradesMode: "live" | "paper";     // AI Trades workspace mode (Settings-only)
+  /** Master switch for AI-sourced trades, BOTH modes. False = SEA keeps emitting
+   *  and logging signals but none of them are placed, on paper or live. Distinct
+   *  from aiKillSwitch, which by design exempts paper (isChannelKillSwitchActive
+   *  returns false for it) and so cannot stop paper AI trades. Signals arriving
+   *  while off are dropped, not queued. */
+  aiTradesEnabled: boolean;
   myTradesMode: "live" | "paper";     // My Trades workspace mode (on-screen toggle, persisted)
   testingMode: "live";                // Testing workspace is live-only (sandbox removed)
   aiKillSwitch: boolean;              // Kill switch for ai-live channel
@@ -169,6 +175,7 @@ export const DEFAULT_EXPIRY_RULES: ExpiryInstrumentRule[] = [
 
 export const DEFAULT_TRADING_MODE: TradingModeSettings = {
   aiTradesMode: "paper",
+  aiTradesEnabled: true,
   myTradesMode: "paper",
   testingMode: "live",
   aiKillSwitch: false,
@@ -287,6 +294,7 @@ const chargeRateSchema = new Schema(
 const tradingModeSchema = new Schema(
   {
     aiTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
+    aiTradesEnabled: { type: Boolean, default: true },
     myTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
     testingMode: { type: String, enum: ["live"], default: "live" },
     aiKillSwitch: { type: Boolean, default: false },
@@ -467,6 +475,7 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
     },
     tradingMode: {
       aiTradesMode: doc.tradingMode?.aiTradesMode ?? "paper",
+      aiTradesEnabled: doc.tradingMode?.aiTradesEnabled ?? true,
       myTradesMode: doc.tradingMode?.myTradesMode ?? "paper",
       testingMode: doc.tradingMode?.testingMode ?? "live",
       aiKillSwitch: doc.tradingMode?.aiKillSwitch ?? false,

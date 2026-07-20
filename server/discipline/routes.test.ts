@@ -382,3 +382,74 @@ describe("GET /api/discipline/status", () => {
     expect(disciplineAgent.getSessionStatus).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Master switch for AI-sourced trades (AI menu, above the mode toggle).
+ *
+ * Distinct from aiKillSwitch, which cannot do this job: brokerService's
+ * isChannelKillSwitchActive returns false for paper by design, so the kill
+ * switch can never stop AI PAPER trades. This flag must stop both.
+ */
+describe("aiTradesEnabled — master switch, both modes", () => {
+  const { app, pipelineFor } = captureRoute();
+  registerDisciplineRoutes(app);
+  const run = (req: Request, res: Response) =>
+    runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), req, res);
+
+  it("blocks an AI trade in PAPER mode when switched off", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({
+      tradingMode: { aiTradesMode: "paper", aiTradesEnabled: false },
+    });
+    const { res, json } = makeRes();
+    await run(makeReq(validBody), res);
+
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ approved: false }));
+    expect(rcaMonitor.evaluateTrade).not.toHaveBeenCalled();
+    expect(disciplineAgent.validateTrade).not.toHaveBeenCalled();
+  });
+
+  it("blocks an AI trade in LIVE mode when switched off", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({
+      tradingMode: { aiTradesMode: "live", aiTradesEnabled: false },
+    });
+    const { res, json } = makeRes();
+    await run(makeReq(validBody), res);
+
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ approved: false }));
+    expect(rcaMonitor.evaluateTrade).not.toHaveBeenCalled();
+  });
+
+  it("gives a reason the operator can recognise", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({
+      tradingMode: { aiTradesMode: "paper", aiTradesEnabled: false },
+    });
+    const { res, json } = makeRes();
+    await run(makeReq(validBody), res);
+    expect(json.mock.calls[0][0].reason).toMatch(/switched off/i);
+  });
+
+  it("does NOT block MANUAL trades — the switch is AI-only", async () => {
+    // No mockResolvedValueOnce here: origin=USER skips the AI branch entirely, so
+    // getUserSettings is never called and a queued Once value would leak into the
+    // NEXT test.
+    const { res } = makeRes();
+    await run(makeReq({ ...validBody, origin: "USER", channel: "my-live" }), res);
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalled();
+  });
+
+  it("places normally when switched on", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({
+      tradingMode: { aiTradesMode: "paper", aiTradesEnabled: true },
+    });
+    const { res } = makeRes();
+    await run(makeReq(validBody), res);
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalled();
+  });
+
+  it("defaults to ON when the field is absent (settings doc predates it)", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({ tradingMode: { aiTradesMode: "paper" } });
+    const { res } = makeRes();
+    await run(makeReq(validBody), res);
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalled();
+  });
+});

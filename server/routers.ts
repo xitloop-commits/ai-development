@@ -542,6 +542,7 @@ export const appRouter = router({
     updateTradingMode: protectedProcedure
       .input(z.object({
         aiTradesMode: z.enum(["live", "paper"]).optional(),
+        aiTradesEnabled: z.boolean().optional(),
         myTradesMode: z.enum(["live", "paper"]).optional(),
         testingMode: z.enum(["live"]).optional(),
         aiKillSwitch: z.boolean().optional(),
