@@ -183,6 +183,19 @@ function _TodayTradeRow({
     >
       {/* Trade identity, packed into the five FIXED day-level columns (Day, Date,
           Capital, Profit+, Capital+ = 22.5rem) which carry no per-trade value.
+          ORDER — grouped by what each field IS, not by when it was added:
+            1. WHEN     date + time
+            2. WHICH    signal # (or trade # for manual)
+            3. WHAT     instrument · strike · side  ← one unbroken phrase
+            4. ACTION   chart button, acting on that contract
+            5. HOW      cohort (what fired it) · strategy (what manages it)
+
+          The contract is kept contiguous because "NIFTY50 24250 CE Long" is a
+          single name you read as one thing — cohort and strategy previously sat
+          between the instrument and its strike, splitting it in half. Time and
+          number lead because they are fixed-width, so they align down the column
+          and the eye can scan them; the variable-width contract follows.
+
           One line: at 22.5rem it fits with tight gaps, and a single line keeps
           the row height down so more trades are visible at once. `min-w-0` +
           `overflow-hidden` mean an unusually long instrument truncates rather
@@ -245,26 +258,6 @@ function _TodayTradeRow({
                   <InstrumentTag name={trade.instrument} muted={!isOpen} />
                 );
               })()}
-              {trade.cohort && (
-                <span
-                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
-                  style={cohortPillStyle(trade.cohort)}
-                  title={`Signal cohort: ${trade.cohort}`}
-                >
-                  {cohortLabel(trade.cohort)}
-                </span>
-              )}
-              {/* Every strategy gets a pill (Sprint included) so the row always
-                  says which exit engine is managing the trade. */}
-              {trade.exitStrategy && (
-                <span
-                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
-                  style={strategyPillStyle(trade.exitStrategy)}
-                  title={`Exit strategy: ${strategyLabel(trade.exitStrategy)}`}
-                >
-                  {strategyLabel(trade.exitStrategy)}
-                </span>
-              )}
               {trade.strike !== null && (
                 <span className="text-[0.5625rem] font-semibold tabular-nums text-foreground shrink-0">{trade.strike}</span>
               )}
@@ -293,6 +286,33 @@ function _TodayTradeRow({
                     <LineChart className="h-3 w-3" />
                   </button>
                 )}
+
+              {/* ── Provenance / management ──────────────────────────
+                  WHERE the trade came from (cohort) and HOW it is being managed
+                  (exit strategy). Deliberately AFTER the contract: these two used
+                  to sit between the instrument and its strike, splitting
+                  "NIFTY50 24250 CE Long" — one thing you read as a single name —
+                  into two halves with unrelated pills wedged in the middle. */}
+              {trade.cohort && (
+                <span
+                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                  style={cohortPillStyle(trade.cohort)}
+                  title={`Signal cohort: ${trade.cohort}`}
+                >
+                  {cohortLabel(trade.cohort)}
+                </span>
+              )}
+              {/* Every strategy gets a pill (Sprint included) so the row always
+                  says which exit engine is managing the trade. */}
+              {trade.exitStrategy && (
+                <span
+                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                  style={strategyPillStyle(trade.exitStrategy)}
+                  title={`Exit strategy: ${strategyLabel(trade.exitStrategy)}`}
+                >
+                  {strategyLabel(trade.exitStrategy)}
+                </span>
+              )}
         </div>
       </td>
 
