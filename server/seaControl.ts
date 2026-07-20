@@ -213,6 +213,22 @@ export function initSeaControl(server: Server): void {
   }
   const rp = readRevPct();
   if (rp !== null) state.revPct = rp;
+
+  // T97 — hydrate the model map from each instrument's LATEST pointer, which is
+  // what SEA actually loads at startup. Without this `state.models` stays {}
+  // until someone explicitly switches a model, so a replay run started on the
+  // default model would record NO model and be unattributable — exactly the
+  // drift that made cohorts diverge from sea_thresholds (T85 followup).
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = resolve(process.cwd(), "models", inst, "LATEST");
+      if (!existsSync(p)) continue;
+      const v = readFileSync(p, "utf8").trim();
+      if (v) state.models[inst] = v;
+    } catch {
+      /* best-effort — a missing pointer just leaves that instrument unset */
+    }
+  }
   wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     if ((req.url || "").startsWith("/ws/sea-control")) {

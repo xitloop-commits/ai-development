@@ -27,6 +27,25 @@ export function ReplayControl() {
   const [speed, setSpeed] = useState<number>(1);
   const selectedDate = date || dates[0] || '';
 
+  // Model under test (T97). One picker PER INSTRUMENT: the two books are trained
+  // separately and their version strings differ (nifty50 20260718_161937 vs
+  // banknifty 20260718_204202), so a single shared value would be invalid for
+  // one of them. Defaults to whatever SEA is already on, so starting a replay
+  // without touching these still records the model that actually ran.
+  const modelsQ = trpc.trading.modelVersions.useQuery(undefined, { staleTime: Infinity });
+  const seaQ = trpc.trading.seaCohortState.useQuery(undefined, { refetchInterval: 10_000 });
+  const [models, setModels] = useState<Record<string, string>>({});
+  const pickFor = (inst: string) => {
+    const list = modelsQ.data?.[inst] ?? [];
+    const current = seaQ.data?.models?.[inst] ?? list.find((m) => m.isLatest)?.version ?? '';
+    return { list, selected: models[inst] || current };
+  };
+  const chosenModels = Object.fromEntries(
+    (['nifty50', 'banknifty'] as const)
+      .map((i) => [i, pickFor(i).selected])
+      .filter(([, v]) => !!v),
+  ) as Record<string, string>;
+
   const refresh = () => void utils.replay.status.invalidate();
   const startMut = trpc.replay.start.useMutation({
     onSuccess: () => { refresh(); toast.success(`Replay started · ${selectedDate} @ ${speed}×`); },
@@ -79,9 +98,38 @@ export function ReplayControl() {
       >
         {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
       </select>
+      {/* Model under test, one picker per instrument (their version strings
+          differ — see the comment above). SEA hot-swaps to these before the
+          replay starts, and the run records them so results are attributable. */}
+      {(['nifty50', 'banknifty'] as const).map((inst) => {
+        const { list, selected } = pickFor(inst);
+        if (list.length === 0) return null;
+        return (
+          <select
+            key={inst}
+            value={selected}
+            onChange={(e) => setModels((p) => ({ ...p, [inst]: e.target.value }))}
+            title={`${inst} model version for this run — SEA hot-swaps to it before the replay starts`}
+            className="max-w-[7.5rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
+          >
+            {list.map((m) => (
+              <option key={m.version} value={m.version}>
+                {inst === 'nifty50' ? 'N' : 'BN'} {m.version.slice(0, 8)}{m.auc != null ? ` · ${m.auc}` : ''}
+              </option>
+            ))}
+          </select>
+        );
+      })}
       <button
         type="button"
-        onClick={() => selectedDate && startMut.mutate({ date: selectedDate, speed })}
+        onClick={() =>
+          selectedDate &&
+          startMut.mutate({
+            date: selectedDate,
+            speed,
+            models: Object.keys(chosenModels).length ? chosenModels : undefined,
+          })
+        }
         disabled={!selectedDate || startMut.isPending}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.5625rem] font-bold text-bullish hover:bg-bullish/15 transition-colors disabled:opacity-40"
         title="Replay this day's recorded ticks as a live simulation (available outside market hours)"
