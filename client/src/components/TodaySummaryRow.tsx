@@ -109,7 +109,15 @@ export function TodaySummaryRow({
   // Neutral banner surface (matches the app header strip); green/red are kept
   // only as meaningful state tints so they don't wash the row or clash with the
   // coloured P&L text on a normal/profit day.
-  const rowBg = targetHit ? 'bg-bullish/15' : heavyLoss ? 'bg-destructive/15' : 'bg-secondary';
+  // OPAQUE backgrounds — the row is sticky, so trades scroll BEHIND it. The old
+  // `bg-bullish/15` / `bg-destructive/15` tints were translucent and let rows
+  // show through. color-mix composites the same 15% tint against the card
+  // surface up front, giving an identical colour with no transparency.
+  const rowBg = targetHit
+    ? 'bg-[color-mix(in_oklch,var(--bullish)_15%,var(--card))]'
+    : heavyLoss
+      ? 'bg-[color-mix(in_oklch,var(--destructive)_15%,var(--card))]'
+      : 'bg-secondary';
 
   const btn = 'px-1.5 py-0.5 rounded text-[0.625rem] font-bold transition-colors';
   const cell = 'px-2 py-1.5 border-r border-border align-middle';
@@ -119,7 +127,16 @@ export function TodaySummaryRow({
   const fillerSpan = Math.max(0, colSpan - 14);
 
   return (
-    <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${rowBg}`} ref={rowRef}>
+    <tr
+      data-day={day.dayIndex}
+      /* Sticky to the BOTTOM of the scroll container: on a heavy day the summary
+         sits below 100+ trade rows and you had to scroll to the end to see where
+         the day stands. It pins above the fold instead — the header is already
+         sticky at the top, so the day's totals and its column labels stay
+         visible while the trades scroll between them. */
+      className={`sticky bottom-0 z-20 border-y ${summaryBorder} ${rowBg}`}
+      ref={rowRef}
+    >
       {/* 1-2 Date · Day (flipped — date on top, day below) */}
       <td colSpan={2} className={`${cell} text-left`}>
         <div className="flex flex-col leading-tight">
