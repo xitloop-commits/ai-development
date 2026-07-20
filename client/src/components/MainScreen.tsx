@@ -41,6 +41,7 @@ import MainFooter from '@/components/MainFooter';
 // Sidebars (push layout)
 import LeftSidebar from '@/components/LeftDrawer';
 import RightSidebar from '@/components/RightDrawer';
+import { readPinned } from '@/hooks/useDrawerPin';
 
 // Overlays — lazy-loaded since they're only mounted when the user opens
 // Settings (F2) or Discipline (Ctrl+D). Saves them from the main bundle.
@@ -63,11 +64,15 @@ const POLL_INTERVAL = 3000;
 
 export default function MainScreen() {
   // ─── Sidebar State ─────────────────────────────────────────────
-  // Both drawers default CLOSED: left = Watchlist (indices + stocks), right =
-  // Signals / Alerts. The chart + desk get the full width on load; open either
-  // from its AppBar button when you want it.
-  const [leftSidebarVisible, setLeftSidebarVisible] = useState(false);
-  const [rightSidebarVisible, setRightSidebarVisible] = useState(false);
+  // Left = Watchlist (indices + stocks), right = Signals / Alerts. Both start
+  // CLOSED so the chart + desk get the full width — UNLESS the drawer is pinned,
+  // in which case it reopens where you left it. Read synchronously in the state
+  // initialiser: doing it in an effect would flash the drawer open then shut.
+  //
+  // Pin = persisted preference; visible = session state. Closing a pinned drawer
+  // from the AppBar doesn't unpin it, so it still comes back next load.
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(() => readPinned('left'));
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(() => readPinned('right'));
   // Stable toggles so the memoized AppBar doesn't re-render on every MainScreen
   // poll (its callback props would otherwise be new functions each render).
   const toggleLeftDrawer = useCallback(() => setLeftSidebarVisible((p) => !p), []);

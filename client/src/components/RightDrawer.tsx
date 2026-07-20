@@ -6,6 +6,8 @@
  * disappears when hidden.
  */
 import { useState } from 'react';
+import { useDrawerPin } from '@/hooks/useDrawerPin';
+import { PinButton } from '@/components/PinButton';
 import SignalsFeed from '@/components/SignalsFeed';
 import type { SEASignal } from '@/components/SignalsFeed';
 import AlertHistory from '@/components/AlertHistory';
@@ -23,6 +25,7 @@ type RightTab = 'signals' | 'alerts';
 
 export default function RightSidebar({ visible, signals, onLoadOlder, loadingOlder, hasMore }: RightSidebarProps) {
   const [tab, setTab] = useState<RightTab>('signals');
+  const { pinned, togglePin } = useDrawerPin('right');
   const { alerts } = useAlerts();
   if (!visible) return null;
 
@@ -54,6 +57,7 @@ export default function RightSidebar({ visible, signals, onLoadOlder, loadingOld
             </button>
           );
         })}
+        <PinButton pinned={pinned} onToggle={togglePin} />
       </div>
 
       {/* Active tab fills the drawer, flush (both panes bring their own surface). */}

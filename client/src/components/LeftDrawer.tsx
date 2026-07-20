@@ -14,6 +14,8 @@ import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 import { WatchlistPane } from '@/components/WatchlistPane';
 import { IndexOptionRow } from '@/components/IndexOptionRow';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { useDrawerPin } from '@/hooks/useDrawerPin';
+import { PinButton } from '@/components/PinButton';
 
 /** Minimal tab descriptor (kept for the MainScreen prop shape). */
 interface SidebarInstrument {
@@ -69,15 +71,17 @@ function IndexRow({ name, label, color }: { name: string; label: string; color: 
 
 export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) {
   const { hexOf } = useInstrumentColors();
+  const { pinned, togglePin } = useDrawerPin('left');
   if (!visible) return null;
 
   return (
     <aside className="w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
       {/* Single Watchlist tab */}
-      <div className="flex items-stretch border-b border-border">
-        <div className="flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase text-foreground bg-secondary/50">
+      <div className="flex items-stretch border-b border-border bg-secondary/50">
+        <div className="flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase text-foreground">
           Watchlist
         </div>
+        <PinButton pinned={pinned} onToggle={togglePin} />
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
