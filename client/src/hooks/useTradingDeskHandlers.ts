@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { TradeRecord, Channel } from '@/lib/tradeTypes';
-import { isLiveChannel } from '@/lib/tradeTypes';
+import { liveOptionConfirm } from '@/lib/optionOrderConfirm';
 
 type PlaceTradeInput = {
   instrument: string;
@@ -82,18 +82,14 @@ export function useTradingDeskHandlers({
       }
     };
     // LIVE option orders fire real money — confirm first. (Stocks confirm in
-    // TodaySection's staged-buy flow, so only guard option trades here.)
-    const isOption = /^(CALL|PUT)_/.test(trade.type);
-    if (isLiveChannel(channel) && isOption) {
-      const ceOrPe = trade.type.startsWith('CALL') ? 'CE' : 'PE';
-      const side = trade.type.includes('BUY') ? 'BUY' : 'SELL';
-      const value = Math.round(trade.entryPrice * trade.qty);
+    // TodaySection's staged-buy flow, so only guard option trades here.) The
+    // decision + wording are shared with the watchlist's option rows via
+    // lib/optionOrderConfirm so both ask the same question.
+    const confirm = liveOptionConfirm(channel, trade);
+    if (confirm) {
       setConfirmDialog({
         open: true,
-        title: 'Place LIVE option order?',
-        message:
-          `${side} ${trade.instrument} ${trade.strike ?? ''} ${ceOrPe} × ${trade.qty} ` +
-          `@ ~₹${value.toLocaleString('en-IN')} premium. This is a REAL order on your live account.`,
+        ...confirm,
         onConfirm: () => { doPlace(); closeConfirmDialog(); },
       });
       return;

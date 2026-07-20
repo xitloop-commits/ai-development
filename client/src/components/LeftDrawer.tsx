@@ -5,11 +5,14 @@
  * sections, both a simple live-LTP list (no strike bar / no option picker —
  * the instrument bar is gone):
  *   • Indices — NIFTY / BANK NIFTY / CRUDE OIL / NATURAL GAS, underlying LTP.
+ *     NIFTY + BANK NIFTY rows also carry the current expiry, ATM strike, a CE/PE
+ *     toggle and a Long button (ctrl+click places a manual BUY).
  *   • Stocks  — search the Dhan scrip master, add, watch live LTP.
  * Pushes the center content; fully disappears when hidden.
  */
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 import { WatchlistPane } from '@/components/WatchlistPane';
+import { IndexOptionRow } from '@/components/IndexOptionRow';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 
 /** Minimal tab descriptor (kept for the MainScreen prop shape). */
@@ -32,6 +35,11 @@ const INDEX_LABELS: Record<string, string> = {
   CRUDEOIL: 'CRUDE OIL',
   NATURALGAS: 'NATURAL GAS',
 };
+
+/** Indices whose row carries the expiry / strike / CE-PE / Long controls.
+ *  Crude + Gas are plain LTP rows for now — same live-state fields are there,
+ *  so adding them is a one-line change once you want MCX manual entry. */
+const OPTION_TRADEABLE = new Set(['NIFTY_50', 'BANKNIFTY']);
 
 interface LeftSidebarProps {
   visible: boolean;
@@ -75,14 +83,17 @@ export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Indices — underlying LTP list */}
         <div className="shrink-0 pt-1">
-          {instruments.map((inst) => (
-            <IndexRow
-              key={inst.name}
-              name={inst.name}
-              label={INDEX_LABELS[inst.name] ?? inst.name}
-              color={hexOf(inst.name)}
-            />
-          ))}
+          {instruments.map((inst) => {
+            const Row = OPTION_TRADEABLE.has(inst.name) ? IndexOptionRow : IndexRow;
+            return (
+              <Row
+                key={inst.name}
+                name={inst.name}
+                label={INDEX_LABELS[inst.name] ?? inst.name}
+                color={hexOf(inst.name)}
+              />
+            );
+          })}
         </div>
 
         {/* Stocks — search + watchlist (live LTP) */}
