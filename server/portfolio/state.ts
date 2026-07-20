@@ -305,6 +305,19 @@ export interface CapitalState {
   drawdownPercent?: number;
   /** PA Phase 4 — when peakCapital last advanced. */
   peakUpdatedAt?: number;
+  /**
+   * T92 — when this book's opening capital was established (epoch ms).
+   *
+   * Live books are seeded ONCE, ever, from their Dhan account's start-of-day
+   * limit; after that the engine owns the pool and Dhan is never read for
+   * capital again. Paper is stamped at creation (nothing to seed from).
+   *
+   * Exists so "never seeded" is distinguishable from "seeded and legitimately
+   * drawn down to ₹0" — without it a drained live book looks unseeded and would
+   * be re-seeded from Dhan behind the operator's back. `null`/absent means the
+   * seed has not happened, and callers must treat the book as NOT tradeable.
+   */
+  seededAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -862,15 +875,79 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
 /**
  * Get or initialize capital state for a channel.
  */
+/** brokerId that funds each live channel. Paper has no broker account. */
+const SEED_BROKER_FOR: Partial<Record<Channel, string>> = {
+  "my-live": "dhan-primary-ac",
+  "ai-live": "dhan-secondary-ac",
+};
+
+/**
+ * T92 — read a live channel's opening capital from its Dhan account, ONCE.
+ *
+ * Uses `getMargin().total` = Dhan's `sodLimit`, the start-of-day limit. Chosen
+ * over `available` because the pool is the base for the daily target and for
+ * percent-mode sizing: `available` shrinks as margin gets blocked, so seeding
+ * while a position was open would silently shrink the day's target.
+ *
+ * REST fund-limit call only — it does NOT touch the WebSocket tick path on
+ * either account (TFA rides `dhan-secondary-ac`'s socket and must be left alone).
+ *
+ * Returns null on any failure so the caller writes NOTHING and retries on the
+ * next read. The Dhan token is minted at API-server startup and expires at the
+ * IST day boundary, so a first read before the token exists is expected.
+ *
+ * Imported lazily: brokerService pulls in the adapter stack, and this module is
+ * loaded during early bootstrap.
+ */
+async function seedFromBroker(channel: Channel): Promise<number | null> {
+  const brokerId = SEED_BROKER_FOR[channel];
+  if (!brokerId) return null; // paper — nothing to seed from
+  try {
+    // _getAdapterByBrokerId, NOT getAdapter(channel): the latter falls back to
+    // the PRIMARY adapter when the spouse account isn't initialised, which would
+    // seed ai-live from my-live's balance. This lookup is strict — null or the
+    // right account, never someone else's money.
+    const { _getAdapterByBrokerId } = await import("../broker/brokerService");
+    const adapter = _getAdapterByBrokerId(brokerId);
+    if (!adapter) return null;
+    const margin = await adapter.getMargin();
+    const total = margin?.total;
+    if (typeof total !== "number" || !Number.isFinite(total) || total <= 0) return null;
+    return Math.round(total * 100) / 100;
+  } catch {
+    return null; // stale token / adapter down → retry on the next read
+  }
+}
+
+/**
+ * Read a channel's capital state, creating it on first use.
+ *
+ * T92 — nothing auto-funds to a default amount any more. Previously every
+ * channel was lazily created at ₹100,000, which meant `ai-live` traded against a
+ * balance nobody had deposited (and `inject` was pinned to my-live, so it could
+ * never be corrected).
+ *
+ *   - LIVE channels seed once from their Dhan account (see seedFromBroker).
+ *     If that fails, NOTHING is persisted — an unseeded zero state is returned
+ *     and the next read retries.
+ *   - PAPER is created at ₹0 and stamped seeded; the operator funds it.
+ *
+ * ⚠️ A returned state with `seededAt == null` is NOT tradeable. Both discipline
+ * guards treat `currentCapital <= 0` as "no limit configured" and pass every
+ * order, so callers must gate on `seededAt`, never on the balance alone.
+ */
 export async function getCapitalState(channel: Channel): Promise<CapitalState> {
   const doc = await CapitalStateModel.findOne({ channel }).lean();
   if (doc) return docToCapitalState(doc);
 
+  const isLive = channel !== "paper";
+  const seeded = isLive ? await seedFromBroker(channel) : 0;
+
   const initial: CapitalState = {
     channel,
-    tradingPool: DEFAULT_INITIAL_FUNDING,
+    tradingPool: seeded ?? 0,
     reservePool: 0,
-    initialFunding: DEFAULT_INITIAL_FUNDING,
+    initialFunding: seeded ?? 0,
     currentDayIndex: 1,
     targetPercent: 5,
     profitHistory: [],
@@ -879,9 +956,14 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
     sessionTradeCount: 0,
     sessionPnl: 0,
     sessionDate: new Date().toISOString().slice(0, 10),
+    seededAt: seeded === null ? null : Date.now(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
+
+  // Seed failed → return the zero state WITHOUT persisting, so the next read
+  // tries Dhan again rather than baking an unfunded book into the database.
+  if (isLive && seeded === null) return initial;
 
   await CapitalStateModel.create(initial);
   return initial;
@@ -1082,8 +1164,11 @@ export async function replaceCapitalState(
 function docToCapitalState(doc: Record<string, any>): CapitalState {
   return {
     channel: doc.channel,
-    tradingPool: doc.tradingPool ?? 75000,
-    reservePool: doc.reservePool ?? 25000,
+    // T92: fall back to 0, not 75000/25000. Those were a 75/25 seed split that
+    // NO write path has ever produced — a doc missing its pools would have
+    // materialised 100k of imaginary capital.
+    tradingPool: doc.tradingPool ?? 0,
+    reservePool: doc.reservePool ?? 0,
     initialFunding: doc.initialFunding ?? 100000,
     currentDayIndex: doc.currentDayIndex ?? 1,
     targetPercent: doc.targetPercent ?? 5,
@@ -1102,6 +1187,7 @@ function docToCapitalState(doc: Record<string, any>): CapitalState {
     peakCapital: doc.peakCapital ?? undefined,
     drawdownPercent: doc.drawdownPercent ?? undefined,
     peakUpdatedAt: doc.peakUpdatedAt ?? undefined,
+    seededAt: doc.seededAt ?? null,
     createdAt: doc.createdAt ?? Date.now(),
     updatedAt: doc.updatedAt ?? Date.now(),
   };

@@ -178,11 +178,27 @@ export const portfolioRouter = router({
       async function syncWorkspace(ws: typeof input.channel) {
         const state = await getCapitalState(ws);
         const { tradingPool, reservePool } = injectCapital(state, input.amount);
-        const updated = await updateCapitalState(ws, {
-          tradingPool,
-          reservePool,
-          initialFunding: state.initialFunding + input.amount,
-        });
+
+        // T92: an UNSEEDED live book has no document — the Dhan seed failed and
+        // deliberately persisted nothing. Injecting into it is the manual escape
+        // hatch: it establishes the book at the injected amount and stamps it
+        // seeded, so a broker that never comes back doesn't leave the operator
+        // unable to fund their own account. `updateCapitalState` would throw
+        // "Capital state not found" here.
+        const updated = state.seededAt == null
+          ? await replaceCapitalState(ws, {
+              ...state,
+              tradingPool,
+              reservePool,
+              initialFunding: input.amount,
+              seededAt: Date.now(),
+              updatedAt: Date.now(),
+            })
+          : await updateCapitalState(ws, {
+              tradingPool,
+              reservePool,
+              initialFunding: state.initialFunding + input.amount,
+            });
 
         // Sync current day record
         const day = await getDayRecord(ws, state.currentDayIndex);

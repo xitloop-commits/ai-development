@@ -217,6 +217,8 @@ const portfolioStateSchema = new Schema(
     peakCapital: { type: Number, default: 0 },
     drawdownPercent: { type: Number, default: 0 },
     peakUpdatedAt: { type: Number, default: () => Date.now() },
+    // T92 — one-time capital seed marker; null = never seeded (not tradeable).
+    seededAt: { type: Number, default: null },
     createdAt: { type: Number, default: () => Date.now() },
     updatedAt: { type: Number, default: () => Date.now() },
   },
@@ -474,8 +476,11 @@ export async function getEvents(
 function docToPortfolioState(doc: Record<string, any>): PortfolioStateDoc {
   return {
     channel: doc.channel,
-    tradingPool: doc.tradingPool ?? 75000,
-    reservePool: doc.reservePool ?? 25000,
+    // T92: fall back to 0, not 75000/25000. Those were a 75/25 seed split that
+    // NO write path has ever produced — a doc missing its pools would have
+    // materialised 100k of imaginary capital.
+    tradingPool: doc.tradingPool ?? 0,
+    reservePool: doc.reservePool ?? 0,
     initialFunding: doc.initialFunding ?? 100000,
     currentDayIndex: doc.currentDayIndex ?? 1,
     targetPercent: doc.targetPercent ?? 5,
