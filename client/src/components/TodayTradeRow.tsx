@@ -279,13 +279,20 @@ function _TodayTradeRow({
             </div>
           </div>
 
-          {/* TradeBar fills the middle, on the same line (open trades only) */}
-          {isOpen && (
+          {/* TradeBar fills the middle, on the same line. Closed trades keep the
+              bar as a FROZEN snapshot of how the trade finished — where it
+              exited relative to entry / SL / TP. `frozen` renders the markers
+              statically and skips the hit callbacks, and the LTP is pinned to
+              the exit price: liveLtp keeps ticking after the close, so feeding
+              it in would drift the marker away from where the trade actually
+              ended. */}
+          {(
             <div className="flex-1 min-w-0">
               <TradeBar
                 isBuy={isBuy}
+                frozen={!isOpen}
                 entryPrice={trade.entryPrice}
-                ltp={displayLtp}
+                ltp={isOpen ? displayLtp : (trade.exitPrice ?? trade.ltp)}
                 slPercent={
                   trade.stopLossPrice && trade.stopLossPrice > 0
                     ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
@@ -319,8 +326,8 @@ function _TodayTradeRow({
                 units={trade.qty}
                 roundTripCharges={charges}
                 compact
-                onSetTp={isPaperChannel(channel) ? (price) => onUpdateTpSl(trade.id, { targetPrice: price }) : undefined}
-                onSetSl={isPaperChannel(channel) ? (price) => onUpdateTpSl(trade.id, { stopLossPrice: price }) : undefined}
+                onSetTp={isOpen && isPaperChannel(channel) ? (price) => onUpdateTpSl(trade.id, { targetPrice: price }) : undefined}
+                onSetSl={isOpen && isPaperChannel(channel) ? (price) => onUpdateTpSl(trade.id, { stopLossPrice: price }) : undefined}
                 onStopLossHit={() => {
                   // Diagnostic only ([XSYNC] exit-sync): the client LTP crossed
                   // the marker. NOT a user toast — that fires on the real

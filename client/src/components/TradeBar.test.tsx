@@ -91,3 +91,21 @@ describe("TradeBar — cooling-window countdown", () => {
     expect(coolingClock()).toBeNull();
   });
 });
+
+/**
+ * A closed trade keeps its bar as a frozen snapshot of how it finished. The
+ * markers must still draw — a snapshot with no SL/TP/entry reference tells you
+ * nothing about where the exit landed.
+ */
+describe("TradeBar — frozen snapshot (closed trade)", () => {
+  it("still draws SL, TP and entry when frozen", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} frozen />);
+    expect(stopMarker()).not.toBeNull();
+    expect(tpMarker()).not.toBeNull();
+  });
+
+  it("suppresses the cooling countdown once frozen", () => {
+    render(<TradeBar {...base} slPercent={5} coolingEndsAt={Date.now() + 60_000} frozen />);
+    expect(screen.queryByTitle(/^Cooling window /)).toBeNull();
+  });
+});
