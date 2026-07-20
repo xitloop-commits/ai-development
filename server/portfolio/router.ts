@@ -32,34 +32,14 @@ import {
   recalculateDayAggregates,
   tradingSplit,
 } from "./compounding";
-import type { ChargeRate } from "./charges";
-import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { portfolioAgent } from "./portfolioAgent";
 import { tickHandler } from "./tickHandler";
-import { createLogger } from "../broker/logger";
 
-const log = createLogger("PA", "Router");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const channelSchema = z.enum(["paper", "ai-live", "my-live"]);
-/** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
-// T87: the `paper` book is now an independent pool (no longer a shadow of
-// my-live), so my-live pool ops (inject/reset/transfer) no longer mirror into
-// paper. Paper is seeded on first use / by the migration. Phase 3 reworks the
-// my-live-pinned pool ops properly. Empty = no mirroring.
-const mirroredChannels: Channel[] = [];
-
-function _generateTradeId(): string {
-  return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function _getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
-  const settings = await getUserSettings(userId);
-  return settings.charges.rates as ChargeRate[];
-}
-
 /**
  * Read the daily target % from broker config settings.
  * Falls back to the engine constant (5) if no broker config exists.
@@ -183,7 +163,9 @@ export const portfolioRouter = router({
       return { success: true, targetPercent };
     }),
 
-  /** Inject new capital (75/25 split). */
+  /** Inject new capital into a channel's Trading Pool.
+   *  NOT split: the whole amount goes to Trading. The reserve split applies to
+   *  PROFIT only (see compounding.ts:injectCapital). */
   inject: protectedProcedure
     .input(z.object({
       channel: channelSchema,
@@ -216,19 +198,9 @@ export const portfolioRouter = router({
         return updated;
       }
 
-      // Sync live workspace (primary — must succeed)
-      const liveResult = await syncWorkspace('my-live');
-
-      // Sync mirror channels (best-effort — don't let them break the inject)
-      for (const channel of mirroredChannels) {
-        try {
-          await syncWorkspace(channel);
-        } catch (err) {
-          log.warn(`inject ${channel} channel sync failed (non-fatal): ${(err as Error)?.message ?? err}`);
-        }
-      }
-
-      return liveResult;
+      // T92: fund the channel the caller asked for. This used to be pinned to
+      // 'my-live' regardless of input, so ai-live could never be funded at all.
+      return syncWorkspace(input.channel);
     }),
 
   /** Transfer funds between Trading ↔ Reserve pools. */
@@ -276,11 +248,8 @@ export const portfolioRouter = router({
         return updated;
       }
 
-      const liveResult = await syncWorkspace('my-live');
-      for (const channel of mirroredChannels) {
-        try { await syncWorkspace(channel); } catch { /* non-fatal — best-effort mirror */ }
-      }
-      return liveResult;
+      // T92: operate on the channel the caller asked for (was pinned to 'my-live').
+      return syncWorkspace(input.channel);
     }),
 
   /**
@@ -525,24 +494,18 @@ export const portfolioRouter = router({
         return { newState, deletedDayRecords: deleted };
       }
 
-      // Reset live workspace (primary)
-      const liveResult = await resetWorkspace('my-live');
-
-      // Reset paper workspaces (best-effort)
-      for (const channel of mirroredChannels) {
-        try {
-          await resetWorkspace(channel);
-        } catch (err) {
-          log.warn(`resetCapital ${channel} channel reset failed (non-fatal): ${(err as Error)?.message ?? err}`);
-        }
-      }
+      // T92: reset the channel the caller asked for. This used to reset 'my-live'
+      // unconditionally while the guard above checked `input.channel` — so
+      // resetting 'paper' validated paper and then destroyed the LIVE book.
+      const result = await resetWorkspace(input.channel);
 
       return {
         success: true,
+        channel: input.channel,
         initialFunding: input.initialFunding,
-        tradingPool: liveResult.newState.tradingPool,
-        reservePool: liveResult.newState.reservePool,
-        deletedDayRecords: liveResult.deletedDayRecords,
+        tradingPool: result.newState.tradingPool,
+        reservePool: result.newState.reservePool,
+        deletedDayRecords: result.deletedDayRecords,
       };
     }),
 

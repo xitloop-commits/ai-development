@@ -423,8 +423,14 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   }, [allDays, capital.currentDayIndex]);
 
   // ─── Mutation wrappers ──────────────────────────────────────
-  // Pool-affecting ops (inject/reset/transfer) target the My-Live channel as the
-  // primary; portfolioRouter mirrors them to other paper channels for parity.
+  // Pool-affecting ops (inject/reset/transfer) are pinned to My-Live.
+  //
+  // T92: the SERVER now honours whichever channel it's given (it used to write
+  // my-live regardless — and resetCapital validated the requested channel then
+  // wiped my-live, so resetting paper destroyed the live book). These call sites
+  // stay pinned deliberately: pointing a destructive reset at "whatever channel
+  // is on screen" needs an explicit channel picker + confirmation in the UI, not
+  // an implicit follow-the-view. Wire that when the capital panel is built.
   const inject = useCallback(
     (amount: number) => {
       injectMutation.mutate({ channel: 'my-live', amount });
