@@ -20,6 +20,7 @@ const fmt = (n: number) =>
 
 /** Colour + label per event type. Money IN green, OUT red, neutral moves grey. */
 const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
+  OPENING: { label: 'Opening balance', cls: 'bg-muted text-muted-foreground' },
   CAPITAL_SEEDED: { label: 'Seeded', cls: 'bg-info-cyan/15 text-info-cyan' },
   CAPITAL_INJECTED: { label: 'Added', cls: 'bg-bullish/15 text-bullish' },
   CAPITAL_WITHDRAWN: { label: 'Withdrawn', cls: 'bg-warning-amber/15 text-warning-amber' },

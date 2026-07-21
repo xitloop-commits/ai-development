@@ -174,18 +174,68 @@ export interface PoolBooks {
   reserve: PoolBookDay[];
 }
 
+/** The pool balances the passbooks must reconcile to, for opening-balance
+ *  synthesis. `openedAt` dates the opening line when a book has no rows. */
+export interface PoolSnapshot {
+  tradingPool: number;
+  reservePool: number;
+  openedAt: number | null;
+}
+
+/**
+ * Reconstruct per-pool deltas for rows written before they were stored
+ * (T102-era, 21 Jul 2026 morning). Those rows DO carry enough detail to be
+ * exact: inject/seed only ever touch Trading, withdraw names its pool,
+ * transfer names from/to + moved, day-close carries both shares. Without
+ * this, the balance-differencing fallback would attribute a book's entire
+ * pre-existing balance to its first recorded event.
+ */
+function typedDeltas(r: LedgerRow): { t: number; rv: number } | null {
+  const d = r.detail;
+  switch (r.type) {
+    case "CAPITAL_SEEDED":
+    case "CAPITAL_INJECTED":
+      return { t: r.amount, rv: 0 };
+    case "CAPITAL_WITHDRAWN":
+      return d.pool === "reserve" ? { t: 0, rv: r.amount } : { t: r.amount, rv: 0 };
+    case "CAPITAL_TRANSFERRED": {
+      if (typeof d.moved !== "number" || (d.from !== "trading" && d.from !== "reserve")) return null;
+      const t = d.from === "trading" ? -d.moved : d.moved;
+      return { t, rv: -t };
+    }
+    case "DAY_COMPLETED": {
+      if (typeof d.tradingPoolShare !== "number" || typeof d.reservePoolShare !== "number") return null;
+      return { t: d.tradingPoolShare, rv: d.reservePoolShare };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Anything under a paisa is float noise, not an opening balance. */
+const OPENING_TOLERANCE = 0.009;
+
 /**
  * Build both passbooks from ledger rows in OLDEST-first order.
  *
- * Pool movement per row prefers the stored per-pool delta; rows written before
- * deltas existed fall back to differencing consecutive `…After` balances —
- * exact here because pools only ever move via recorded events. A row lands in
- * a book only when it actually moved that pool (a transfer lands in both).
+ * Pool movement per row: stored delta → type-reconstructed delta (T102-era
+ * rows) → differencing consecutive `…After` balances. A row lands in a book
+ * only when it actually moved that pool (a transfer lands in both).
+ *
+ * OPENING BALANCE — money that entered a pool before recording began
+ * (21 Jul 2026) has no rows, so each book opens with a synthetic
+ * "Opening balance" line reconciling the first real row's balance-after to
+ * its delta (or, with no rows at all, to the pool's current balance from
+ * `current`). Display-only and derived, never written to the database — the
+ * database genuinely does not know when that money arrived, and a fabricated
+ * dated row would pretend it does.
  */
-export function buildPoolBooks(rowsOldestFirst: LedgerRow[]): PoolBooks {
+export function buildPoolBooks(rowsOldestFirst: LedgerRow[], current?: PoolSnapshot): PoolBooks {
   const books = { trading: [] as PoolBookDay[], reserve: [] as PoolBookDay[] };
-  let prevTrading = 0;
-  let prevReserve = 0;
+  let prevTrading: number | null = null;
+  let prevReserve: number | null = null;
+  let openingTrading = 0;
+  let openingReserve = 0;
 
   const push = (book: PoolBookDay[], day: string, row: PoolBookRow) => {
     const last = book[book.length - 1];
@@ -198,8 +248,14 @@ export function buildPoolBooks(rowsOldestFirst: LedgerRow[]): PoolBooks {
   };
 
   for (const r of rowsOldestFirst) {
-    const tDelta = r.tradingDelta ?? round2(r.tradingPoolAfter - prevTrading);
-    const rDelta = r.reserveDelta ?? round2(r.reservePoolAfter - prevReserve);
+    const typed = r.tradingDelta == null || r.reserveDelta == null ? typedDeltas(r) : null;
+    const tDelta = r.tradingDelta ?? typed?.t ?? round2(r.tradingPoolAfter - (prevTrading ?? 0));
+    const rDelta = r.reserveDelta ?? typed?.rv ?? round2(r.reservePoolAfter - (prevReserve ?? 0));
+    if (prevTrading === null) {
+      // First row fixes the opening balances: what each pool held before it.
+      openingTrading = round2(r.tradingPoolAfter - tDelta);
+      openingReserve = round2(r.reservePoolAfter - rDelta);
+    }
     prevTrading = r.tradingPoolAfter;
     prevReserve = r.reservePoolAfter;
 
@@ -223,15 +279,50 @@ export function buildPoolBooks(rowsOldestFirst: LedgerRow[]): PoolBooks {
     }
   }
 
+  // No rows at all → the pool's whole current balance predates recording.
+  if (rowsOldestFirst.length === 0 && current) {
+    openingTrading = round2(current.tradingPool);
+    openingReserve = round2(current.reservePool);
+  }
+
+  const first = rowsOldestFirst[0];
+  const openTs = first?.timestamp ?? current?.openedAt ?? Date.now();
+  const openDay = first
+    ? (typeof first.detail.tradeDay === "string" ? first.detail.tradeDay : istDay(first.timestamp))
+    : istDay(openTs);
+  const prependOpening = (book: PoolBookDay[], pool: "trading" | "reserve", amount: number) => {
+    if (amount <= OPENING_TOLERANCE) return;
+    const row: PoolBookRow = {
+      eventId: `OPENING-${pool}`,
+      timestamp: openTs,
+      type: "OPENING",
+      note: "Balance carried in before recording began (21 Jul 2026)",
+      dr: 0,
+      cr: 0,
+      balance: amount,
+    };
+    if (book.length > 0 && book[0].day === openDay) {
+      book[0].rows.unshift(row);
+    } else {
+      book.unshift({ day: openDay, rows: [row], closing: amount });
+    }
+  };
+  prependOpening(books.trading, "trading", openingTrading);
+  prependOpening(books.reserve, "reserve", openingReserve);
+
   books.trading.reverse();
   books.reserve.reverse();
   return books;
 }
 
 /** The two passbooks for one channel. */
-export async function getPoolBooks(channel: Channel, limit = 500): Promise<PoolBooks> {
+export async function getPoolBooks(
+  channel: Channel,
+  limit = 500,
+  current?: PoolSnapshot,
+): Promise<PoolBooks> {
   const newestFirst = await getLedger(channel, limit);
-  return buildPoolBooks(newestFirst.slice().reverse());
+  return buildPoolBooks(newestFirst.slice().reverse(), current);
 }
 
 export interface Reconciliation {

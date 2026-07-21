@@ -76,10 +76,11 @@ describe("buildPoolBooks", () => {
     expect(books.reserve[0].rows[0]).toMatchObject({ cr: 1250, balance: 1250 });
   });
 
-  it("falls back to balance differencing for pre-T104 rows without deltas", () => {
+  it("falls back to balance differencing for old rows with no deltas and no usable detail", () => {
     const books = buildPoolBooks([
-      row({ type: "CAPITAL_SEEDED", tradingPoolAfter: 100000 }),
-      row({ type: "CAPITAL_TRANSFERRED", timestamp: T0 + HOUR, tradingPoolAfter: 75000, reservePoolAfter: 25000 }),
+      row({ type: "CAPITAL_SEEDED", amount: 100000, tradingPoolAfter: 100000 }),
+      // CAPITAL_ADJUSTED has no typed reconstruction — only differencing covers it.
+      row({ type: "CAPITAL_ADJUSTED", timestamp: T0 + HOUR, tradingPoolAfter: 75000, reservePoolAfter: 25000 }),
     ]);
 
     expect(books.trading[0].rows[0]).toMatchObject({ cr: 100000, balance: 100000 });
@@ -121,6 +122,40 @@ describe("buildPoolBooks", () => {
     ]);
     expect(books.trading[0].rows).toHaveLength(1);
     expect(books.reserve).toHaveLength(0);
+  });
+
+  it("synthesises an opening balance when the pool held money before recording began", () => {
+    // First recorded event is an inject of 50k, but the pool lands at 150k —
+    // 100k predates the ledger and must show as an opening line, not as part
+    // of the inject's credit.
+    const books = buildPoolBooks([
+      row({ type: "CAPITAL_INJECTED", amount: 50000, tradingPoolAfter: 150000, tradingDelta: 50000, reserveDelta: 0 }),
+    ]);
+    const rows = books.trading[0].rows;
+    expect(rows[0]).toMatchObject({ type: "OPENING", dr: 0, cr: 0, balance: 100000 });
+    expect(rows[1]).toMatchObject({ cr: 50000, balance: 150000 });
+  });
+
+  it("with NO rows at all, the current pool balance becomes the opening line", () => {
+    const books = buildPoolBooks([], { tradingPool: 1000000, reservePool: 0, openedAt: T0 });
+    expect(books.trading).toHaveLength(1);
+    expect(books.trading[0].rows[0]).toMatchObject({ type: "OPENING", balance: 1000000 });
+    expect(books.reserve).toHaveLength(0); // reserve is 0 — nothing to open with
+  });
+
+  it("reconstructs deltas from event detail for T102-era rows (no stored deltas)", () => {
+    // Old transfer row: no deltas stored, but detail names from/to/moved.
+    // Pool was 200k before recording → must NOT be swallowed into the transfer.
+    const books = buildPoolBooks([
+      row({
+        type: "CAPITAL_TRANSFERRED", amount: 0,
+        tradingPoolAfter: 180000, reservePoolAfter: 20000,
+        detail: { from: "trading", to: "reserve", moved: 20000 },
+      }),
+    ]);
+    expect(books.trading[0].rows[0]).toMatchObject({ type: "OPENING", balance: 200000 });
+    expect(books.trading[0].rows[1]).toMatchObject({ dr: 20000, balance: 180000 });
+    expect(books.reserve[0].rows[0]).toMatchObject({ cr: 20000, balance: 20000 });
   });
 
   it("clawback shows as a Dr in the trading book only", () => {

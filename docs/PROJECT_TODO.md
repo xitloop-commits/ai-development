@@ -1649,6 +1649,14 @@ one per pool.
 - Files: `server/portfolio/{capitalLedger,router,portfolioAgent,state}.ts`,
   `client/src/components/CapitalBookDialog.tsx`, tests in
   `capitalLedger.book.test.ts`. Doc: 07 §4.
+- **Same-day follow-up (opening balance):** first ship showed EMPTY books —
+  all three channels' money predates 21 Jul recording, so there were no rows
+  to display and the dialog looked unchanged. Books now open with a synthetic
+  "Opening balance" line (display-only, reconciled from the first row's
+  balance-after minus its delta; from current pools when a book has no rows),
+  and T102-era rows without stored deltas reconstruct exact per-pool deltas
+  from their event detail instead of naive balance differencing. Verified in
+  the running app via Playwright screenshot.
 
 ### T102 [Portfolio] — capital book of records + broker reconciliation ✅ DONE 2026-07-21
 Prompted by T101's misdirected ₹9,00,000: it sat on `my-live` for over an hour

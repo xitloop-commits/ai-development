@@ -419,7 +419,11 @@ export const portfolioRouter = router({
     .query(async ({ input }) => {
       const state = await getCapitalState(input.channel);
       const [poolBooks, reconciliation] = await Promise.all([
-        getPoolBooks(input.channel, input.limit ?? 500),
+        getPoolBooks(input.channel, input.limit ?? 500, {
+          tradingPool: state.tradingPool,
+          reservePool: state.reservePool,
+          openedAt: state.seededAt ?? state.createdAt ?? null,
+        }),
         reconcile(input.channel, state.tradingPool, state.reservePool),
       ]);
       return {
