@@ -63,9 +63,9 @@ function PoolBook({ title, days, emptyHint }: { title: string; days: PoolBookDay
                 <tr className="border-b border-border">
                   <th className="text-left py-1 w-14">Time</th>
                   <th className="text-left">Particulars</th>
-                  <th className="text-right">Dr</th>
-                  <th className="text-right">Cr</th>
-                  <th className="text-right">Balance</th>
+                  <th className="text-right w-[4.75rem] px-1">Dr</th>
+                  <th className="text-right w-[4.75rem] px-1">Cr</th>
+                  <th className="text-right w-24 pl-2">Balance</th>
                 </tr>
               </thead>
               <tbody>
@@ -78,9 +78,13 @@ function PoolBook({ title, days, emptyHint }: { title: string; days: PoolBookDay
                         <span className={`rounded px-1 py-0.5 font-bold ${st.cls}`}>{st.label}</span>
                         <div className="text-muted-foreground mt-0.5">{r.note}</div>
                       </td>
-                      <td className="text-right whitespace-nowrap text-loss-red">{r.dr > 0 ? fmt(r.dr) : '—'}</td>
-                      <td className="text-right whitespace-nowrap text-bullish">{r.cr > 0 ? fmt(r.cr) : '—'}</td>
-                      <td className="text-right whitespace-nowrap font-bold">{fmt(r.balance)}</td>
+                      <td className="text-right whitespace-nowrap px-1 text-loss-red">
+                        {r.dr > 0 ? fmt(r.dr) : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="text-right whitespace-nowrap px-1 text-bullish">
+                        {r.cr > 0 ? fmt(r.cr) : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="text-right whitespace-nowrap pl-2 font-bold">{fmt(r.balance)}</td>
                     </tr>
                   );
                 })}

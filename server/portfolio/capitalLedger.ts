@@ -113,8 +113,12 @@ export interface LedgerRow {
 /** The book for one channel, newest first. */
 export async function getLedger(channel: Channel, limit = 200): Promise<LedgerRow[]> {
   const rows: LedgerRow[] = [];
-  for (const t of CAPITAL_EVENT_TYPES) {
-    const evs = await getEvents(channel, { eventType: t as PortfolioEventType, limit });
+  const perType = await Promise.all(
+    CAPITAL_EVENT_TYPES.map((t) =>
+      getEvents(channel, { eventType: t as PortfolioEventType, limit }),
+    ),
+  );
+  for (const evs of perType) {
     for (const e of evs) {
       const p = (e.payload ?? {}) as Record<string, unknown>;
       const {
