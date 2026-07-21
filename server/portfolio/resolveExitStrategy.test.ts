@@ -21,7 +21,9 @@ vi.mock("fs", () => ({
 
 import {
   resolveExitStrategy,
+  sprintOpeningLevels,
   updateAiConfig,
+  updateExitConfig,
   initAiConfig,
 } from "./aiModeConfig";
 
@@ -106,5 +108,49 @@ describe("equity is pinned to sprint", () => {
     updateAiConfig("manual", only("runway"));
     expect(resolveExitStrategy("my-live", "USER", false)).toBe("runway");
     expect(resolveExitStrategy("my-live", "USER", true)).toBe("sprint");
+  });
+});
+
+/**
+ * sprintOpeningLevels — the opening SL / TP a trade gets when the operator left
+ * the field blank.
+ *
+ * These used to come from BROKER settings (`broker_configs.settings.defaultSL`
+ * and `instrumentSl`) on the manual placement path, so the AI menu's Sprint SL
+ * was dead for every manual trade: two screens edited "the SL %" and the one
+ * you'd expect to win was silently overruled. The AI menu is now the single
+ * authority, and the router and executor share this one function so the level a
+ * trade is gated on and the level it is opened with cannot drift.
+ */
+describe("sprintOpeningLevels", () => {
+  beforeEach(() => updateExitConfig({ sprint: { defaultSL: 10, defaultTP: 5 } }));
+
+  it("puts a LONG's stop below entry and target above", () => {
+    expect(sprintOpeningLevels(100, true)).toEqual({ stopLoss: 90, takeProfit: 105 });
+  });
+
+  it("mirrors both for a SHORT", () => {
+    // Without the mirror the stop lands on the profitable side — it would exit
+    // winners and let losers run.
+    expect(sprintOpeningLevels(100, false)).toEqual({ stopLoss: 110, takeProfit: 95 });
+  });
+
+  it("tracks the AI menu, so changing the config changes the levels", () => {
+    updateExitConfig({ sprint: { defaultSL: 3 } });
+    expect(sprintOpeningLevels(100, true).stopLoss).toBe(97);
+    updateExitConfig({ sprint: { defaultSL: 10 } });
+    expect(sprintOpeningLevels(100, true).stopLoss).toBe(90);
+  });
+
+  it("never returns null — the discipline gate reads this value", () => {
+    // Handing the gate an undefined stop would let a manual trade through the
+    // risk check with no stop at all.
+    const l = sprintOpeningLevels(487.75, true);
+    expect(Number.isFinite(l.stopLoss)).toBe(true);
+    expect(Number.isFinite(l.takeProfit)).toBe(true);
+  });
+
+  it("rounds to paise", () => {
+    expect(sprintOpeningLevels(58.63, true).stopLoss).toBe(52.77);
   });
 });

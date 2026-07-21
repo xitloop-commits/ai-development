@@ -250,6 +250,36 @@ export function aiModeForChannel(channel: Channel): Exclude<AiMode, "manual"> | 
   return null; // my-live — not governed by the AI menu for these
 }
 
+/**
+ * Opening SL / TP levels from the AI menu's SHARED Sprint config.
+ *
+ * The AI menu is the single authority for these. Previously the manual
+ * placement path computed them from BROKER settings
+ * (`broker_configs.settings.defaultSL` / `instrumentSl`) instead, so the AI
+ * menu's Sprint SL was dead for every manual trade: two screens edited "the SL
+ * %" and the one you'd expect to win was silently overruled.
+ *
+ * Returns concrete prices, never null, because the discipline gate reads
+ * `req.stopLoss` — handing it null would let a manual trade reach the risk
+ * check with no stop at all. Equity is handled by the CALLER (a discretionary
+ * stock buy carries no auto SL/TP, and option-tuned percentages would produce a
+ * nonsensical R:R).
+ *
+ * Only meaningful for Sprint. Runway/Anchor recompute both from entry on their
+ * first tick, so for those this is just the opening placeholder that keeps the
+ * gate fed.
+ */
+export function sprintOpeningLevels(
+  entry: number,
+  isLong: boolean,
+): { stopLoss: number; takeProfit: number } {
+  const { defaultSL, defaultTP } = state.exits.sprint;
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  const move = (pct: number, favourable: boolean) =>
+    round2(entry * (1 + (isLong === favourable ? pct : -pct) / 100));
+  return { stopLoss: move(defaultSL, false), takeProfit: move(defaultTP, true) };
+}
+
 /** The SHARED Sprint / Runway / Anchor config (same for every mode). */
 export function getExitConfig(): SharedExitConfig {
   return state.exits;

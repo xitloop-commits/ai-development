@@ -18,13 +18,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { sprintOpeningLevels } from "../portfolio/aiModeConfig";
 import { tradeExecutor } from "./tradeExecutor";
 import {
   resolveContract,
   resolveLotSize,
   resolveNearestExpiry,
 } from "./tradeResolution";
-import { resolveRiskLevels } from "../discipline/riskMode";
 import { getExecutorSettings, updateExecutorSettings } from "./settings";
 import { getCapitalState, getDayRecord } from "../portfolio/state";
 import { notifyTradeExit } from "../_core/tradeEventNotifier";
@@ -367,16 +367,17 @@ export const executorRouter = router({
       // nonsensical R:R and would trip the pre-trade gate. Managed manually.
       const isEquity = input.type === "BUY" || input.type === "SELL";
       const config = await getActiveBrokerConfig();
-      // A FIXED target is a NET-₹ profit → needs qty + charges; resolveRiskLevels
-      // converts it to a target price. SL + percent target are charges-free.
-      const riskDefault = await resolveRiskLevels(entryPrice, {
-        isOption, // declared above (CALL_/PUT_ prefix)
-        isLong: isBuy,
-        qty,
-        exchange: /CRUDE|NATURAL/i.test(input.instrument) ? "MCX" : "NSE",
-        settings: config?.settings ?? {},
-        instrument: input.instrument,
-      });
+      // Opening SL/TP defaults come from the AI menu's Sprint block — the single
+      // authority for these. What the operator explicitly typed still wins (the
+      // branches below check input first); this only fills a field left blank.
+      //
+      // Replaces resolveRiskLevels(broker settings). Two knowingly dropped
+      // behaviours, neither in use on the active broker config:
+      //   - per-instrument SL (`settings.instrumentSl`) — the AI menu has no
+      //     per-instrument SL, so one % now applies to every instrument;
+      //   - fixed-₹ NET target (`targetMode: "fixed"`), which sized the target
+      //     to clear charges. The AI menu's Sprint TP is a percentage only.
+      const aiLevels = sprintOpeningLevels(entryPrice, isBuy);
 
       let resolvedTakeProfit: number | null;
       if (input.targetPrice !== undefined) {
@@ -388,7 +389,8 @@ export const executorRouter = router({
       } else if (isEquity) {
         resolvedTakeProfit = null; // no auto target on a discretionary stock buy
       } else {
-        resolvedTakeProfit = riskDefault.takeProfit; // configured %/fixed default
+        // AI menu, NOT broker settings. See sprintOpeningLevels.
+        resolvedTakeProfit = aiLevels.takeProfit;
       }
 
       let resolvedStopLoss: number | null;
@@ -401,7 +403,8 @@ export const executorRouter = router({
       } else if (isEquity) {
         resolvedStopLoss = null; // no auto stop on a discretionary stock buy (skips R:R gate)
       } else {
-        resolvedStopLoss = riskDefault.stopLoss; // configured %/fixed default
+        // AI menu, NOT broker settings. See sprintOpeningLevels.
+        resolvedStopLoss = aiLevels.stopLoss;
       }
 
       // ── 6. Resolve order type / product type from broker config (reuses `config`) ─

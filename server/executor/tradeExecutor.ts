@@ -48,7 +48,7 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
-import { getExitConfig, resolveExitStrategy } from "../portfolio/aiModeConfig";
+import { getExitConfig, resolveExitStrategy, sprintOpeningLevels } from "../portfolio/aiModeConfig";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -1212,13 +1212,15 @@ function buildTradeRecord(
   const strategy = req.exitStrategy ?? resolveExitStrategy(req.channel, req.origin, !req.optionType);
   const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const fromCfg = (pct: number, favourable: boolean): number | null =>
+  // Same helper the UI placement path uses, so the level a manual trade gets at
+  // the router and the level computed here can never drift apart. Runway/Anchor
+  // get null: their engine recomputes both from entry on the first tick.
+  const cfgLevels =
     strategy === "sprint" && req.entryPrice > 0
-      ? round2(req.entryPrice * (1 + (isLong === favourable ? pct : -pct) / 100))
+      ? sprintOpeningLevels(req.entryPrice, isLong)
       : null;
-  const cfgStop = fromCfg(sprintCfg.defaultSL, false);
-  const cfgTarget = fromCfg(sprintCfg.defaultTP, true);
+  const cfgStop = cfgLevels?.stopLoss ?? null;
+  const cfgTarget = cfgLevels?.takeProfit ?? null;
   const stopLossPrice = fromSignal ? (cfgStop ?? req.stopLoss ?? null) : (req.stopLoss ?? cfgStop);
   const targetPrice = fromSignal ? (cfgTarget ?? req.takeProfit ?? null) : (req.takeProfit ?? cfgTarget);
 
