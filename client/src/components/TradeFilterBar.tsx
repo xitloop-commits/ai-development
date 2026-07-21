@@ -26,7 +26,7 @@ export interface TradeFilter {
   instrument: string | null;
   status: StatusFilter | null;
   side: SideFilter | null;
-  /** Bought vs sold — orthogonal to CE/PE, so "PE Short" is side=PE + direction=SHORT. */
+  /** Bought vs sold — orthogonal to CE/PE, so "Short(PE)" is side=PE + direction=SHORT. */
   direction: DirectionFilter | null;
   outcome: OutcomeFilter | null;
   /** Exit reason (SL_HIT / TSL_HIT / TP_HIT / AGE_EXIT / EOD_SQUAREOFF / …), or null = all. */

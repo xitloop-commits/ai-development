@@ -1627,6 +1627,41 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T102 [Portfolio] — capital book of records + broker reconciliation ✅ DONE 2026-07-21
+Prompted by T101's misdirected ₹9,00,000: it sat on `my-live` for over an hour
+reading as ₹8.95L of profit, and had to be reconstructed from arithmetic on a
+stale `originalProjCapital` because NOTHING recorded it. `CAPITAL_INJECTED` and
+`DAY_COMPLETED` were declared event types that were never once written.
+
+**Model B (Partha's choice): the app keeps its OWN ledger and CHECKS it against
+the broker — it does not mirror.** Mirroring would have silently absorbed that
+9L and hidden the bug, and would let a deposit made directly at Dhan move the
+250-day growth curve for non-trading reasons. Drift is reported, never
+auto-corrected.
+
+- `server/portfolio/capitalLedger.ts` — `recordCapitalEvent` / `getLedger` /
+  `reconcile`. Recording never throws: a ledger failure must not roll back the
+  money movement that just succeeded.
+- Events written at every path: seed, add fund, withdraw, transfer, day close.
+- `portfolio.book` query → seed capital, pools, `profitHistory` (the reserve
+  pool's own record), the ledger, and a live reconciliation.
+- Reconciliation reads Dhan's `availabelBalance` (CASH), **not** `sodLimit` —
+  the start-of-day limit can include collateral and broker margin, i.e. money
+  you don't own. A failed broker read reports UNAVAILABLE, never MATCHED.
+- "Book" CTA on the Net Worth panel → `CapitalBookDialog`. Paper and live.
+
+**Note on the reserve pool:** it is 0 on every book not because injections skip
+it but because `completeDayIndex` — the only thing that moves profit into
+Reserve — runs at DAY CLOSE, and all books are still on day 1.
+
+10 tests, mutation-verified three ways: a failed read reporting MATCHED (3 fail),
+reconciling against sodLimit (3 fail), excluding Reserve from the balance (1 fail).
+
+**Still open:** live net worth in the footer shows `my-live + ai-live` combined
+while funding actions hit one book. `seedFromBroker` still seeds from `sodLimit`
+— harmless today (both accounts report available == total, no collateral) but
+inconsistent with what reconciliation now measures against.
+
 ### T101 [Portfolio] — funding follows the viewed mode; withdraw added ✅ DONE 2026-07-21
 Asked to "add funds by clicking net worth". The UI already existed (Net Worth
 popover, bottom right) — the analysis found it was wired wrong.

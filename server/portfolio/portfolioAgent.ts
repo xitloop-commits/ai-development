@@ -56,6 +56,7 @@ import {
   calculateGiftDays,
   processClawback,
 } from "./compounding";
+import { recordCapitalEvent } from "./capitalLedger";
 import { calculateTradeCharges, estimateSingleLegCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { chargeRatesForTrade } from "../../shared/chargesEngine";
@@ -1416,6 +1417,28 @@ class PortfolioAgentImpl {
       day.status = "COMPLETED";
       day.rating = result.rating;
       await upsertDayRecord(channel, day);
+
+      // The reserve pool's own record: this is the ONLY thing that moves money
+      // into Reserve, which is why every book sits at reserve 0 until a day
+      // actually completes.
+      await recordCapitalEvent({
+        channel,
+        type: "DAY_COMPLETED",
+        amount: day.totalPnl,
+        tradingPoolAfter: result.tradingPool,
+        reservePoolAfter: result.reservePool,
+        note:
+          `Day ${day.dayIndex} closed ${day.totalPnl >= 0 ? "+" : ""}` +
+          `₹${day.totalPnl.toLocaleString("en-IN")} · ` +
+          `₹${result.profitEntry.tradingPoolShare.toLocaleString("en-IN")} to Trading, ` +
+          `₹${result.profitEntry.reservePoolShare.toLocaleString("en-IN")} to Reserve`,
+        detail: {
+          dayIndex: day.dayIndex,
+          tradingPoolShare: result.profitEntry.tradingPoolShare,
+          reservePoolShare: result.profitEntry.reservePoolShare,
+          rating: result.rating,
+        },
+      });
 
       if (completion.excessProfit > 0) {
         const gifts = calculateGiftDays(

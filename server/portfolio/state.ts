@@ -977,6 +977,21 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
   if (isLive && seeded === null) return initial;
 
   await CapitalStateModel.create(initial);
+  // Opening entry in the book: what this channel started from, and when.
+  // Lazily imported — capitalLedger pulls in the broker stack for reconcile().
+  void import("./capitalLedger").then(({ recordCapitalEvent }) =>
+    recordCapitalEvent({
+      channel,
+      type: "CAPITAL_SEEDED",
+      amount: initial.tradingPool,
+      tradingPoolAfter: initial.tradingPool,
+      reservePoolAfter: 0,
+      note: isLive
+        ? `Seeded ₹${initial.tradingPool.toLocaleString("en-IN")} from ${SEED_BROKER_FOR[channel]}`
+        : "Paper book opened at ₹0 — fund it by hand",
+      detail: { source: isLive ? SEED_BROKER_FOR[channel] : "manual" },
+    }),
+  ).catch(() => { /* ledger must never block book creation */ });
   return initial;
 }
 

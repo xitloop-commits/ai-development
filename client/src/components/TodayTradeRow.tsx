@@ -190,7 +190,7 @@ function _TodayTradeRow({
             4. ACTION   chart button, acting on that contract
             5. HOW      cohort (what fired it) · strategy (what manages it)
 
-          The contract is kept contiguous because "NIFTY50 24250 CE Long" is a
+          The contract is kept contiguous because "NIFTY50 24250 Long(CE)" is a
           single name you read as one thing — cohort and strategy previously sat
           between the instrument and its strike, splitting it in half. Time and
           number lead because they are fixed-width, so they align down the column
@@ -261,18 +261,20 @@ function _TodayTradeRow({
               {trade.strike !== null && (
                 <span className="text-[0.5625rem] font-semibold tabular-nums text-foreground shrink-0">{trade.strike}</span>
               )}
-              {/* ONE pill carrying both facts: "CE Long" / "PE Short". Two
-                  separate CE|B chips made the reader assemble the position
-                  themselves, and "B" next to a PE is easy to misread as bullish
-                  when a bought put is a bearish position. Colour follows the
-                  DIRECTION (bought vs sold), not the option type. */}
+              {/* ONE pill carrying both facts: "Long(CE)" / "Short(PE)".
+                  Direction leads because it is what you scan for; the contract
+                  is the qualifier. Two separate CE|B chips made the reader
+                  assemble the position themselves, and "B" next to a PE is easy
+                  to misread as bullish when a bought put is a bearish position.
+                  Colour follows the DIRECTION (bought vs sold), not the option
+                  type. */}
               <span
                 className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap ${isOpen ? 'font-bold' : 'font-semibold'} ${
                   isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
                 }`}
-                title={`${contractLabel} ${isBuy ? 'Long (bought)' : 'Short (sold)'}`}
+                title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel}`}
               >
-                {contractLabel} {isBuy ? 'Long' : 'Short'}
+                {isBuy ? 'Long' : 'Short'}({contractLabel})
               </span>
               {(contractLabel === 'CE' || contractLabel === 'PE') &&
                 trade.contractSecurityId &&
@@ -291,7 +293,7 @@ function _TodayTradeRow({
                   WHERE the trade came from (cohort) and HOW it is being managed
                   (exit strategy). Deliberately AFTER the contract: these two used
                   to sit between the instrument and its strike, splitting
-                  "NIFTY50 24250 CE Long" — one thing you read as a single name —
+                  "NIFTY50 24250 Long(CE)" — one thing you read as a single name —
                   into two halves with unrelated pills wedged in the middle. */}
               {trade.cohort && (
                 <span

@@ -15,11 +15,13 @@ import { useState, useMemo } from 'react';
 import {
   Plus,
   Minus,
+  BookOpen,
   Loader2,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCapital } from '@/contexts/CapitalContext';
+import { CapitalBookDialog } from './CapitalBookDialog';
 import { formatINR } from '@/lib/formatINR';
 import { trpc } from '@/lib/trpc';
 
@@ -62,6 +64,7 @@ function NetWorthPopover({
   const [tab, setTab] = useState<'overview' | 'inject' | 'withdraw' | 'transfer'>('overview');
   const [amount, setAmount] = useState('');
   const [withdrawFrom, setWithdrawFrom] = useState<'trading' | 'reserve'>('trading');
+  const [bookOpen, setBookOpen] = useState(false);
   const [transferDir, setTransferDir] = useState<'reserve-to-trading' | 'trading-to-reserve'>('reserve-to-trading');
   const {
     inject: ctxInject, injectPending, withdraw: ctxWithdraw, withdrawPending,
@@ -180,6 +183,13 @@ function NetWorthPopover({
               }`}
             >
               <Plus className="inline h-2.5 w-2.5 mr-0.5" />Add Fund
+            </button>
+            <button
+              onClick={() => setBookOpen(true)}
+              className="flex-1 px-2 py-1 rounded text-[0.625rem] font-bold text-muted-foreground hover:text-foreground transition-colors"
+              title={`Book of records for ${book}`}
+            >
+              <BookOpen className="inline h-2.5 w-2.5 mr-0.5" />Book
             </button>
             <button
               onClick={() => { setTab('withdraw'); setAmount(''); }}
@@ -328,6 +338,7 @@ function NetWorthPopover({
           )}
         </div>
       </PopoverContent>
+      <CapitalBookDialog open={bookOpen} onClose={() => setBookOpen(false)} channel={book} />
     </Popover>
   );
 }

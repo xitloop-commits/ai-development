@@ -1,0 +1,182 @@
+/**
+ * CapitalBookDialog — the book of records for a channel's capital.
+ *
+ * Opened from the "Book" CTA on the Net Worth panel. Applies to paper and live.
+ *
+ * Exists because on 2026-07-21 a ₹9,00,000 injection meant for paper landed on
+ * the live book and sat there for over an hour reading as profit. Nothing had
+ * recorded the change, so it had to be reconstructed from arithmetic. Every
+ * capital movement now leaves a row here.
+ *
+ * The reconciliation strip is the point of the screen: it compares the book
+ * against the real Dhan balance and REPORTS a difference rather than quietly
+ * correcting it. Auto-correcting would have absorbed that 9L and hidden the bug.
+ */
+import { trpc } from '@/lib/trpc';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+const fmt = (n: number) =>
+  `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const when = (ts: number) =>
+  new Date(ts).toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+
+/** Colour + label per event type. Money IN green, OUT red, neutral moves grey. */
+const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
+  CAPITAL_SEEDED: { label: 'Seeded', cls: 'bg-info-cyan/15 text-info-cyan' },
+  CAPITAL_INJECTED: { label: 'Added', cls: 'bg-bullish/15 text-bullish' },
+  CAPITAL_WITHDRAWN: { label: 'Withdrawn', cls: 'bg-warning-amber/15 text-warning-amber' },
+  CAPITAL_TRANSFERRED: { label: 'Transfer', cls: 'bg-muted text-muted-foreground' },
+  DAY_COMPLETED: { label: 'Day close', cls: 'bg-primary/15 text-primary' },
+  CAPITAL_ADJUSTED: { label: 'Correction', cls: 'bg-destructive/15 text-destructive' },
+};
+
+export function CapitalBookDialog({
+  open, onClose, channel,
+}: { open: boolean; onClose: () => void; channel: string }) {
+  const book = trpc.portfolio.book.useQuery(
+    { channel: channel as 'paper' | 'ai-live' | 'my-live' },
+    { enabled: open, refetchOnWindowFocus: false },
+  );
+  const d = book.data;
+
+  const rec = d?.reconciliation;
+  const recCls =
+    rec?.status === 'MATCHED' ? 'border-bullish/40 bg-bullish/10 text-bullish'
+    : rec?.status === 'DRIFT' ? 'border-destructive/40 bg-destructive/10 text-destructive'
+    : 'border-border bg-muted/40 text-muted-foreground';
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-sm">
+            Book of records · <span className="font-mono">{channel}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {book.isLoading && <p className="text-xs text-muted-foreground">Reading the book…</p>}
+        {book.error && <p className="text-xs text-destructive">Could not load: {book.error.message}</p>}
+
+        {d && (
+          <div className="space-y-3">
+            {/* Reconciliation — the headline. */}
+            <div className={`rounded-md border px-3 py-2 text-[0.6875rem] ${recCls}`}>
+              <div className="font-bold mb-0.5">
+                {rec?.status === 'MATCHED' ? '✓ Book agrees with the broker'
+                  : rec?.status === 'DRIFT' ? '⚠ Book does not match the broker'
+                  : rec?.status === 'UNAVAILABLE' ? '? Could not reach the broker'
+                  : 'Paper book — nothing to reconcile'}
+              </div>
+              <div className="opacity-90">{rec?.message}</div>
+              {rec?.brokerBalance != null && (
+                <div className="mt-1 flex gap-4 tabular-nums">
+                  <span>Book {fmt(rec.bookBalance)}</span>
+                  <span>Broker {fmt(rec.brokerBalance)}</span>
+                  <span className="font-bold">
+                    Difference {rec.difference! >= 0 ? '+' : ''}{fmt(rec.difference!)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Where the money stands now. */}
+            <div className="grid grid-cols-4 gap-2 text-[0.6875rem]">
+              {[
+                ['Seed capital', d.seedCapital],
+                ['Trading pool', d.tradingPool],
+                ['Reserve pool', d.reservePool],
+                ['Net worth', d.netWorth],
+              ].map(([label, v]) => (
+                <div key={label as string} className="rounded border border-border px-2 py-1.5">
+                  <div className="text-muted-foreground">{label as string}</div>
+                  <div className="font-bold tabular-nums">{fmt(v as number)}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Reserve pool's own record — one row per completed day. */}
+            <div>
+              <div className="text-[0.6875rem] font-bold mb-1">Reserve pool · by day</div>
+              {d.profitHistory.length === 0 ? (
+                <p className="text-[0.625rem] text-muted-foreground">
+                  Nothing yet. Profit moves into Reserve only when a day CLOSES — that is why
+                  the reserve sits at zero until the first day completes.
+                </p>
+              ) : (
+                <table className="w-full text-[0.625rem] tabular-nums">
+                  <thead className="text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="text-left py-1">Day</th>
+                      <th className="text-right">Profit</th>
+                      <th className="text-right">→ Trading</th>
+                      <th className="text-right">→ Reserve</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.profitHistory.map((p) => (
+                      <tr key={p.dayIndex} className="border-b border-border/40">
+                        <td className="py-1">{p.dayIndex}</td>
+                        <td className={`text-right ${p.totalProfit >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                          {fmt(p.totalProfit)}
+                        </td>
+                        <td className="text-right">{fmt(p.tradingPoolShare)}</td>
+                        <td className="text-right">{fmt(p.reservePoolShare)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* The ledger itself. */}
+            <div>
+              <div className="text-[0.6875rem] font-bold mb-1">Every movement · newest first</div>
+              {d.entries.length === 0 ? (
+                <p className="text-[0.625rem] text-muted-foreground">
+                  No entries. Recording started 21 Jul 2026 — anything before that was never
+                  logged, which is exactly why this book exists.
+                </p>
+              ) : (
+                <table className="w-full text-[0.625rem] tabular-nums">
+                  <thead className="text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="text-left py-1">When</th>
+                      <th className="text-left">What</th>
+                      <th className="text-right">Amount</th>
+                      <th className="text-right">Trading</th>
+                      <th className="text-right">Reserve</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.entries.map((e) => {
+                      const st = EVENT_STYLE[e.type] ?? { label: e.type, cls: 'bg-muted text-muted-foreground' };
+                      return (
+                        <tr key={e.eventId} className="border-b border-border/40 align-top">
+                          <td className="py-1 whitespace-nowrap">{when(e.timestamp)}</td>
+                          <td>
+                            <span className={`rounded px-1 py-0.5 font-bold ${st.cls}`}>{st.label}</span>
+                            <div className="text-muted-foreground mt-0.5">{e.note}</div>
+                          </td>
+                          <td className={`text-right whitespace-nowrap ${
+                            e.amount > 0 ? 'text-bullish' : e.amount < 0 ? 'text-loss-red' : 'text-muted-foreground'
+                          }`}>
+                            {e.amount === 0 ? '—' : `${e.amount > 0 ? '+' : ''}${fmt(e.amount)}`}
+                          </td>
+                          <td className="text-right">{fmt(e.tradingPoolAfter)}</td>
+                          <td className="text-right">{fmt(e.reservePoolAfter)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -19,6 +19,7 @@ import {
   replaceCapitalState,
 } from "./state";
 import { deleteAllPositions } from "./storage";
+import { recordCapitalEvent, getLedger, reconcile } from "./capitalLedger";
 import type { Channel, DayRecord } from "./state";
 import {
   injectCapital,
@@ -237,6 +238,15 @@ export const portfolioRouter = router({
           day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
           await upsertDayRecord(ws, day);
         }
+        await recordCapitalEvent({
+          channel: ws,
+          type: "CAPITAL_INJECTED",
+          amount: input.amount,
+          tradingPoolAfter: tradingPool,
+          reservePoolAfter: reservePool,
+          note: `Added ₹${input.amount.toLocaleString("en-IN")} to the Trading pool`,
+          detail: { wasUnseeded: state.seededAt == null },
+        });
         return updated;
       }
 
@@ -302,6 +312,15 @@ export const portfolioRouter = router({
         day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
         await upsertDayRecord(input.channel, day);
       }
+      await recordCapitalEvent({
+        channel: input.channel,
+        type: "CAPITAL_WITHDRAWN",
+        amount: -input.amount,
+        tradingPoolAfter: tradingPool,
+        reservePoolAfter: reservePool,
+        note: `Withdrew ₹${input.amount.toLocaleString("en-IN")} from the ${input.from} pool`,
+        detail: { pool: input.from },
+      });
       return updated;
     }),
 
@@ -346,6 +365,17 @@ export const portfolioRouter = router({
           day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
           await upsertDayRecord(ws, day);
         }
+        await recordCapitalEvent({
+          channel: ws,
+          type: "CAPITAL_TRANSFERRED",
+          // Zero: a transfer moves money BETWEEN pools without changing the
+          // book's total. The running net worth column must not move.
+          amount: 0,
+          tradingPoolAfter: newTrading,
+          reservePoolAfter: newReserve,
+          note: `Moved ₹${input.amount.toLocaleString("en-IN")} from ${input.from} to ${input.to}`,
+          detail: { from: input.from, to: input.to, moved: input.amount },
+        });
         return updated;
       }
 
@@ -370,6 +400,37 @@ export const portfolioRouter = router({
    * between two CHANNELS' trading pools. Different verb in the user's
    * head, different signature.
    */
+  /**
+   * The book of records for one channel: every capital movement, plus a
+   * reconciliation against the broker.
+   *
+   * Read-only by design. The reconciliation REPORTS drift and never corrects
+   * it — auto-correcting would have silently absorbed the 2026-07-21 misdirected
+   * injection and hidden the bug that caused it.
+   */
+  book: publicProcedure
+    .input(z.object({ channel: channelSchema, limit: z.number().int().positive().max(500).optional() }))
+    .query(async ({ input }) => {
+      const state = await getCapitalState(input.channel);
+      const [entries, reconciliation] = await Promise.all([
+        getLedger(input.channel, input.limit ?? 200),
+        reconcile(input.channel, state.tradingPool, state.reservePool),
+      ]);
+      return {
+        channel: input.channel,
+        seedCapital: state.initialFunding,
+        seededAt: state.seededAt ?? null,
+        tradingPool: state.tradingPool,
+        reservePool: state.reservePool,
+        netWorth: Math.round((state.tradingPool + state.reservePool) * 100) / 100,
+        cumulativePnl: state.cumulativePnl,
+        /** Per-day profit split — the reserve pool's own record. */
+        profitHistory: state.profitHistory,
+        entries,
+        reconciliation,
+      };
+    }),
+
   transferFundsCrossChannel: protectedProcedure
     .input(z.object({
       from: channelSchema,
