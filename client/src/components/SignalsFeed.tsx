@@ -16,6 +16,8 @@ import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { setSelectedSignalSeq, useSelectedSignalSeq } from '@/lib/selectionStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { trpc } from '@/lib/trpc';
+import { manualTradeSize } from '@/lib/manualTradeConfig';
 
 // ─── Instrument name mapping for trade placement ───────────
 const SIG_TO_UI_NAME: Record<string, string> = {
@@ -117,6 +119,8 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
   const [hovered, setHovered] = useState(false);
   const { channel, placeTrade, currentDay } = useCapital() as any;
   const { styleOf } = useInstrumentColors();
+  // Manual placement size comes from the AI menu, not from constants here.
+  const aiConfig = trpc.trading.aiConfig.useQuery(undefined);
 
   // Item 4: signalSeqs that currently have an OPEN trade on the active channel —
   // their cards pulse. A caller-supplied set (activeSignalSeqs) overrides this.
@@ -152,8 +156,11 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
       expiry: '',  // server resolves current expiry
       contractSecurityId,
       entryPrice: signal.entry ?? (isCE ? signal.atm_ce_ltp : signal.atm_pe_ltp) ?? 0,
-      capitalPercent: 5,  // default 5% — user can adjust in TradingDesk
-      qty: 1,
+      // Size from the AI menu's "My Trades" block, same as every other manual
+      // path. This used to hardcode 5% and 1 lot, so the configured size was
+      // silently ignored here while the watchlist row honoured it — the same
+      // setting produced different trades depending on which button you pressed.
+      ...manualTradeSize(aiConfig.data?.manual, uiName),
       targetPrice: signal.tp ?? null,
       stopLossPrice: signal.sl ?? null,
     });

@@ -362,7 +362,11 @@ describe("exit strategy reaches the stored trade", () => {
     expect((await submitWith("es-anchor", "anchor")).exitStrategy).toBe("anchor");
   });
 
-  it("falls back to sprint only when the caller sends nothing", async () => {
+  it("resolves from the AI menu when the caller sends nothing", async () => {
+    // With no config file loaded this suite sees the DEFAULT manual block,
+    // whose first enabled pill is sprint — so the value here is sprint. That is
+    // the default's doing, NOT a hardcoded fallback: the routing itself is
+    // pinned in resolveExitStrategy.test.ts, which drives the config directly.
     expect((await submitWith("es-none")).exitStrategy).toBe("sprint");
   });
 });

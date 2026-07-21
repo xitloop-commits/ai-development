@@ -39,6 +39,7 @@ import { formatCalendarDay } from '@/lib/tradeFormatters';
 import { liveOptionConfirm } from '@/lib/optionOrderConfirm';
 import { ConfirmDialog } from './ConfirmDialog';
 import { trpc } from '@/lib/trpc';
+import { manualTradeSize, manualStrategyLabel } from '@/lib/manualTradeConfig';
 
 type Side = 'CE' | 'PE';
 
@@ -79,19 +80,15 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
   const tick = useInstrumentTick(optionExchange, contractSecurityId ?? undefined);
   const premium = tick?.ltp ?? 0;
 
-  // Manual sizing comes from the AI menu's `manual` block (T85), so this row
-  // obeys the same per-instrument size as every other manual entry point.
+  // Sizing and strategy both come from the AI menu's `manual` block, via the
+  // shared helper so this row and the signals feed cannot drift apart.
   const aiConfig = trpc.trading.aiConfig.useQuery(undefined);
-  const sizing = aiConfig.data?.manual?.sizing?.perInstrument?.[key] ?? null;
+  const manual = aiConfig.data?.manual;
 
-  // Exit strategy for the trade, from the SAME manual block. Manual placement
-  // takes ONE strategy per trade (not a race like paper), so the first enabled
-  // pill wins. This has to be sent explicitly: the executor defaults to "sprint"
-  // when no strategy arrives, which is why a book configured for Runway was
-  // still running every manual trade on Sprint.
-  const manualStrategies = aiConfig.data?.manual?.strategies;
-  const exitStrategy = (["sprint", "runway", "anchor"] as const)
-    .find((s) => manualStrategies?.[s]) ?? "sprint";
+  // Display only. The SERVER resolves the actual strategy from the same config
+  // (`resolveExitStrategy`) — sending it from here would let a caller bypass
+  // that single authority, including its equity-pinned-to-sprint guard.
+  const exitStrategy = manualStrategyLabel(manual);
 
   const ready = !!contractSecurityId && atmStrike != null && premium > 0;
 
@@ -100,9 +97,6 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
     const type = side === 'CE'
       ? (direction === 'LONG' ? 'CALL_BUY' : 'CALL_SELL')
       : (direction === 'LONG' ? 'PUT_BUY' : 'PUT_SELL');
-    // "lots" → qty in lots (server multiplies by lotSize); "percent" → let the
-    // server size from capital. Default to 1 lot when nothing is configured.
-    const useLots = !sizing || sizing.mode === 'lots';
     const trade = {
       // Canonical instrument spelling: "NIFTY50" / "BANKNIFTY", matching what
       // SEA signals send. The row's own prop is "NIFTY_50" (the client feed key)
@@ -113,10 +107,8 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
       strike: atmStrike,
       expiry: '', // server resolves the current expiry
       entryPrice: premium,
-      capitalPercent: useLots ? 0 : sizing!.value,
-      qty: useLots ? Math.max(1, Math.round(sizing?.value ?? 1)) : 0,
+      ...manualTradeSize(manual, key),
       contractSecurityId,
-      exitStrategy,
     };
 
     const needsConfirm = liveOptionConfirm(channel, trade);

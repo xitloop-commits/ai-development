@@ -48,7 +48,7 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
-import { getExitConfig } from "../portfolio/aiModeConfig";
+import { getExitConfig, resolveExitStrategy } from "../portfolio/aiModeConfig";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -1206,7 +1206,10 @@ function buildTradeRecord(
   // comes from the strategy config (tickHandler reads it per tick, whatever the
   // trade's origin). Runway/Anchor produce no config level here because their
   // engine recomputes both from entry on the first tick regardless.
-  const strategy = req.exitStrategy ?? "sprint";
+  // No strategy from the caller → resolve it from the AI menu rather than
+  // assuming sprint. `optionType` is undefined only for equity (the UI router
+  // sets it that way), and equity is pinned to sprint inside the resolver.
+  const strategy = req.exitStrategy ?? resolveExitStrategy(req.channel, req.origin, !req.optionType);
   const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1264,9 +1267,10 @@ function buildTradeRecord(
     // of the global switch. originalStopLossPrice snapshots the stop at open so
     // the SL-disabled gate can tell whether the stop has since moved.
     manualExitOnly: exitFlags.manualExitOnly,
-    // Pluggable exit strategy (T84). Defaults to "sprint" = today's behaviour;
-    // the RCA twin fan-out overrides per-twin (sprint/runway/anchor).
-    exitStrategy: req.exitStrategy ?? "sprint",
+    // Pluggable exit strategy (T84). The RCA twin fan-out passes one per twin
+    // (sprint/runway/anchor); everything else resolves from the AI menu above.
+    // Reuse `strategy` — recomputing risked the two drifting apart.
+    exitStrategy: strategy,
     stopLossDisabled: exitFlags.stopLossDisabled,
     targetDisabled: exitFlags.targetDisabled,
     tslMode: exitFlags.tslMode,

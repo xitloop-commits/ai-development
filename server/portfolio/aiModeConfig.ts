@@ -271,6 +271,45 @@ export function getActiveStrategies(mode: AiMode): StrategyName[] {
   return (["sprint", "runway", "anchor"] as StrategyName[]).filter((k) => s[k]);
 }
 
+/**
+ * The exit strategy a trade should run when the caller did not name one.
+ *
+ * This exists because the old fallback was the bare literal "sprint", and every
+ * placement path had to REMEMBER to send a strategy to avoid it. Four manual
+ * paths existed; one sent it. A book set to Runway silently ran Sprint and
+ * nothing failed loudly. Centralising the decision makes the mistake
+ * impossible rather than merely fixed — a new placement button is correct by
+ * default.
+ *
+ * Which block governs:
+ *   - MANUAL (origin USER) → the `manual` block on EVERY channel. The AI menu
+ *     shows "My Trades · manual" as its own section, independent of the
+ *     Paper/Live toggle, so a manual trade follows it whether it lands on
+ *     paper or my-live.
+ *   - AI / RCA → the channel's block (paper→paper, ai-live→live). In practice
+ *     the RCA fan-out always passes an explicit strategy (one twin per active
+ *     strategy), so this is only a backstop for that path.
+ *
+ * Manual takes ONE strategy per trade — not the race paper runs — so the first
+ * enabled pill wins. None enabled → sprint, the safe fixed-stop default.
+ *
+ * ⚠️ EQUITY IS PINNED TO SPRINT. Runway and Anchor use `defaultSlPct: 25` — a
+ * 25% stop. That is ordinary for an option premium and meaningless for a stock,
+ * which will not move 25% intraday: the staged stop would never trigger and the
+ * trade would run with no effective protection. The staged thresholds are
+ * calibrated for premiums; until an equity-specific config exists, stocks keep
+ * Sprint's fixed stop.
+ */
+export function resolveExitStrategy(
+  channel: Channel,
+  origin: "RCA" | "AI" | "USER",
+  isEquity: boolean,
+): StrategyName {
+  if (isEquity) return "sprint";
+  const mode: AiMode = origin === "USER" ? "manual" : modeForChannel(channel);
+  return getActiveStrategies(mode)[0] ?? "sprint";
+}
+
 /** Deep-merge a patch into the SHARED exit config; clamp, persist, return it. */
 export function updateExitConfig(patch: unknown): SharedExitConfig {
   deepMerge(state.exits, patch);

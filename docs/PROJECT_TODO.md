@@ -1634,6 +1634,30 @@ and the AI menu's manual strategy pills were decorative. Schema + submit call no
 carry it; `IndexOptionRow` reads the manual config and sends it (first enabled
 pill wins — manual takes one strategy per trade). 3 tests, mutation-verified.
 
+**Follow-up (same commit):** the fix above patched one of FOUR manual placement
+paths. `resolveExitStrategy` now resolves the strategy centrally on the server —
+manual (origin USER) reads the AI menu's "My Trades" block on every channel, AI
+reads the channel's block — so signals-feed placement, repeat-last-order and
+stock orders all obey the menu too, and a future placement button is correct by
+default. Client no longer sends the strategy (it would bypass that authority).
+Sizing shared via `client/src/lib/manualTradeConfig.ts` — the signals feed was
+hardcoding 5% + 1 lot while the watchlist row honoured the config. 19 tests.
+
+**EQUITY PINNED TO SPRINT:** Runway/Anchor open at `defaultSlPct` (15% in the
+live config). Meaningless on a stock, which will not move 15% intraday — the
+staged stop would never fire and the trade would run unprotected. Revisit when
+an equity-calibrated exit config exists.
+
+### T99 [Execution] — Sprint SL/TP has TWO config stores; the AI menu loses 🆕
+Manual trades never use the AI menu's `exits.sprint.defaultSL`. `executor/router.ts`
+resolves the level first via `resolveRiskLevels` → `riskSlTp`, which reads
+BROKER settings (`broker_configs.settings`: `instrumentSl.nifty50 = 3`,
+`defaultSL = 5`), passes it as `req.stopLoss`, and `buildTradeRecord` gives
+`req.stopLoss` precedence for non-AI origin. So the AI menu's Sprint SL is dead
+for manual placement. Two UIs edit "the SL %"; one is ignored. Needs a decision
+on which store is authoritative before changing — widening a live manual stop
+from 3% to 10% is a real risk change, not a cosmetic fix.
+
 **Known gap:** Runway/Anchor thresholds (25% cooling stop, breakeven at half
 target) were tuned on BOUGHT options. Since T93 they are direction-aware and
 mechanically correct for shorts, but a short's loss is unbounded — the numbers
