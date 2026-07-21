@@ -1242,6 +1242,15 @@ function buildTradeRecord(
     // tick for the contract. Live trades get the true fill from the broker
     // event (applyBrokerOrderEvent), so they start non-pending.
     entryPending: req.channel.endsWith("-paper"),
+    // Prefer what the caller resolved; otherwise ask the scrip master directly.
+    // Doing the fallback HERE rather than at each call site means the RCA path
+    // and any future caller record it too — the same "one caller remembered,
+    // three didn't" failure this file has already seen twice today.
+    lotSize:
+      req.lotSize ??
+      (req.contractSecurityId
+        ? (getScripBySecurityId(req.contractSecurityId)?.lotSize ?? undefined)
+        : undefined),
     exitPrice: null,
     ltp: req.entryPrice,
     qty: req.quantity,

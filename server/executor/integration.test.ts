@@ -370,3 +370,40 @@ describe("exit strategy reaches the stored trade", () => {
     expect((await submitWith("es-none")).exitStrategy).toBe("sprint");
   });
 });
+
+/**
+ * Lot size must reach the stored trade.
+ *
+ * The router resolved it to compute qty, then dropped it on the way to
+ * submitTrade, so every trade persisted lotSize: null. The desk's lot tooltip
+ * then fell back to 1/1 and displayed "Lots 1 · Lot Size 1 · Total Units 650"
+ * for a 10-lot NIFTY position — three mutually contradictory numbers.
+ */
+describe("lot size is recorded on the trade", () => {
+  const submitLots = async (id: string, lotSize?: number) => {
+    const r = await tradeExecutor.submitTrade({
+      executionId: id, channel: "ai-paper", origin: "USER", instrument: "BANK NIFTY",
+      direction: "BUY", quantity: 30, entryPrice: 100, stopLoss: 95, takeProfit: 110,
+      orderType: "MARKET", productType: "INTRADAY", optionType: "CE", strike: 56400,
+      contractSecurityId: "INT-CE-1", lotSize, timestamp: Date.now(),
+    });
+    expect(r.success).toBe(true);
+    return dayRecordsStore.get(dayKey("ai-paper", 1)).trades.find((t: any) => t.id === r.tradeId);
+  };
+
+  it("stores the caller's lot size", async () => {
+    expect((await submitLots("lot-explicit", 15)).lotSize).toBe(15);
+  });
+
+  it("falls back to the scrip master when the caller omits it", async () => {
+    // The fallback lives in buildTradeRecord so paths that never learned to
+    // send it — the RCA fan-out, any future caller — record it anyway.
+    expect((await submitLots("lot-fallback")).lotSize).toBe(15); // mocked master
+  });
+
+  it("records a size that divides qty into whole lots", async () => {
+    const t = await submitLots("lot-whole", 15);
+    expect(t.qty % t.lotSize).toBe(0);
+    expect(t.qty / t.lotSize).toBe(2);
+  });
+});

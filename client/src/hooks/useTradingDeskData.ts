@@ -70,6 +70,11 @@ export function useTradingDeskData({
   }, [feedSubscribeMutation]);
 
   const prevChannelRef = useRef(channel);
+  // Trade count is a dependency, not decoration: on a REFRESH the day arrives
+  // before its rows are mounted, so the first pass had nothing to scroll to and
+  // the desk stayed at the top. Re-running when the count changes means the
+  // scroll happens once the anchor row actually exists.
+  const todayTradeCount = currentDay?.trades?.length ?? 0;
   useEffect(() => {
     if (!capitalReady) return;
     const isTabSwitch = prevChannelRef.current !== channel;
@@ -83,7 +88,7 @@ export function useTradingDeskData({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [capitalReady, allDaysLength, channel, todayRef]);
+  }, [capitalReady, allDaysLength, todayTradeCount, channel, todayRef]);
 
   const subscribedOnLoadRef = useRef(false);
   useEffect(() => {

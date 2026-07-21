@@ -244,10 +244,20 @@ export function TodaySection({
           document.body,
         )}
 
+      {/*
+        Scroll anchor. `todayRef` is what the desk centres the viewport on after
+        a refresh, and it used to sit on the SUMMARY row — which is now
+        `sticky bottom-0`. A sticky row is pinned to the viewport at all times,
+        so scrollIntoView on it is a no-op and the desk stopped restoring its
+        position. Anchor on the LAST trade row instead: that is where the newest
+        trades are, which is what you want in view. With no trades there is
+        nothing to scroll to, so the summary keeps the ref as a fallback.
+      */}
       {visibleTrades.map((trade, idx) => (
         <TodayTradeRow
           key={trade.id}
           trade={trade}
+          todayRef={idx === visibleTrades.length - 1 ? todayRef : undefined}
           isFirst={idx === 0}
           showNet={showNet}
           onExit={onExitTrade}
@@ -278,7 +288,7 @@ export function TodaySection({
         lastClosedTrade={lastClosedTrade}
         onExitAll={onExitAll}
         onRepeatLastOrder={handleRepeatLastOrder}
-        rowRef={todayRef}
+        rowRef={visibleTrades.length === 0 ? todayRef : undefined}
         colSpan={TABLE_COLSPAN}
       />
     </>

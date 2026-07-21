@@ -434,6 +434,10 @@ export const executorRouter = router({
         instrument: input.instrument,
         direction,
         quantity: qty,
+        // The router already resolved this to compute qty; it was being dropped
+        // here, so every trade persisted lotSize: null and the desk's lot
+        // tooltip fabricated "1 lot of 1" beside a 650-unit position.
+        lotSize,
         entryPrice,
         stopLoss: resolvedStopLoss,
         takeProfit: resolvedTakeProfit,

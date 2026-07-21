@@ -31,6 +31,10 @@ export interface SubmitTradeRequest {
   instrument: string;
   direction: "BUY" | "SELL";
   quantity: number;
+  /** Contract lot size. `quantity` is TOTAL UNITS (lots x lotSize); this records
+   *  how many units make one lot so the desk can show "10 lots of 65" rather
+   *  than guessing. Optional: buildTradeRecord falls back to the scrip master. */
+  lotSize?: number;
   entryPrice: number;
 
   stopLoss: number | null;

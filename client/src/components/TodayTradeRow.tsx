@@ -531,15 +531,31 @@ function _TodayTradeRow({
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">
+            {/*
+              Show lots ONLY when the lot size is actually known. This used to
+              fall back to 1/1, so a 650-unit NIFTY position (10 lots of 65)
+              read "Lots 1 · Lot Size 1 · Total Units 650" — three numbers that
+              contradict each other. Older trades persisted lotSize: null, so
+              the unknown case is real and must read as unknown, not as 1.
+            */}
             <div className="text-[0.625rem] space-y-0.5 tabular-nums">
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Lots</span>
-                <span className="font-bold">{trade.lotSize && trade.lotSize > 1 ? Math.floor(trade.qty / trade.lotSize) : 1}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Lot Size</span>
-                <span className="font-bold">{trade.lotSize || 1}</span>
-              </div>
+              {trade.lotSize && trade.lotSize > 0 ? (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Lots</span>
+                    <span className="font-bold">{trade.qty / trade.lotSize}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Lot Size</span>
+                    <span className="font-bold">{trade.lotSize}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Lot Size</span>
+                  <span className="font-bold text-muted-foreground">not recorded</span>
+                </div>
+              )}
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Total Units</span>
                 <span className="font-bold">{trade.qty}</span>
