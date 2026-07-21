@@ -53,6 +53,8 @@ function makeStaticValue(overrides: Partial<CapitalContextValue> = {}): CapitalC
     allDaysData: null,
     inject: vi.fn(),
     injectPending: false,
+    withdraw: vi.fn(),
+    withdrawPending: false,
     placeTrade: vi.fn(),
     placeTradePending: false,
     exitTrade: vi.fn(),

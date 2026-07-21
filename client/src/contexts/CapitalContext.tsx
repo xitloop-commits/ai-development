@@ -100,6 +100,8 @@ export interface CapitalContextValue {
   // Mutations
   inject: (amount: number) => void;
   injectPending: boolean;
+  withdraw: (amount: number, from: 'trading' | 'reserve') => void;
+  withdrawPending: boolean;
   placeTrade: (trade: any) => void;
   placeTradePending: boolean;
   exitTrade: (trade: any) => void;
@@ -272,6 +274,18 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const withdrawMutation = trpc.portfolio.withdraw.useMutation({
+    onSuccess: async () => {
+      await invalidateAll();
+    },
+    onError: (err) => {
+      // Surfaced, not swallowed: the server rejects an over-withdrawal, and a
+      // silent failure would read as "it worked" while the balance stayed put.
+      console.error('[CapitalContext] withdraw failed:', err.message);
+      window.alert(`Withdraw failed: ${err.message}`);
+    },
+  });
+
   // Monday weekly-review gate has no dedicated page yet — let the block toast
   // offer a one-click "Complete review" so trading isn't dead-ended.
   const completeReviewMutation = trpc.discipline.completeReview.useMutation({
@@ -425,17 +439,29 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   // ─── Mutation wrappers ──────────────────────────────────────
   // Pool-affecting ops (inject/reset/transfer) are pinned to My-Live.
   //
-  // T92: the SERVER now honours whichever channel it's given (it used to write
+  // T92: the SERVER honours whichever channel it's given (it used to write
   // my-live regardless — and resetCapital validated the requested channel then
-  // wiped my-live, so resetting paper destroyed the live book). These call sites
-  // stay pinned deliberately: pointing a destructive reset at "whatever channel
-  // is on screen" needs an explicit channel picker + confirmation in the UI, not
-  // an implicit follow-the-view. Wire that when the capital panel is built.
+  // wiped my-live, so resetting paper destroyed the live book).
+  //
+  // Funding follows the mode you are VIEWING. These used to be pinned to
+  // 'my-live' alongside resetCapital, which is a safeguard for a destructive
+  // wipe but the opposite of safe here: adding funds while looking at Paper
+  // silently topped up the REAL-money book, and the paper figure never moved.
+  //
+  // resetCapital stays pinned — pointing a destructive wipe at "whatever is on
+  // screen" still needs an explicit picker.
   const inject = useCallback(
     (amount: number) => {
-      injectMutation.mutate({ channel: 'my-live', amount });
+      injectMutation.mutate({ channel, amount });
     },
-    [injectMutation]
+    [channel, injectMutation]
+  );
+
+  const withdraw = useCallback(
+    (amount: number, from: 'trading' | 'reserve') => {
+      withdrawMutation.mutate({ channel, amount, from });
+    },
+    [channel, withdrawMutation]
   );
 
   const placeTrade = useCallback(
@@ -495,9 +521,9 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
 
   const transferFunds = useCallback(
     (from: 'trading' | 'reserve', to: 'trading' | 'reserve', amount: number) => {
-      transferFundsMutation.mutate({ channel: 'my-live', from, to, amount });
+      transferFundsMutation.mutate({ channel, from, to, amount });
     },
-    [transferFundsMutation]
+    [channel, transferFundsMutation]
   );
 
   const refetchAll = useCallback(() => {
@@ -523,6 +549,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
       stateData: stateQuery.data,
       allDaysData: allDaysQuery.data,
       inject,
+      withdraw,
+      withdrawPending: withdrawMutation.isPending,
       injectPending: injectMutation.isPending,
       placeTrade,
       placeTradePending: placeTradeMutation.isPending,
@@ -548,6 +576,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
       allDaysQuery.isLoading,
       allDaysQuery.data,
       inject,
+      withdraw,
+      withdrawMutation.isPending,
       injectMutation.isPending,
       placeTrade,
       placeTradeMutation.isPending,

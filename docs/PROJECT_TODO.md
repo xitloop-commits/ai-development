@@ -1627,6 +1627,35 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T101 [Portfolio] — funding follows the viewed mode; withdraw added ✅ DONE 2026-07-21
+Asked to "add funds by clicking net worth". The UI already existed (Net Worth
+popover, bottom right) — the analysis found it was wired wrong.
+
+**Fixed:**
+- **Inject and Transfer were hardcoded to `channel: 'my-live'` on the client.**
+  Funding while viewing Paper silently moved money in the REAL book and the
+  paper figure never moved. Both now use the viewed channel. `resetCapital`
+  stays pinned — a destructive wipe still needs an explicit picker.
+- **The 75/25 split shown on screen was fiction.** `injectCapital()` only ever
+  added to Trading (`reservePool: state.reservePool`, untouched); all three
+  books sit at reserve 0. Copy now says what actually happens: funding goes to
+  Trading, Reserve fills from profits.
+- **Withdraw added** (server `portfolio.withdraw` + UI tab). Picks a pool,
+  refuses over-withdrawal, reduces `initialFunding` so growth % keeps measuring
+  against what is still invested — floored at 0 so withdrawing profits cannot
+  invert the percentage.
+- **Live confirm dialog** on every funding action, naming the book and warning
+  the figure will no longer agree with Dhan. Live books are seeded once from the
+  broker and nothing reconciles a manual change.
+- Buttons name the target book ("Add to paper"). "Inject" relabelled "Add Fund".
+- Dead duplicate `_handleInject` + its state removed from MainFooter.
+
+**Still open:** in LIVE mode the footer shows `my-live + ai-live` COMBINED, but
+a funding action hits only the viewed channel. The button naming the book makes
+it survivable; a proper fix is to show the two books separately.
+
+9 withdraw tests, mutation-verified (dropping the over-withdrawal guard fails 3).
+
 ### T100 [Execution] — Glide: MA-Signal-only exit strategy ✅ DONE 2026-07-21
 Fourth exit strategy. No SL, no TP, no trailing — rides until MA-Signal's
 leg-end EXIT (AI trades) or until the operator closes it (manual trades).

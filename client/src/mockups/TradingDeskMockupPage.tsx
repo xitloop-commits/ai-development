@@ -557,6 +557,8 @@ export default function TradingDeskMockupPage() {
       },
       inject: () => {},
       injectPending: false,
+    withdraw: () => {},
+    withdrawPending: false,
       placeTrade: () => {},
       placeTradePending: false,
       exitTrade: () => {},

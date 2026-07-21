@@ -6,7 +6,7 @@
  *   2. Monthly Growth (Prev + Curr month, hover → pool breakup)
  *   3. Holiday indicator (click → dialog)
  *   4. Discipline score (hover → 7-category breakup)
- *   5. Capital Pools horizontal (Trading + Reserve bars, hover → inject dialog)
+ *   5. Capital Pools horizontal (Trading + Reserve bars, hover → Add Fund dialog)
  *   6. Net Worth + growth%
  *
  * Data: Wired to global CapitalContext (single source of truth).
@@ -14,6 +14,7 @@
 import { useState, useMemo } from 'react';
 import {
   Plus,
+  Minus,
   Loader2,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -48,7 +49,7 @@ function _isHolidayThisMonth(dateStr: string): boolean {
 }
 
 // ─── Component ──────────────────────────────────────────────
-// ─── Net Worth Popover (inject + transfer) ──────────────────
+// ─── Net Worth Popover (Add Fund / Withdraw / Transfer) ─────
 
 function NetWorthPopover({
   netWorth, tradingPool, reservePool, growthPercent,
@@ -58,15 +59,54 @@ function NetWorthPopover({
   growthPercent: string; tradingPoolGrowth: string; reservePoolGrowth: string;
   fmt: (n: number) => string; mode: 'PAPER' | 'LIVE';
 }) {
-  const [tab, setTab] = useState<'overview' | 'inject' | 'transfer'>('overview');
+  const [tab, setTab] = useState<'overview' | 'inject' | 'withdraw' | 'transfer'>('overview');
   const [amount, setAmount] = useState('');
+  const [withdrawFrom, setWithdrawFrom] = useState<'trading' | 'reserve'>('trading');
   const [transferDir, setTransferDir] = useState<'reserve-to-trading' | 'trading-to-reserve'>('reserve-to-trading');
-  const { inject: ctxInject, injectPending, transferFunds, transferFundsPending } = useCapital() as any;
+  const {
+    inject: ctxInject, injectPending, withdraw: ctxWithdraw, withdrawPending,
+    transferFunds, transferFundsPending, channel,
+  } = useCapital() as any;
+
+  // Every funding action lands on the channel being VIEWED. Naming it on the
+  // button is the guard: these were all hardcoded to 'my-live', so funding while
+  // looking at Paper silently moved money in the real book with nothing on
+  // screen to say so.
+  const book = String(channel);
+  const isLiveBook = book !== 'paper';
+
+  /** Live books are seeded once from the real Dhan balance. Moving money by hand
+   *  makes the app's figure disagree with the broker's, and nothing reconciles
+   *  them — so say it plainly before it happens, as live orders already do. */
+  const confirmLive = (verb: string, v: number) =>
+    !isLiveBook ||
+    window.confirm(
+      `${verb} ${fmt(v)} on ${book}?
+
+` +
+      `This is a LIVE book seeded from your Dhan balance. Changing it here does ` +
+      `NOT move money at the broker, and the two figures will no longer agree.`,
+    );
 
   const handleInject = () => {
     const v = parseFloat(amount);
     if (isNaN(v) || v <= 0) return;
+    if (!confirmLive('Add', v)) return;
     ctxInject(v);
+    setAmount('');
+    setTab('overview');
+  };
+
+  const handleWithdraw = () => {
+    const v = parseFloat(amount);
+    if (isNaN(v) || v <= 0) return;
+    const pool = withdrawFrom === 'trading' ? tradingPool : reservePool;
+    if (v > pool) {
+      window.alert(`${withdrawFrom} pool holds ${fmt(pool)} — cannot withdraw ${fmt(v)}.`);
+      return;
+    }
+    if (!confirmLive('Withdraw', v)) return;
+    ctxWithdraw(v, withdrawFrom);
     setAmount('');
     setTab('overview');
   };
@@ -76,6 +116,7 @@ function NetWorthPopover({
     if (isNaN(v) || v <= 0) return;
     const from = transferDir === 'reserve-to-trading' ? 'reserve' : 'trading';
     const to = transferDir === 'reserve-to-trading' ? 'trading' : 'reserve';
+    if (!confirmLive(`Move ${from} → ${to}`, v)) return;
     transferFunds(from, to, v);
     setAmount('');
     setTab('overview');
@@ -138,7 +179,15 @@ function NetWorthPopover({
                 tab === 'inject' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Plus className="inline h-2.5 w-2.5 mr-0.5" />Inject
+              <Plus className="inline h-2.5 w-2.5 mr-0.5" />Add Fund
+            </button>
+            <button
+              onClick={() => { setTab('withdraw'); setAmount(''); }}
+              className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold transition-colors ${
+                tab === 'withdraw' ? 'bg-warning-amber/15 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Minus className="inline h-2.5 w-2.5 mr-0.5" />Withdraw
             </button>
             <button
               onClick={() => { setTab('transfer'); setAmount(''); }}
@@ -150,11 +199,20 @@ function NetWorthPopover({
             </button>
           </div>
 
-          {/* Inject form */}
+          {/* Add Fund form */}
           {tab === 'inject' && (
             <div className="space-y-2">
+              {/*
+                This used to promise "Split 75% Trading / 25% Reserve" and
+                preview both lines. injectCapital() has only ever added to
+                Trading and left Reserve untouched — all three books sit at
+                reserve 0. The Reserve pool fills from PROFITS via the daily
+                split, not from injections.
+              */}
               <p className="text-[0.6875rem] text-muted-foreground">
-                Split 75% Trading / 25% Reserve.
+                Added to the <span className="font-bold text-foreground">Trading</span> pool
+                of <span className="font-bold text-foreground">{book}</span>.
+                Reserve fills from profits, not from funding.
               </p>
               <input
                 type="number" placeholder="Amount (₹)" value={amount}
@@ -167,11 +225,57 @@ function NetWorthPopover({
                 disabled={injectPending || !amount}
                 className="w-full flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
               >
-                {injectPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Plus className="h-3 w-3" /> Inject</>}
+                {injectPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Plus className="h-3 w-3" /> Add to {book}</>}
               </button>
               {amount && parseFloat(amount) > 0 && (
                 <div className="text-[0.6875rem] text-muted-foreground">
-                  Trading: +{fmt(parseFloat(amount) * 0.75)} | Reserve: +{fmt(parseFloat(amount) * 0.25)}
+                  Trading {fmt(tradingPool)} → {fmt(tradingPool + parseFloat(amount))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Withdraw form */}
+          {tab === 'withdraw' && (
+            <div className="space-y-2">
+              <div className="flex gap-1">
+                {(['trading', 'reserve'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setWithdrawFrom(p)}
+                    className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold capitalize transition-colors ${
+                      withdrawFrom === p
+                        ? 'bg-warning-amber/15 text-warning-amber border border-warning-amber/30'
+                        : 'text-muted-foreground border border-transparent'
+                    }`}
+                  >
+                    From {p}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number" placeholder="Amount (₹)" value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-warning-amber"
+                min="1" step="1000"
+                max={withdrawFrom === 'trading' ? tradingPool : reservePool}
+              />
+              <button
+                onClick={handleWithdraw}
+                disabled={withdrawPending || !amount}
+                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-warning-amber text-background hover:bg-warning-amber/90 disabled:opacity-40 transition-colors"
+              >
+                {withdrawPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Minus className="h-3 w-3" /> Take from {book}</>}
+              </button>
+              {amount && parseFloat(amount) > 0 && (
+                <div className="text-[0.6875rem] text-muted-foreground">
+                  {(() => {
+                    const pool = withdrawFrom === 'trading' ? tradingPool : reservePool;
+                    const v = parseFloat(amount);
+                    return v > pool
+                      ? <span className="text-loss-red font-bold">Only {fmt(pool)} in {withdrawFrom}.</span>
+                      : <>{withdrawFrom} {fmt(pool)} → {fmt(pool - v)}</>;
+                  })()}
                 </div>
               )}
             </div>
@@ -210,7 +314,7 @@ function NetWorthPopover({
                 disabled={transferFundsPending || !amount}
                 className="w-full flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-info-cyan text-background hover:bg-info-cyan/90 disabled:opacity-40 transition-colors"
               >
-                {transferFundsPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Transfer'}
+                {transferFundsPending ? <Loader2 className="h-3 w-3 animate-spin" /> : `Transfer within ${book}`}
               </button>
               {amount && parseFloat(amount) > 0 && (
                 <div className="text-[0.6875rem] text-muted-foreground">
@@ -230,8 +334,6 @@ function NetWorthPopover({
 
 export default function MainFooter() {
   // Holiday moved to AppBar
-  const [injectAmount, setInjectAmount] = useState('');
-  const [_injectOpen, setInjectOpen] = useState(false);
 
   // ─── Global Capital Context (single source of truth) ────────
   const { capital, channel, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
@@ -305,14 +407,6 @@ export default function MainFooter() {
 
   // ─── Quarterly Projections (from global context) ────────────
   // (was `_allQuarters` — orphan dead var dropped in H6.)
-
-  const _handleInject = () => {
-    const amount = parseFloat(injectAmount);
-    if (isNaN(amount) || amount <= 0) return;
-    ctxInject(amount);
-    setInjectAmount('');
-    setInjectOpen(false);
-  };
 
   return (
     <div className="sticky bottom-0 z-40 border-t border-border bg-gradient-footer backdrop-blur-md">

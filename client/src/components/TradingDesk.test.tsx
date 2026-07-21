@@ -153,6 +153,8 @@ function makeCtx(overrides: Partial<CapitalContextValue> = {}): CapitalContextVa
     stateData: null,
     allDaysData: null,
     inject: vi.fn(),
+    withdraw: vi.fn(),
+    withdrawPending: false,
     injectPending: false,
     placeTrade: vi.fn(),
     placeTradePending: false,

@@ -246,6 +246,65 @@ export const portfolioRouter = router({
     }),
 
   /** Transfer funds between Trading ↔ Reserve pools. */
+  /**
+   * Withdraw funds from a book — the inverse of inject.
+   *
+   * Funding follows the channel the operator is viewing (T101); the caller must
+   * name it, and the client passes the viewed channel.
+   *
+   * `initialFunding` comes down by the same amount so growth % keeps measuring
+   * against what is actually still invested. Without that, taking money out
+   * would leave the denominator too high and permanently understate growth.
+   * Floored at 0: withdrawing more than was ever injected (i.e. taking profits
+   * out) must not drive it negative and invert the percentage.
+   */
+  withdraw: protectedProcedure
+    .input(z.object({
+      channel: channelSchema,
+      amount: z.number().positive(),
+      from: z.enum(['trading', 'reserve']),
+    }))
+    .mutation(async ({ input }) => {
+      const targetPercent = await getDailyTargetPercent();
+      const state = await getCapitalState(input.channel);
+
+      // An unseeded live book has no document — there is nothing to take out.
+      if (state.seededAt == null) {
+        throw new Error(`${input.channel} is not funded yet — nothing to withdraw.`);
+      }
+
+      const pool = input.from === 'trading' ? state.tradingPool : state.reservePool;
+      if (input.amount > pool) {
+        throw new Error(
+          `Cannot withdraw ₹${input.amount} from ${input.from} — it holds ₹${pool}.`,
+        );
+      }
+
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const tradingPool = input.from === 'trading' ? r2(state.tradingPool - input.amount) : state.tradingPool;
+      const reservePool = input.from === 'reserve' ? r2(state.reservePool - input.amount) : state.reservePool;
+
+      const updated = await updateCapitalState(input.channel, {
+        tradingPool,
+        reservePool,
+        initialFunding: Math.max(0, r2(state.initialFunding - input.amount)),
+      });
+
+      // Keep the day record in step, exactly as inject does — otherwise the
+      // desk would show the day sized against capital that is no longer there.
+      const day = await getDayRecord(input.channel, state.currentDayIndex);
+      if (day) {
+        day.tradeCapital = tradingPool;
+        day.targetPercent = targetPercent;
+        day.targetAmount = Math.round(tradingPool * targetPercent / 100 * 100) / 100;
+        day.projCapital = Math.round((tradingPool + day.targetAmount) * 100) / 100;
+        day.actualCapital = Math.round((tradingPool + day.totalPnl) * 100) / 100;
+        day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
+        await upsertDayRecord(input.channel, day);
+      }
+      return updated;
+    }),
+
   transferFunds: protectedProcedure
     .input(z.object({
       channel: channelSchema,
