@@ -33,9 +33,70 @@ const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
   CAPITAL_ADJUSTED: { label: 'Correction', cls: 'bg-destructive/15 text-destructive' },
 };
 
+/**
+ * The Net Worth panel shows LIVE as my-live + ai-live combined, so the book has
+ * to cover both — a book for one account could never reconcile to the figure
+ * printed above it. Paper is a single book.
+ */
 export function CapitalBookDialog({
   open, onClose, channel,
 }: { open: boolean; onClose: () => void; channel: string }) {
+  const channels = channel === 'paper' ? ['paper'] : ['my-live', 'ai-live'];
+  // Combined total for live, matching the Net Worth figure in the footer. The
+  // footer adds both books; without this the panel above and the book below
+  // would print different numbers for the same thing.
+  const myLive = trpc.portfolio.book.useQuery(
+    { channel: 'my-live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
+  );
+  const aiLive = trpc.portfolio.book.useQuery(
+    { channel: 'ai-live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
+  );
+  const combined = channel === 'paper' ? null : {
+    netWorth: (myLive.data?.netWorth ?? 0) + (aiLive.data?.netWorth ?? 0),
+    seed: (myLive.data?.seedCapital ?? 0) + (aiLive.data?.seedCapital ?? 0),
+    trading: (myLive.data?.tradingPool ?? 0) + (aiLive.data?.tradingPool ?? 0),
+    reserve: (myLive.data?.reservePool ?? 0) + (aiLive.data?.reservePool ?? 0),
+    ready: !!myLive.data && !!aiLive.data,
+  };
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-sm">
+            Book of records · {channel === 'paper'
+              ? <span className="font-mono">paper</span>
+              : <span className="font-mono">my-live + ai-live</span>}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5">
+          {combined?.ready && (
+            <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+              <div className="text-[0.6875rem] font-bold mb-2">
+                Both live accounts combined — this is the Net Worth figure in the footer
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-[0.6875rem]">
+                {[
+                  ['Seed capital', combined.seed],
+                  ['Trading pool', combined.trading],
+                  ['Reserve pool', combined.reserve],
+                  ['Net worth', combined.netWorth],
+                ].map(([label, v]) => (
+                  <div key={label as string} className="rounded border border-border bg-background px-2 py-1.5">
+                    <div className="text-muted-foreground">{label as string}</div>
+                    <div className="font-bold tabular-nums">{fmt(v as number)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {channels.map((ch) => <ChannelBook key={ch} channel={ch} open={open} />)}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChannelBook({ channel, open }: { channel: string; open: boolean }) {
   const book = trpc.portfolio.book.useQuery(
     { channel: channel as 'paper' | 'ai-live' | 'my-live' },
     { enabled: open, refetchOnWindowFocus: false },
@@ -49,14 +110,9 @@ export function CapitalBookDialog({
     : 'border-border bg-muted/40 text-muted-foreground';
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-sm">
-            Book of records · <span className="font-mono">{channel}</span>
-          </DialogTitle>
-        </DialogHeader>
-
+    <div className="rounded-lg border border-border p-3">
+      <div className="text-xs font-bold mb-2 font-mono">{channel}</div>
+      <>
         {book.isLoading && <p className="text-xs text-muted-foreground">Reading the book…</p>}
         {book.error && <p className="text-xs text-destructive">Could not load: {book.error.message}</p>}
 
@@ -176,7 +232,7 @@ export function CapitalBookDialog({
             </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </>
+    </div>
   );
 }

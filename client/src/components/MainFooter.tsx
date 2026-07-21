@@ -354,19 +354,27 @@ export default function MainFooter() {
   // one total figure). In live mode `capital` is my-live (the active channel), so
   // we fetch ai-live and add it. Paper mode needs no extra fetch.
   const isLive = channel !== 'paper';
+  // BOTH live books are fetched explicitly rather than "the current one plus
+  // ai-live". `isLive` is true for ai-live too, so the old form added ai-live to
+  // ITSELF whenever that workspace was open — the footer showed double.
+  const myLiveQuery = trpc.portfolio.state.useQuery(
+    { channel: 'my-live' },
+    { enabled: isLive, refetchInterval: 5000 },
+  );
   const aiLiveQuery = trpc.portfolio.state.useQuery(
     { channel: 'ai-live' },
     { enabled: isLive, refetchInterval: 5000 },
   );
+  const myLive = myLiveQuery.data as any;
   const aiLive = aiLiveQuery.data as any;
-  const add = (a: number, b: number | undefined) => a + (b ?? 0);
+  const add = (a: number | undefined, b: number | undefined) => (a ?? 0) + (b ?? 0);
 
   // ─── Capital Data (mode-aware; combined across both live accounts) ──
   const _capitalData = stateData as any;
-  const tradingPool = isLive ? add(capital.tradingPool, aiLive?.tradingPool) : capital.tradingPool;
-  const reservePool = isLive ? add(capital.reservePool, aiLive?.reservePool) : capital.reservePool;
-  const netWorth = isLive ? add(capital.netWorth, aiLive?.netWorth) : capital.netWorth;
-  const initialFunding = isLive ? add(capital.initialFunding, aiLive?.initialFunding) : capital.initialFunding;
+  const tradingPool = isLive ? add(myLive?.tradingPool, aiLive?.tradingPool) : capital.tradingPool;
+  const reservePool = isLive ? add(myLive?.reservePool, aiLive?.reservePool) : capital.reservePool;
+  const netWorth = isLive ? add(myLive?.netWorth, aiLive?.netWorth) : capital.netWorth;
+  const initialFunding = isLive ? add(myLive?.initialFunding, aiLive?.initialFunding) : capital.initialFunding;
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';

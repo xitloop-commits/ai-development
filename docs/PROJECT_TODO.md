@@ -1657,8 +1657,17 @@ Reserve — runs at DAY CLOSE, and all books are still on day 1.
 10 tests, mutation-verified three ways: a failed read reporting MATCHED (3 fail),
 reconciling against sodLimit (3 fail), excluding Reserve from the balance (1 fail).
 
-**Still open:** live net worth in the footer shows `my-live + ai-live` combined
-while funding actions hit one book. `seedFromBroker` still seeds from `sodLimit`
+**Follow-up (T103, same day):** the Book covered ONE channel while the footer
+showed both live books combined, so the two never matched. The Book now shows a
+combined live total plus a per-account section (reconciliation, pools, ledger)
+for `my-live` and `ai-live`.
+
+Found while fixing it: **the footer double-counted `ai-live`.** `isLive` is true
+for BOTH live channels, so `capital + aiLive` added ai-live to ITSELF whenever
+that workspace was open — viewing ai-live showed twice its net worth. Both books
+are now fetched explicitly instead of "current plus ai-live".
+
+**Still open:** `seedFromBroker` still seeds from `sodLimit`
 — harmless today (both accounts report available == total, no collateral) but
 inconsistent with what reconciliation now measures against.
 
