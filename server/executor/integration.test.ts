@@ -48,6 +48,18 @@ vi.mock("./tradeResolution", () => ({
   resolveLotSize: vi.fn(async () => 75),
 }));
 
+// Option trades are validated against the real scrip master with NO fallback —
+// an unknown securityId is rejected outright. This test's contracts are
+// synthetic, so the master must be mocked or every option submit here fails on
+// a data-loading concern that has nothing to do with the wiring under test.
+vi.mock("../broker/adapters/dhan/scripMaster", () => ({
+  getScripBySecurityId: vi.fn((id: string) =>
+    id?.startsWith("INT-")
+      ? { securityId: id, optionType: id.includes("-PE-") ? "PE" : "CE", lotSize: 15, expiryDateOnly: null }
+      : null,
+  ),
+}));
+
 vi.mock("./settings", () => ({
   getExecutorSettings: vi.fn(async () => ({
     userId: "1",
@@ -317,5 +329,40 @@ describe("AI loop integration — paper trade lifecycle", () => {
     // Audit captured the reject
     const rejected = eventsStore.filter((e) => e.eventType === "TRADE_REJECTED");
     expect(rejected).toHaveLength(1);
+  });
+});
+
+/**
+ * The exit strategy the CALLER asked for must reach the stored trade.
+ *
+ * `submitTrade` falls back to "sprint" when no strategy arrives. That fallback
+ * is fine as a default, but `placeTradeUiSchema` had no `exitStrategy` field at
+ * all, so the fallback fired on EVERY manual trade — a book configured for
+ * Runway silently ran Sprint, and the AI menu's strategy pills were decorative.
+ * Nothing failed loudly; the trades just used the wrong exit rules.
+ */
+describe("exit strategy reaches the stored trade", () => {
+  const submitWith = async (id: string, exitStrategy?: "sprint" | "runway" | "anchor") => {
+    const r = await tradeExecutor.submitTrade({
+      executionId: id, channel: "ai-paper", origin: "MANUAL", instrument: "BANK NIFTY",
+      direction: "BUY", quantity: 15, entryPrice: 100, stopLoss: 95, takeProfit: 110,
+      orderType: "MARKET", productType: "INTRADAY", optionType: "CE", strike: 56400,
+      contractSecurityId: "INT-CE-1", exitStrategy, timestamp: Date.now(),
+    });
+    expect(r.success).toBe(true);
+    const day = dayRecordsStore.get(dayKey("ai-paper", 1));
+    return day.trades.find((t: any) => t.id === r.tradeId);
+  };
+
+  it("stores runway when runway was requested", async () => {
+    expect((await submitWith("es-runway", "runway")).exitStrategy).toBe("runway");
+  });
+
+  it("stores anchor when anchor was requested", async () => {
+    expect((await submitWith("es-anchor", "anchor")).exitStrategy).toBe("anchor");
+  });
+
+  it("falls back to sprint only when the caller sends nothing", async () => {
+    expect((await submitWith("es-none")).exitStrategy).toBe("sprint");
   });
 });

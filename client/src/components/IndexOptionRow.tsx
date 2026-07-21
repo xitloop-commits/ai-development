@@ -14,14 +14,17 @@
  *
  * Long BUYS the selected side, Short SELLS it.
  *
- * ⚠️ Short is only safe here because these trades get SPRINT: `placeTradeUiSchema`
- * carries no exitStrategy, so tradeExecutor defaults to "sprint", and Sprint's
- * exit path is direction-aware (`isBuy = type.includes("BUY")`, every comparison
- * branches on it). Runway and Anchor are NOT — `exitStrategies.ts` states it
- * assumes a bought option (profit = premium UP), so a short's staged stop lands
- * on the profitable side and can never fire while its target banks as a loss.
- * If manual strategy-pick ever reaches this row, Runway/Anchor must be made
- * direction-aware first or shorts must be pinned to Sprint.
+ * The exit strategy comes from the AI menu's `manual` block and is sent
+ * EXPLICITLY. It has to be: the executor defaults to "sprint" when no strategy
+ * arrives, so a book configured for Runway silently ran every manual trade on
+ * Sprint. Manual takes ONE strategy per trade (not a race like paper), so the
+ * first enabled pill wins.
+ *
+ * Shorts are safe on all three strategies since T93 made the staged engine
+ * direction-aware. Note the THRESHOLDS (25% cooling stop, breakeven at half
+ * target) were tuned on bought options, where the most you can lose is the
+ * premium paid — a short's loss is unbounded, so those numbers are mechanically
+ * correct but not yet validated for shorts.
  *
  * Also note short options block MARGIN, but `calculateAvailableCapital` counts
  * `entryPrice × qty` — the premium RECEIVED — so a short reads as far cheaper
@@ -81,6 +84,15 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
   const aiConfig = trpc.trading.aiConfig.useQuery(undefined);
   const sizing = aiConfig.data?.manual?.sizing?.perInstrument?.[key] ?? null;
 
+  // Exit strategy for the trade, from the SAME manual block. Manual placement
+  // takes ONE strategy per trade (not a race like paper), so the first enabled
+  // pill wins. This has to be sent explicitly: the executor defaults to "sprint"
+  // when no strategy arrives, which is why a book configured for Runway was
+  // still running every manual trade on Sprint.
+  const manualStrategies = aiConfig.data?.manual?.strategies;
+  const exitStrategy = (["sprint", "runway", "anchor"] as const)
+    .find((s) => manualStrategies?.[s]) ?? "sprint";
+
   const ready = !!contractSecurityId && atmStrike != null && premium > 0;
 
   function place(direction: 'LONG' | 'SHORT') {
@@ -104,6 +116,7 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
       capitalPercent: useLots ? 0 : sizing!.value,
       qty: useLots ? Math.max(1, Math.round(sizing?.value ?? 1)) : 0,
       contractSecurityId,
+      exitStrategy,
     };
 
     const needsConfirm = liveOptionConfirm(channel, trade);
@@ -171,7 +184,7 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
               onClick={(e) => { if (e.ctrlKey || e.metaKey) place(dir); }}
               title={
                 ready
-                  ? `Ctrl+click to ${verb} ${label} ${atmStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord})`
+                  ? `Ctrl+click to ${verb} ${label} ${atmStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord}) · ${exitStrategy} exit`
                   : 'Waiting for the ATM contract and its premium'
               }
               className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${cls}`}

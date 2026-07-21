@@ -1627,7 +1627,17 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
-_None yet._
+### T98 [Execution] — manual trades ignored the configured exit strategy ✅ DONE 2026-07-21
+`placeTradeUiSchema` carried no `exitStrategy`, so `submitTrade`'s `?? "sprint"`
+fallback fired on every manual trade — a book set to Runway silently ran Sprint
+and the AI menu's manual strategy pills were decorative. Schema + submit call now
+carry it; `IndexOptionRow` reads the manual config and sends it (first enabled
+pill wins — manual takes one strategy per trade). 3 tests, mutation-verified.
+
+**Known gap:** Runway/Anchor thresholds (25% cooling stop, breakeven at half
+target) were tuned on BOUGHT options. Since T93 they are direction-aware and
+mechanically correct for shorts, but a short's loss is unbounded — the numbers
+are not yet validated for that case.
 
 ---
 

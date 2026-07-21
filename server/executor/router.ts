@@ -154,6 +154,12 @@ const placeTradeUiSchema = z.object({
   targetPrice: z.number().nullable().optional(),
   stopLossPrice: z.number().nullable().optional(),
   trailingStopEnabled: z.boolean().optional(),
+  /**
+   * Exit strategy for THIS trade. Without it the executor falls back to
+   * "sprint", which made the AI menu's manual strategy pills decorative — a book
+   * configured for Runway still ran every manual trade on Sprint.
+   */
+  exitStrategy: z.enum(["sprint", "runway", "anchor"]).optional(),
 });
 
 const updateTradeUiSchema = z.object({
@@ -446,6 +452,9 @@ export const executorRouter = router({
         expiry: expiry || undefined,
         contractSecurityId,
         capitalPercent: input.capitalPercent,
+        // Carry the caller's strategy through; the executor defaults to sprint
+        // when absent, which is what silently ignored the manual config.
+        exitStrategy: input.exitStrategy,
         timestamp: Date.now(),
       });
       if (!submitResp.success) {
