@@ -1627,6 +1627,29 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T104 [Portfolio] — day-wise Dr/Cr/Balance pool passbooks ✅ DONE 2026-07-21
+Partha asked for the Book UI to read like a classic account book (Cr / Dr /
+Balance) with everything kept day-wise in the database — split into TWO books,
+one per pool.
+
+- **Ledger rows now carry per-pool deltas** (`tradingDelta` / `reserveDelta`)
+  and the IST `tradeDay`, so which pool the money touched is stored, not
+  inferred. Old rows still work: the builder falls back to differencing
+  consecutive balances-after (exact — pools only move via recorded events).
+- **`buildPoolBooks` (pure, 8 tests)** derives a Trading pool book and a
+  Reserve pool book from the single event stream — Dr / Cr / Balance rows
+  grouped by day with per-day closing balance. One source of truth, two views;
+  a transfer is Dr in one book, Cr in the other. Served via `portfolio.book` →
+  `poolBooks`; `CapitalBookDialog` shows the two passbooks (replacing the old
+  single "Every movement" table, per Partha's call).
+- **Gap found & fixed:** the LIVE shared-staircase day close, both clawback
+  paths, and the gift-day cascade moved pool money with NO ledger row — live
+  day closes were invisible in the book while paper's showed. All four record
+  now (`DAY_COMPLETED` / `CLAWBACK` / `CAPITAL_ADJUSTED`).
+- Files: `server/portfolio/{capitalLedger,router,portfolioAgent,state}.ts`,
+  `client/src/components/CapitalBookDialog.tsx`, tests in
+  `capitalLedger.book.test.ts`. Doc: 07 §4.
+
 ### T102 [Portfolio] — capital book of records + broker reconciliation ✅ DONE 2026-07-21
 Prompted by T101's misdirected ₹9,00,000: it sat on `my-live` for over an hour
 reading as ₹8.95L of profit, and had to be reconstructed from arithmetic on a

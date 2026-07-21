@@ -102,6 +102,14 @@ Every real-world movement is mirrored manually, because Dhan is never re-read:
 - **Deposits** → `inject`, which **honours the `channel` input** (all three books are independently fundable).
 - **Withdrawals** → a dedicated `withdraw` procedure with its own audit event, draining **Trading first, then spilling into Reserve** only when the amount exceeds Trading. The reserve is still never touched *automatically* — only ever by an explicit operator withdrawal. Capping withdrawals at Trading would lock the operator out of their own money whenever the reserve holds most of it; and since the reserve is **notional** (one real Dhan balance split into two ledger buckets), a withdrawal exceeding Trading must reduce Reserve or the app would claim more money than the account holds.
 
+### The book of records + pool passbooks (T102 / T104, 2026-07-21)
+
+`server/portfolio/capitalLedger.ts` — every capital movement writes an append-only event (`CAPITAL_SEEDED / INJECTED / WITHDRAWN / TRANSFERRED / DAY_COMPLETED / CLAWBACK / CAPITAL_ADJUSTED`) carrying the signed amount, **per-pool deltas** (`tradingDelta` / `reserveDelta`), balances-after, and the IST `tradeDay`. Recording never throws — a ledger failure must not roll back the money movement that succeeded.
+
+- **Two passbooks, one source of truth (T104):** `buildPoolBooks` derives a **Trading pool book** and a **Reserve pool book** from the single event stream — classic account-book rows (Dr / Cr / Balance) grouped day-wise with a per-day closing balance. Derived, never stored twice, so the books can't disagree with the ledger. A transfer shows as Dr in one book and Cr in the other. Pre-T104 rows without stored deltas fall back to differencing consecutive balances-after (exact, because pools only move via recorded events).
+- **Every pool move now leaves a row (T104):** the live shared-staircase day close, both clawback paths, and the gift-day cascade previously updated pools with no ledger entry — all four now record.
+- **Reconciliation** (`reconcile`) compares book vs Dhan `availabelBalance` (cash, not `sodLimit`) and **reports** drift — never auto-corrects. Surface: `portfolio.book` tRPC → `CapitalBookDialog` ("Book" CTA on the Net Worth panel): reconciliation strip, pool summary, day-wise profit split, then the two passbooks.
+
 ### Net worth vs P&L
 
 Net worth **combines the two live books**. **P&L stays separate per book** — the shared figure is the balance, not the performance.

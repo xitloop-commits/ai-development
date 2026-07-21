@@ -18,11 +18,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 const fmt = (n: number) =>
   `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const when = (ts: number) =>
-  new Date(ts).toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-
 /** Colour + label per event type. Money IN green, OUT red, neutral moves grey. */
 const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
   CAPITAL_SEEDED: { label: 'Seeded', cls: 'bg-info-cyan/15 text-info-cyan' },
@@ -30,8 +25,72 @@ const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
   CAPITAL_WITHDRAWN: { label: 'Withdrawn', cls: 'bg-warning-amber/15 text-warning-amber' },
   CAPITAL_TRANSFERRED: { label: 'Transfer', cls: 'bg-muted text-muted-foreground' },
   DAY_COMPLETED: { label: 'Day close', cls: 'bg-primary/15 text-primary' },
-  CAPITAL_ADJUSTED: { label: 'Correction', cls: 'bg-destructive/15 text-destructive' },
+  CLAWBACK: { label: 'Clawback', cls: 'bg-destructive/15 text-destructive' },
+  CAPITAL_ADJUSTED: { label: 'Adjustment', cls: 'bg-warning-amber/15 text-warning-amber' },
 };
+
+const dayLabel = (day: string) =>
+  new Date(`${day}T00:00:00`).toLocaleDateString('en-IN', {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+  });
+
+const timeOnly = (ts: number) =>
+  new Date(ts).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+interface PoolBookDayT {
+  day: string;
+  closing: number;
+  rows: { eventId: string; timestamp: number; type: string; note: string; dr: number; cr: number; balance: number }[];
+}
+
+/** One pool's passbook: day-wise Dr / Cr / Balance, like a bank account book. */
+function PoolBook({ title, days, emptyHint }: { title: string; days: PoolBookDayT[]; emptyHint: string }) {
+  return (
+    <div>
+      <div className="text-[0.6875rem] font-bold mb-1">{title}</div>
+      {days.length === 0 ? (
+        <p className="text-[0.625rem] text-muted-foreground">{emptyHint}</p>
+      ) : (
+        days.map((d) => (
+          <div key={d.day} className="mb-2">
+            <div className="flex justify-between items-baseline text-[0.625rem] bg-muted/40 rounded px-2 py-1">
+              <span className="font-bold">{dayLabel(d.day)}</span>
+              <span className="text-muted-foreground">Closing balance <span className="font-bold tabular-nums text-foreground">{fmt(d.closing)}</span></span>
+            </div>
+            <table className="w-full text-[0.625rem] tabular-nums">
+              <thead className="text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="text-left py-1 w-14">Time</th>
+                  <th className="text-left">Particulars</th>
+                  <th className="text-right">Dr</th>
+                  <th className="text-right">Cr</th>
+                  <th className="text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.rows.map((r) => {
+                  const st = EVENT_STYLE[r.type] ?? { label: r.type, cls: 'bg-muted text-muted-foreground' };
+                  return (
+                    <tr key={r.eventId} className="border-b border-border/40 align-top">
+                      <td className="py-1 whitespace-nowrap">{timeOnly(r.timestamp)}</td>
+                      <td>
+                        <span className={`rounded px-1 py-0.5 font-bold ${st.cls}`}>{st.label}</span>
+                        <div className="text-muted-foreground mt-0.5">{r.note}</div>
+                      </td>
+                      <td className="text-right whitespace-nowrap text-loss-red">{r.dr > 0 ? fmt(r.dr) : '—'}</td>
+                      <td className="text-right whitespace-nowrap text-bullish">{r.cr > 0 ? fmt(r.cr) : '—'}</td>
+                      <td className="text-right whitespace-nowrap font-bold">{fmt(r.balance)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 
 /**
  * The Net Worth panel shows LIVE as my-live + ai-live combined, so the book has
@@ -187,49 +246,18 @@ function ChannelBook({ channel, open }: { channel: string; open: boolean }) {
               )}
             </div>
 
-            {/* The ledger itself. */}
-            <div>
-              <div className="text-[0.6875rem] font-bold mb-1">Every movement · newest first</div>
-              {d.entries.length === 0 ? (
-                <p className="text-[0.625rem] text-muted-foreground">
-                  No entries. Recording started 21 Jul 2026 — anything before that was never
-                  logged, which is exactly why this book exists.
-                </p>
-              ) : (
-                <table className="w-full text-[0.625rem] tabular-nums">
-                  <thead className="text-muted-foreground">
-                    <tr className="border-b border-border">
-                      <th className="text-left py-1">When</th>
-                      <th className="text-left">What</th>
-                      <th className="text-right">Amount</th>
-                      <th className="text-right">Trading</th>
-                      <th className="text-right">Reserve</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {d.entries.map((e) => {
-                      const st = EVENT_STYLE[e.type] ?? { label: e.type, cls: 'bg-muted text-muted-foreground' };
-                      return (
-                        <tr key={e.eventId} className="border-b border-border/40 align-top">
-                          <td className="py-1 whitespace-nowrap">{when(e.timestamp)}</td>
-                          <td>
-                            <span className={`rounded px-1 py-0.5 font-bold ${st.cls}`}>{st.label}</span>
-                            <div className="text-muted-foreground mt-0.5">{e.note}</div>
-                          </td>
-                          <td className={`text-right whitespace-nowrap ${
-                            e.amount > 0 ? 'text-bullish' : e.amount < 0 ? 'text-loss-red' : 'text-muted-foreground'
-                          }`}>
-                            {e.amount === 0 ? '—' : `${e.amount > 0 ? '+' : ''}${fmt(e.amount)}`}
-                          </td>
-                          <td className="text-right">{fmt(e.tradingPoolAfter)}</td>
-                          <td className="text-right">{fmt(e.reservePoolAfter)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            {/* The two passbooks — every movement lands in the book of the pool
+                it touched; a transfer shows in both (Dr one side, Cr the other). */}
+            <PoolBook
+              title="Trading pool book · newest day first"
+              days={d.poolBooks.trading}
+              emptyHint="No movements. Recording started 21 Jul 2026 — anything before that was never logged, which is exactly why this book exists."
+            />
+            <PoolBook
+              title="Reserve pool book · newest day first"
+              days={d.poolBooks.reserve}
+              emptyHint="No movements. Money reaches Reserve only when a day CLOSES, so this book stays empty until the first day completes."
+            />
           </div>
         )}
       </>

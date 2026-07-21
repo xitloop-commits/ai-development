@@ -19,7 +19,7 @@ import {
   replaceCapitalState,
 } from "./state";
 import { deleteAllPositions } from "./storage";
-import { recordCapitalEvent, getLedger, reconcile } from "./capitalLedger";
+import { recordCapitalEvent, getPoolBooks, reconcile } from "./capitalLedger";
 import type { Channel, DayRecord } from "./state";
 import {
   injectCapital,
@@ -244,6 +244,8 @@ export const portfolioRouter = router({
           amount: input.amount,
           tradingPoolAfter: tradingPool,
           reservePoolAfter: reservePool,
+          tradingDelta: input.amount,
+          reserveDelta: 0,
           note: `Added ₹${input.amount.toLocaleString("en-IN")} to the Trading pool`,
           detail: { wasUnseeded: state.seededAt == null },
         });
@@ -318,6 +320,8 @@ export const portfolioRouter = router({
         amount: -input.amount,
         tradingPoolAfter: tradingPool,
         reservePoolAfter: reservePool,
+        tradingDelta: input.from === 'trading' ? -input.amount : 0,
+        reserveDelta: input.from === 'reserve' ? -input.amount : 0,
         note: `Withdrew ₹${input.amount.toLocaleString("en-IN")} from the ${input.from} pool`,
         detail: { pool: input.from },
       });
@@ -373,6 +377,8 @@ export const portfolioRouter = router({
           amount: 0,
           tradingPoolAfter: newTrading,
           reservePoolAfter: newReserve,
+          tradingDelta,
+          reserveDelta: -tradingDelta,
           note: `Moved ₹${input.amount.toLocaleString("en-IN")} from ${input.from} to ${input.to}`,
           detail: { from: input.from, to: input.to, moved: input.amount },
         });
@@ -412,8 +418,8 @@ export const portfolioRouter = router({
     .input(z.object({ channel: channelSchema, limit: z.number().int().positive().max(500).optional() }))
     .query(async ({ input }) => {
       const state = await getCapitalState(input.channel);
-      const [entries, reconciliation] = await Promise.all([
-        getLedger(input.channel, input.limit ?? 200),
+      const [poolBooks, reconciliation] = await Promise.all([
+        getPoolBooks(input.channel, input.limit ?? 500),
         reconcile(input.channel, state.tradingPool, state.reservePool),
       ]);
       return {
@@ -426,7 +432,8 @@ export const portfolioRouter = router({
         cumulativePnl: state.cumulativePnl,
         /** Per-day profit split — the reserve pool's own record. */
         profitHistory: state.profitHistory,
-        entries,
+        /** T103 — day-wise Dr/Cr/Balance passbooks, one per pool. */
+        poolBooks,
         reconciliation,
       };
     }),

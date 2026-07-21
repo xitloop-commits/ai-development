@@ -1427,6 +1427,8 @@ class PortfolioAgentImpl {
         amount: day.totalPnl,
         tradingPoolAfter: result.tradingPool,
         reservePoolAfter: result.reservePool,
+        tradingDelta: result.profitEntry.tradingPoolShare,
+        reserveDelta: result.profitEntry.reservePoolShare,
         note:
           `Day ${day.dayIndex} closed ${day.totalPnl >= 0 ? "+" : ""}` +
           `₹${day.totalPnl.toLocaleString("en-IN")} · ` +
@@ -1457,6 +1459,22 @@ class PortfolioAgentImpl {
             currentDayIndex: state.currentDayIndex + 1 + gifts.giftDays.length,
             tradingPool: gifts.finalTradingPool,
           });
+          // Book row for the pool move the gift cascade just made — without it
+          // the passbook would show a balance jump with no line explaining it.
+          const giftDelta = Math.round((gifts.finalTradingPool - result.tradingPool) * 100) / 100;
+          await recordCapitalEvent({
+            channel,
+            type: "CAPITAL_ADJUSTED",
+            amount: giftDelta,
+            tradingPoolAfter: gifts.finalTradingPool,
+            reservePoolAfter: result.reservePool,
+            tradingDelta: giftDelta,
+            reserveDelta: 0,
+            note:
+              `${gifts.giftDays.length} gift day(s) auto-completed from excess profit — ` +
+              `staircase jumps to day ${state.currentDayIndex + 1 + gifts.giftDays.length}`,
+            detail: { giftDays: gifts.giftDays.map((g) => g.dayIndex) },
+          });
         }
       }
       void newState;
@@ -1479,6 +1497,20 @@ class PortfolioAgentImpl {
       });
       // Note: caller (router or TEA) handles deleting consumed day records;
       // PA only updates the in-memory view here.
+      const clawDelta = Math.round((clawback.newTradingPool - state.tradingPool) * 100) / 100;
+      await recordCapitalEvent({
+        channel,
+        type: "CLAWBACK",
+        amount: clawDelta,
+        tradingPoolAfter: clawback.newTradingPool,
+        reservePoolAfter: state.reservePool,
+        tradingDelta: clawDelta,
+        reserveDelta: 0,
+        note:
+          `Day ${day.dayIndex} loss ₹${Math.abs(day.totalPnl).toLocaleString("en-IN")} ` +
+          `clawed back — staircase rewinds to day ${clawback.newDayIndex}`,
+        detail: { dayIndex: day.dayIndex, newDayIndex: clawback.newDayIndex },
+      });
     }
   }
 
@@ -1537,6 +1569,28 @@ class PortfolioAgentImpl {
           currentDayIndex: sharedIdx + 1,
           profitHistory: [...st.profitHistory, result.profitEntry],
         });
+        // Book row — the live path never wrote one (T104), so live day closes
+        // were invisible in the book while paper's showed up.
+        await recordCapitalEvent({
+          channel: c,
+          type: "DAY_COMPLETED",
+          amount: d.totalPnl,
+          tradingPoolAfter: result.tradingPool,
+          reservePoolAfter: result.reservePool,
+          tradingDelta: result.profitEntry.tradingPoolShare,
+          reserveDelta: result.profitEntry.reservePoolShare,
+          note:
+            `Day ${d.dayIndex} closed ${d.totalPnl >= 0 ? "+" : ""}` +
+            `₹${d.totalPnl.toLocaleString("en-IN")} (shared staircase) · ` +
+            `₹${result.profitEntry.tradingPoolShare.toLocaleString("en-IN")} to Trading, ` +
+            `₹${result.profitEntry.reservePoolShare.toLocaleString("en-IN")} to Reserve`,
+          detail: {
+            dayIndex: d.dayIndex,
+            tradingPoolShare: result.profitEntry.tradingPoolShare,
+            reservePoolShare: result.profitEntry.reservePoolShare,
+            rating: result.rating,
+          },
+        });
       }
       return;
     }
@@ -1556,6 +1610,24 @@ class PortfolioAgentImpl {
           currentDayIndex: sharedNewIdx,
           profitHistory: clawbacks[i].updatedHistory,
         });
+        // Book row per account, but only where money actually moved — a book
+        // that was profitable this day passed 0 loss and keeps its balance.
+        const delta = Math.round((clawbacks[i].newTradingPool - states[i].tradingPool) * 100) / 100;
+        if (delta !== 0) {
+          await recordCapitalEvent({
+            channel: chans[i],
+            type: "CLAWBACK",
+            amount: delta,
+            tradingPoolAfter: clawbacks[i].newTradingPool,
+            reservePoolAfter: states[i].reservePool,
+            tradingDelta: delta,
+            reserveDelta: 0,
+            note:
+              `Combined loss day — ₹${Math.abs(delta).toLocaleString("en-IN")} clawed back, ` +
+              `shared staircase rewinds to day ${sharedNewIdx}`,
+            detail: { sharedDayIndex: sharedIdx, newDayIndex: sharedNewIdx },
+          });
+        }
       }
     }
   }

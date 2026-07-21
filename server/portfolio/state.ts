@@ -986,6 +986,8 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
       amount: initial.tradingPool,
       tradingPoolAfter: initial.tradingPool,
       reservePoolAfter: 0,
+      tradingDelta: initial.tradingPool,
+      reserveDelta: 0,
       note: isLive
         ? `Seeded ₹${initial.tradingPool.toLocaleString("en-IN")} from ${SEED_BROKER_FOR[channel]}`
         : "Paper book opened at ₹0 — fund it by hand",
