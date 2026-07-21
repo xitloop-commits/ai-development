@@ -150,7 +150,7 @@ export default function TradingDesk({
     const t = allDays.find((d) => d.dayIndex === capital?.currentDayIndex)?.trades ?? [];
     // Only surface the strategy filter once the race is actually running (>1
     // distinct strategy today) — a single-strategy day keeps the bar clean.
-    const STRAT_ORDER = ['sprint', 'runway', 'anchor'];
+    const STRAT_ORDER = ['sprint', 'runway', 'anchor', 'glide'];
     const strats = Array.from(
       new Set(t.map((x) => x.exitStrategy).filter((s): s is string => !!s)),
     ).sort((a, b) => STRAT_ORDER.indexOf(a) - STRAT_ORDER.indexOf(b));

@@ -159,7 +159,7 @@ const placeTradeUiSchema = z.object({
    * "sprint", which made the AI menu's manual strategy pills decorative — a book
    * configured for Runway still ran every manual trade on Sprint.
    */
-  exitStrategy: z.enum(["sprint", "runway", "anchor"]).optional(),
+  exitStrategy: z.enum(["sprint", "runway", "anchor", "glide"]).optional(),
 });
 
 const updateTradeUiSchema = z.object({

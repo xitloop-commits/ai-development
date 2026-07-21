@@ -63,7 +63,7 @@ export interface SubmitTradeRequest {
 
   /** Which pluggable exit strategy manages this trade (T84): sprint/runway/anchor.
    *  Set per-twin by the RCA fan-out; defaults to "sprint" in buildTradeRecord. */
-  exitStrategy?: "sprint" | "runway" | "anchor";
+  exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
 
   /** T84 multi-strategy twin: skip TEA's per-submit discipline re-check. The
    *  signal already passed the DA gate once (discipline/routes.ts) before the

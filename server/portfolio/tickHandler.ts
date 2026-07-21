@@ -579,6 +579,32 @@ class TickHandler extends EventEmitter {
           continue; // the strategy owns the exit — skip legacy TP/SL/TSL
         }
 
+        // GLIDE DISASTER STOP — deliberately ABOVE the manualExitOnly guard.
+        //
+        // Glide has no SL, TP or trailing: it rides until MA-Signal's leg-end
+        // EXIT closes it (AI trades), or until the operator closes it (manual
+        // trades, which SEA does not track and will never close). If neither
+        // arrives — SEA restarts and loses its in-memory leg map, or a manual
+        // trade is forgotten — the position would run unprotected to EOD.
+        //
+        // This is the last line of defence, not a trading stop. It sits before
+        // the guard below because that guard skips EVERY exit; putting the check
+        // after it would leave the stop configured but never evaluated.
+        if (trade.exitStrategy === "glide" && trade.entryPrice > 0) {
+          const pct = getExitConfig().glide.disasterSlPct;
+          const isBuy = trade.type.includes("BUY");
+          // Mirror for a short: a sold option loses when the premium RISES.
+          const limit = trade.entryPrice * (1 + (isBuy ? -pct : pct) / 100);
+          const breached = isBuy ? tick.ltp <= limit : tick.ltp >= limit;
+          if (breached) {
+            this.exitingTrades.set(trade.id, Date.now());
+            // Reported as SL_HIT: on a Glide trade there is no other stop, so
+            // this is unambiguous without adding a reason to eight enums.
+            tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: tick.ltp });
+            continue;
+          }
+        }
+
         // Manual-exit-only (master switch): this trade rides until its OWN exit
         // signal (or EOD square-off / the operator's ×). Price + peak above stay
         // live for the UI/P&L, but skip EVERY auto-exit below — trailing, hard

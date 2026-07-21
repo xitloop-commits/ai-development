@@ -21,14 +21,20 @@ vi.mock("fs", () => ({
 
 import {
   resolveExitStrategy,
+  resolveManualCohort,
   sprintOpeningLevels,
   updateAiConfig,
   updateExitConfig,
   initAiConfig,
 } from "./aiModeConfig";
 
-const only = (s: "sprint" | "runway" | "anchor") => ({
-  strategies: { sprint: s === "sprint", runway: s === "runway", anchor: s === "anchor" },
+const only = (s: "sprint" | "runway" | "anchor" | "glide") => ({
+  // Every key must be listed: omitting `glide` left it at its per-block default
+  // and the test silently exercised the wrong config.
+  strategies: {
+    sprint: s === "sprint", runway: s === "runway",
+    anchor: s === "anchor", glide: s === "glide",
+  },
 });
 
 beforeEach(() => initAiConfig()); // reset to defaults between tests
@@ -152,5 +158,70 @@ describe("sprintOpeningLevels", () => {
 
   it("rounds to paise", () => {
     expect(sprintOpeningLevels(58.63, true).stopLoss).toBe(52.77);
+  });
+});
+
+/**
+ * Glide — rides until MA-Signal's own leg-end EXIT (AI trades) or until the
+ * operator closes it (manual trades). No SL, no TP, no trailing.
+ *
+ * The gating matters more than usual here: Glide has nothing that closes it on
+ * price. Attached to the wrong cohort it would simply never exit, so these pin
+ * that it can only ever be reached deliberately.
+ */
+describe("glide is MA-Signal only", () => {
+  it("is used when the cohort is ma_signal", () => {
+    updateAiConfig("manual", only("glide"));
+    expect(resolveExitStrategy("my-live", "USER", false, "ma_signal")).toBe("glide");
+  });
+
+  it("is SKIPPED for any other cohort", () => {
+    updateAiConfig("manual", only("glide"));
+    for (const cohort of ["scalp", "trend", "swing", null, undefined]) {
+      expect(resolveExitStrategy("my-live", "USER", false, cohort)).toBe("sprint");
+    }
+  });
+
+  it("falls through to the next enabled strategy rather than blocking the book", () => {
+    // On a mixed book, a non-MA trade should still get a working strategy.
+    // Glide wins for MA-Signal even though it ranks last in the pill order —
+    // it is the cohort-specific choice, so it must not be outranked.
+    updateAiConfig("manual", { strategies: { sprint: false, runway: true, anchor: false, glide: true } });
+    expect(resolveExitStrategy("my-live", "USER", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("my-live", "USER", false, "scalp")).toBe("runway");
+  });
+
+  it("never applies to equity, whatever the cohort", () => {
+    updateAiConfig("manual", only("glide"));
+    expect(resolveExitStrategy("my-live", "USER", true, "ma_signal")).toBe("sprint");
+  });
+
+  it("works for AI trades on the paper/live blocks too", () => {
+    updateAiConfig("paper", only("glide"));
+    expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("paper", "AI", false, "scalp")).toBe("sprint");
+  });
+
+  it("is OFF by default — it must be chosen, never inherited", () => {
+    initAiConfig();
+    // Paper/live ship without it; only the manual block opts in by default.
+    expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("sprint");
+  });
+});
+
+describe("manual cohort defaults to MA-Signal", () => {
+  it("resolves ma → ma_signal, the signal engine's name", () => {
+    initAiConfig();
+    expect(resolveManualCohort()).toBe("ma_signal");
+  });
+
+  it("follows the first enabled pill", () => {
+    updateAiConfig("manual", { cohorts: { scalp: true, trend: false, ma: false, swing: false } });
+    expect(resolveManualCohort()).toBe("scalp");
+  });
+
+  it("falls back to ma_signal when nothing is enabled", () => {
+    updateAiConfig("manual", { cohorts: { scalp: false, trend: false, ma: false, swing: false } });
+    expect(resolveManualCohort()).toBe("ma_signal");
   });
 });

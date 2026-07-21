@@ -26,7 +26,7 @@
  *   ANCHOR: bank at the target (exit when ltp reaches it) — no ride
  */
 
-export type ExitStrategyName = "sprint" | "runway" | "anchor";
+export type ExitStrategyName = "sprint" | "runway" | "anchor" | "glide";
 
 export interface ExitStrategyConfig {
   /** Cooling window (seconds) the wide 25% stop holds before tightening. */

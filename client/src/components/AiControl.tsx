@@ -30,11 +30,13 @@ interface SprintCfg {
   tpTrailPercent: number;
 }
 /** SHARED across paper / live / manual. */
-interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg }
+/** Glide has no trading levels — only the disaster stop. See GlideConfig. */
+interface GlideCfg { disasterSlPct: number }
+interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
-  strategies: { sprint: boolean; runway: boolean; anchor: boolean };
+  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean };
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
@@ -236,10 +238,20 @@ const HELP = {
 /** Instruments with trained models (the two index books SEA runs). */
 const MODEL_INSTRUMENTS = ["nifty50", "banknifty"] as const;
 
-const STRATEGIES: { key: "sprint" | "runway" | "anchor"; label: string }[] = [
+const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide"; label: string }[] = [
   { key: "sprint", label: "Sprint" },
   { key: "runway", label: "Runway" },
   { key: "anchor", label: "Anchor" },
+  { key: "glide", label: "Glide" },
+];
+
+/** Cohorts a MANUAL trade can be tagged with. `ma` maps to the signal engine's
+ *  `ma_signal`; the server owns that translation (resolveManualCohort). */
+const MANUAL_COHORTS: { key: "ma" | "scalp" | "trend" | "swing"; label: string }[] = [
+  { key: "ma", label: "MA-Signal" },
+  { key: "scalp", label: "Scalp" },
+  { key: "trend", label: "Trend" },
+  { key: "swing", label: "Swing" },
 ];
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
 
@@ -646,8 +658,20 @@ export function AiControl() {
                       Order type, EOD square-off &amp; safety exits use your Settings. These are manual-only.
                     </p>
 
+                    <Group title="Cohort · tags the trade">
+                      <div className="flex gap-1.5 flex-wrap">
+                        {MANUAL_COHORTS.map((c) => (
+                          <Pill key={c.key} label={c.label} on={!!md.cohorts[c.key]}
+                            onClick={() => editManual((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })} />
+                        ))}
+                      </div>
+                      <span className="text-[0.5625rem] text-muted-foreground">
+                        First selected wins · defaults to MA-Signal
+                      </span>
+                    </Group>
+
                     <Group title="Strategies · pick one per trade">
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1.5 flex-wrap">
                         {STRATEGIES.map((s) => (
                           <Pill key={s.key} label={s.label} on={!!md.strategies[s.key]}
                             onClick={() => editManual((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
@@ -656,6 +680,24 @@ export function AiControl() {
                       <span className="text-[0.5625rem] text-muted-foreground">
                         {STRATEGIES.filter((s) => md.strategies[s.key]).length} available to choose
                       </span>
+                      {/*
+                        Glide has no stop, no target and no trailing, and NOTHING
+                        closes a manual one automatically — SEA only closes the
+                        trades it opened itself. Saying so here is the difference
+                        between a deliberate choice and an expensive surprise.
+                      */}
+                      {md.strategies.glide && (
+                        <span className="text-[0.5625rem] text-warning-amber leading-snug">
+                          Glide: no SL / TP / trailing. You close it yourself — MA-Signal
+                          only closes trades it opened. Needs the MA-Signal cohort;
+                          otherwise the next enabled strategy is used.
+                        </span>
+                      )}
+                      {md.strategies.glide && !md.cohorts.ma && (
+                        <span className="text-[0.5625rem] text-bearish font-bold leading-snug">
+                          Cohort is not MA-Signal — Glide will be skipped for these trades.
+                        </span>
+                      )}
                     </Group>
 
                     <Group title="Sizing">

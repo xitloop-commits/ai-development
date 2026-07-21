@@ -1627,6 +1627,39 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T100 [Execution] — Glide: MA-Signal-only exit strategy ✅ DONE 2026-07-21
+Fourth exit strategy. No SL, no TP, no trailing — rides until MA-Signal's
+leg-end EXIT (AI trades) or until the operator closes it (manual trades).
+Implemented via the existing `manualExitOnly` switch, keyed off the STRATEGY not
+the cohort, so T85's "the attached strategy governs" principle is preserved
+rather than reverted.
+
+- MA-Signal cohort only; for an MA trade Glide WINS over other enabled
+  strategies (it ranks last in pill order, so first-enabled would never pick it).
+- OFF by default on paper/live; the manual block defaults to MA-Signal + Glide.
+- Manual cohort picker added to the AI menu; server resolves it
+  (`resolveManualCohort`, `ma` → `ma_signal`) so every manual path is tagged.
+- Disaster stop (`exits.glide.disasterSlPct`, default 50%) checked ABOVE the
+  `manualExitOnly` guard in tickHandler — that guard skips every exit below it,
+  so a check placed after would be configured and never evaluated. Reported as
+  SL_HIT (Glide has no other stop, so it is unambiguous without adding a reason
+  to 8 enums).
+
+**⚠️ A manual Glide trade is never closed automatically.** SEA closes the trade
+IT opened (it stores the id at leg start, in memory); a hand-placed trade was
+never in that map. Accepted by Partha ("i will close it manually"). The AI menu
+warns in-place. Two consequences worth revisiting:
+  - SEA restart orphans an AI Glide trade the same way — the disaster stop and
+    EOD square-off are the only floors.
+  - **Better fix, deferred:** give the close path a scope like "all open Glide
+    trades on this instrument + side" so MA's EXIT closes by POSITION rather
+    than by remembered id. Fixes manual closes AND the restart orphan at once.
+    Needs a new scope kind (today: ALL / INSTRUMENT / TRADE_IDS).
+
+31 tests. Mutation-verified: deleting the suppression rule (3 fail), removing
+the MA-only gate (3 fail). The suppression tests were added only after a
+mutation run showed the rule could be deleted with every test still green.
+
 ### T98 [Execution] — manual trades ignored the configured exit strategy ✅ DONE 2026-07-21
 `placeTradeUiSchema` carried no `exitStrategy`, so `submitTrade`'s `?? "sprint"`
 fallback fired on every manual trade — a book set to Runway silently ran Sprint

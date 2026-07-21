@@ -26,7 +26,7 @@ import { DEFAULT_EXIT_CFG, type ExitStrategyConfig } from "./exitStrategies";
 import type { Channel } from "./state";
 
 export type AiMode = "paper" | "live" | "manual";
-export type StrategyName = "sprint" | "runway" | "anchor";
+export type StrategyName = "sprint" | "runway" | "anchor" | "glide";
 
 export interface CohortsConfig {
   scalp: boolean;
@@ -75,10 +75,25 @@ export interface SquareoffConfig {
 }
 
 /** SHARED across paper / live / manual — one set of strategy exit knobs. */
+export interface GlideConfig {
+  /**
+   * Disaster stop, % from entry. NOT a trading stop — Glide has no SL, TP or
+   * trailing by design; it rides until MA-Signal sends its own EXIT.
+   *
+   * It exists because the ONLY thing that closes a Glide trade is SEA sending
+   * that exit, and SEA tracks its open MA legs in memory (`_ma_open`). If SEA
+   * restarts mid-leg that memory is gone, nothing will ever send the exit, and
+   * the position would sit unprotected until EOD square-off. Set it wide enough
+   * that normal MA behaviour never reaches it.
+   */
+  disasterSlPct: number;
+}
+
 export interface SharedExitConfig {
   sprint: SprintConfig;
   runway: ExitStrategyConfig;
   anchor: ExitStrategyConfig;
+  glide: GlideConfig;
 }
 
 /** Per-mode (per-book) config. */
@@ -117,6 +132,7 @@ function baseExits(): SharedExitConfig {
       trailingActivationHoldSeconds: 10,
       tpTrailPercent: 1.5,
     },
+    glide: { disasterSlPct: 50 },
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
   };
@@ -125,7 +141,9 @@ function baseExits(): SharedExitConfig {
 function baseMode(): AiModeConfig {
   return {
     cohorts: { scalp: true, trend: false, ma: true, swing: false, revPct: 0.18 },
-    strategies: { sprint: true, runway: true, anchor: true },
+    // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
+    // so it must be chosen deliberately, never inherited from a default.
+    strategies: { sprint: true, runway: true, anchor: true, glide: false },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -145,12 +163,22 @@ function baseMode(): AiModeConfig {
 }
 
 /** paper races all three (today's paper behaviour); live is Sprint-only
- *  (today's live behaviour); manual has all three available to pick from. */
+ *  (today's live behaviour); manual defaults to MA-Signal + Glide. */
 function defaultAll(): AllAiConfig {
   const paper = baseMode();
   const live = baseMode();
-  live.strategies = { sprint: true, runway: false, anchor: false };
+  live.strategies = { sprint: true, runway: false, anchor: false, glide: false };
   const manual = baseMode();
+  // Manual defaults: MA-Signal cohort, Glide strategy.
+  //
+  // ⚠️ A manual Glide trade is NOT closed by MA-Signal's exit. SEA closes the
+  // specific trade IT opened (it stores the id at leg start), and a trade you
+  // placed by hand was never in that map. So a manual Glide trade rides until
+  // YOU close it, the disaster stop fires, or EOD square-off. That is the
+  // accepted behaviour, not an oversight — but it is why Glide must never be
+  // reached by accident.
+  manual.cohorts = { ...manual.cohorts, scalp: false, trend: false, ma: true, swing: false };
+  manual.strategies = { sprint: false, runway: false, anchor: false, glide: true };
   return { exits: baseExits(), paper, live, manual };
 }
 
@@ -207,7 +235,7 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
   c.cohorts.revPct = clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
-  for (const s of ["sprint", "runway", "anchor"] as const) c.strategies[s] = !!c.strategies[s];
+  for (const s of ["sprint", "runway", "anchor", "glide"] as const) c.strategies[s] = !!c.strategies[s];
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
     s.mode = s.mode === "percent" ? "percent" : "lots";
@@ -248,6 +276,25 @@ export function aiModeForChannel(channel: Channel): Exclude<AiMode, "manual"> | 
   if (channel === "paper") return "paper";
   if (channel === "ai-live") return "live";
   return null; // my-live — not governed by the AI menu for these
+}
+
+/**
+ * The cohort a MANUAL trade is tagged with, from the AI menu's "My Trades"
+ * block. First enabled wins (manual is one cohort per trade, not a race);
+ * nothing enabled → ma_signal, the default this block ships with.
+ *
+ * The config uses the UI's short keys (`ma`) while trade records use the signal
+ * engine's names (`ma_signal`) — translated here, in one place, rather than at
+ * each call site. Getting that mapping wrong would tag trades with a cohort
+ * that matches nothing downstream, including Glide's MA-only gate.
+ */
+export function resolveManualCohort(): string {
+  const c = state.manual.cohorts;
+  if (c.ma) return "ma_signal";
+  if (c.scalp) return "scalp";
+  if (c.trend) return "trend";
+  if (c.swing) return "swing";
+  return "ma_signal";
 }
 
 /**
@@ -298,7 +345,7 @@ export function getAllAiConfig(): AllAiConfig {
 /** The active strategies for a mode, in a stable order. */
 export function getActiveStrategies(mode: AiMode): StrategyName[] {
   const s = state[mode].strategies;
-  return (["sprint", "runway", "anchor"] as StrategyName[]).filter((k) => s[k]);
+  return (["sprint", "runway", "anchor", "glide"] as StrategyName[]).filter((k) => s[k]);
 }
 
 /**
@@ -334,10 +381,22 @@ export function resolveExitStrategy(
   channel: Channel,
   origin: "RCA" | "AI" | "USER",
   isEquity: boolean,
+  cohort?: string | null,
 ): StrategyName {
   if (isEquity) return "sprint";
   const mode: AiMode = origin === "USER" ? "manual" : modeForChannel(channel);
-  return getActiveStrategies(mode)[0] ?? "sprint";
+  const active = getActiveStrategies(mode);
+  // Glide is MA-Signal ONLY, and for an MA-Signal trade it WINS.
+  //
+  // It is the cohort-specific choice, so it takes priority over the general
+  // ones: enabling Glide alongside Runway on a mixed book means "MA trades
+  // glide, everything else runs Runway". Leaving it to the normal first-enabled
+  // order would rank it last and it would never be used.
+  if (cohort === "ma_signal" && active.includes("glide")) return "glide";
+  // Any other cohort (or a trade with none) can never use it: Glide has no stop
+  // and relies on MA-Signal's leg-end EXIT, so attached elsewhere nothing would
+  // ever close it. Skip rather than reject, so the book keeps working.
+  return active.find((s) => s !== "glide") ?? "sprint";
 }
 
 /** Deep-merge a patch into the SHARED exit config; clamp, persist, return it. */

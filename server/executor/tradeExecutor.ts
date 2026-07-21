@@ -48,7 +48,13 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
-import { getExitConfig, resolveExitStrategy, sprintOpeningLevels } from "../portfolio/aiModeConfig";
+import {
+  getExitConfig,
+  resolveExitStrategy,
+  resolveManualCohort,
+  sprintOpeningLevels,
+} from "../portfolio/aiModeConfig";
+import type { ExitStrategyName } from "../portfolio/exitStrategies";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -1153,12 +1159,29 @@ export function resolveOpenExitFlags(
   _cohort: string | null | undefined,
   trailingEnabled: boolean,
   _source?: "ai" | "my",
+  strategy?: ExitStrategyName,
 ): {
   manualExitOnly: boolean;
   stopLossDisabled: boolean;
   targetDisabled: boolean;
   tslMode: "auto" | "manual";
 } {
+  // Glide rides until MA-Signal's own leg-end EXIT closes it: no SL, no TP, no
+  // trailing. `manualExitOnly` is the existing master switch for that — the
+  // tick engine and RcaMonitor both already honour it.
+  //
+  // Note this keys off the STRATEGY, not the cohort. T85 deliberately stopped
+  // cohorts suppressing exits ("the attached strategy governs every trade"), and
+  // that principle still holds — MA-Signal only rides now when it is explicitly
+  // given Glide, rather than because of what cohort it belongs to.
+  if (strategy === "glide") {
+    return {
+      manualExitOnly: true,
+      stopLossDisabled: true,
+      targetDisabled: true,
+      tslMode: "manual",
+    };
+  }
   return {
     manualExitOnly: false,
     stopLossDisabled: false,
@@ -1189,11 +1212,19 @@ function buildTradeRecord(
   // T85: the attached exit strategy drives every book; trailing seeds from the
   // shared Sprint config (the single source of trailing truth).
   const sprintCfg = getExitConfig().sprint;
+  // Cohort FIRST — the strategy gate below reads it (Glide is MA-Signal only).
+  // Resolved server-side for manual trades so every placement path is tagged,
+  // rather than each client remembering to send it.
+  const cohort =
+    req.cohort ?? (req.origin === "USER" && req.optionType ? resolveManualCohort() : null);
+  const strategy =
+    req.exitStrategy ?? resolveExitStrategy(req.channel, req.origin, !req.optionType, cohort);
   const exitFlags = resolveOpenExitFlags(
     req.channel,
     req.cohort,
     sprintCfg.trailingStopEnabled,
     source,
+    strategy,
   );
 
   // T85 precedence for the OPENING levels:
@@ -1209,7 +1240,6 @@ function buildTradeRecord(
   // No strategy from the caller → resolve it from the AI menu rather than
   // assuming sprint. `optionType` is undefined only for equity (the UI router
   // sets it that way), and equity is pinned to sprint inside the resolver.
-  const strategy = req.exitStrategy ?? resolveExitStrategy(req.channel, req.origin, !req.optionType);
   const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   // Same helper the UI placement path uses, so the level a manual trade gets at
@@ -1255,7 +1285,7 @@ function buildTradeRecord(
     ltp: req.entryPrice,
     qty: req.quantity,
     capitalPercent: req.capitalPercent ?? 0,
-    cohort: req.cohort ?? null,
+    cohort,
     signalSeq: req.signalSeq ?? null,
     source,
     pnl: 0,

@@ -90,7 +90,7 @@ export interface PositionStateDoc {
   /** Ride to its own exit — RcaMonitor skips age/stale/vol/momentum for these. */
   manualExitOnly?: boolean;
   /** Which pluggable exit strategy runs this trade (T84): sprint/runway/anchor. */
-  exitStrategy?: "sprint" | "runway" | "anchor";
+  exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
 
   /**
    * Wave 1: peak ltp seen since entry — used by tickHandler's TSL
@@ -260,7 +260,7 @@ const positionStateSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
     manualExitOnly: { type: Boolean, default: false },
-    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor"], default: "sprint" },
+    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor", "glide"], default: "sprint" },
 
     // Wave 1: peak ltp persisted for restart-safe TSL ratchet.
     peakLtp: { type: Number, default: null },
