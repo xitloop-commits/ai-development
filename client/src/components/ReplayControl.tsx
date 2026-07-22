@@ -13,7 +13,7 @@ import { trpc } from '@/lib/trpc';
 import { setSelectedRunId, openReplayTab } from '@/lib/replaySelection';
 import { toast } from 'sonner';
 
-const SPEEDS = [1, 10, 30, 60] as const;
+const SPEEDS = [1, 3, 5, 10, 30, 60] as const;
 
 export function ReplayControl() {
   const utils = trpc.useUtils();
