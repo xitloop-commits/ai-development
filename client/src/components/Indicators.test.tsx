@@ -178,10 +178,17 @@ vi.mock('@/lib/trpc', () => ({
         circuitBreaker: 20, tradeLimits: 15, cooldowns: 15, timeWindows: 10,
         positionSizing: 15, journal: 10, preTradeGate: 7,
       } }, isLoading: false }) },
+      // Master-switch menu (2026-07-22): the indicator now reads settings and
+      // exposes an updateSettings mutation.
+      getSettings: { useQuery: () => ({ data: {
+        liveEnforcement: { enabled: true }, simulationEnforcement: { enabled: true },
+      }, isLoading: false }) },
+      updateSettings: { useMutation: () => ({ mutate: () => {}, isPending: false }) },
     },
     trading: {
       instrumentLiveState: { useQuery: () => noopQuery },
     },
+    useUtils: () => ({ discipline: { getSettings: { invalidate: () => {} } } }),
   },
 }));
 

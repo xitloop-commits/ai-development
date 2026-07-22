@@ -1627,6 +1627,24 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T105 [UI] — Discipline master toggle on the app bar ✅ DONE 2026-07-22
+The Discipline shield on the app bar was hover-only. It is now a clickable menu
+with the two enforcement master switches — Live (my-live · ai-live) and Paper —
+that flip `liveEnforcement.enabled` / `simulationEnforcement.enabled` via the
+existing `discipline.updateSettings`. Backend was already built and tested
+(`isDisciplineBypassed`, discipline.test.ts:821+); this was UI only.
+
+- Turning Live OFF is guarded by a confirm dialog — real-money orders then skip
+  EVERY limit (loss cap, R:R gate, position caps, cooldowns). Paper OFF is
+  harmless and toggles directly.
+- The shield turns red with a dot whenever either guard is off, so a disabled
+  gate is never silent.
+
+Context: surfaced while diagnosing why live orders were rejected — the R:R gate
+(Sprint SL 10% > TP 5% = 1:0.5, below the 1:1.5 minimum). The toggle lets the
+operator bypass deliberately; the underlying inverted Sprint config is still
+worth fixing (separate — the AI menu Sprint SL/TP).
+
 ### T104 [Portfolio] — day-wise Dr/Cr/Balance pool passbooks ✅ DONE 2026-07-21
 Partha asked for the Book UI to read like a classic account book (Cr / Dr /
 Balance) with everything kept day-wise in the database — split into TWO books,

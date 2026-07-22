@@ -13,8 +13,10 @@
  * level any more.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Wifi, Shield, FlaskConical } from 'lucide-react';
+import { Wifi, Shield, FlaskConical, AlertTriangle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ConfirmDialog } from './ConfirmDialog';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
@@ -323,37 +325,119 @@ function DisciplineIndicator() {
     ? (typeof data?.score === 'object' ? (data.score as any).breakdown : data?.breakdown) ?? null
     : null;
 
+  // Master switches — the same fields the backend gate reads
+  // (isDisciplineBypassed). Live OFF lets REAL-money orders skip every limit,
+  // so it is guarded by a confirm dialog; paper OFF is harmless.
+  const settings = trpc.discipline.getSettings.useQuery(undefined);
+  const utils = trpc.useUtils();
+  const update = trpc.discipline.updateSettings.useMutation({
+    onSuccess: () => { void utils.discipline.getSettings.invalidate(); },
+  });
+  const liveOn = settings.data?.liveEnforcement?.enabled ?? true;
+  const simOn = settings.data?.simulationEnforcement?.enabled ?? true;
+  const [confirmLiveOff, setConfirmLiveOff] = useState(false);
+
+  const setLive = (enabled: boolean) => update.mutate({ liveEnforcement: { enabled } });
+  const setSim = (enabled: boolean) => update.mutate({ simulationEnforcement: { enabled } });
+
+  // A dot on the shield when EITHER guard is off, so a disabled gate is never
+  // silent — the operator sees protection is down without opening the menu.
+  const anyOff = !liveOn || !simOn;
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-          <Shield className={`h-3 w-3 ${scoreColor}`} />
-          <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
-            {score === null ? '--' : score}
-          </span>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        <div className="text-[0.625rem] space-y-0.5 font-mono">
-          <div className={`font-bold mb-1 ${scoreColor}`}>
-            Discipline: {score === null ? '--' : `${score}/100`}
+    <>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" className="px-3 flex items-center gap-1 shrink-0 cursor-pointer relative">
+            <Shield className={`h-3 w-3 ${anyOff ? 'text-loss-red' : scoreColor}`} />
+            <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
+              {score === null ? '--' : score}
+            </span>
+            {anyOff && <span className="absolute top-0.5 right-1.5 h-1.5 w-1.5 rounded-full bg-loss-red" />}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="end" className="w-64 p-3">
+          <div className="space-y-3">
+            <div className={`text-xs font-bold ${scoreColor}`}>
+              Discipline: {score === null ? '--' : `${score}/100`}
+            </div>
+
+            {/* Master toggles */}
+            <div className="space-y-2 border-y border-border py-2">
+              <EnforcementToggle
+                label="Live" sub="my-live · ai-live" on={liveOn}
+                onToggle={() => liveOn ? setConfirmLiveOff(true) : setLive(true)}
+                danger
+              />
+              <EnforcementToggle
+                label="Paper" sub="paper" on={simOn}
+                onToggle={() => setSim(!simOn)}
+              />
+            </div>
+
+            {!liveOn && (
+              <div className="flex items-start gap-1.5 text-[0.625rem] text-loss-red">
+                <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                <span>Live discipline is OFF. Real-money orders skip every limit — no loss cap, no R:R gate, no cooldown.</span>
+              </div>
+            )}
+
+            {/* Score breakdown */}
+            <div className="text-[0.625rem] space-y-0.5 font-mono">
+              {breakdown ? (
+                <>
+                  <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker ?? '--'}/20</div>
+                  <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits ?? '--'}/15</div>
+                  <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns ?? '--'}/15</div>
+                  <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows ?? '--'}/10</div>
+                  <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing ?? '--'}/15</div>
+                  <div className="text-muted-foreground">Journal          {breakdown.journal ?? '--'}/10</div>
+                  <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate ?? '--'}/15</div>
+                </>
+              ) : (
+                <div className="text-muted-foreground/70">Loading discipline state…</div>
+              )}
+            </div>
           </div>
-          {breakdown ? (
-            <>
-              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker ?? '--'}/20</div>
-              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits ?? '--'}/15</div>
-              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns ?? '--'}/15</div>
-              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows ?? '--'}/10</div>
-              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing ?? '--'}/15</div>
-              <div className="text-muted-foreground">Journal          {breakdown.journal ?? '--'}/10</div>
-              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate ?? '--'}/15</div>
-            </>
-          ) : (
-            <div className="text-muted-foreground/70">Loading discipline state…</div>
-          )}
-        </div>
-      </TooltipContent>
-    </Tooltip>
+        </PopoverContent>
+      </Popover>
+
+      {confirmLiveOff && (
+        <ConfirmDialog
+          open
+          title="Turn OFF live discipline?"
+          message="Real-money orders on my-live and ai-live will skip EVERY limit — daily loss cap, R:R gate, position caps, cooldowns. Nothing will stop a bad trade. Turn it back on the moment you are done."
+          onConfirm={() => { setLive(false); setConfirmLiveOff(false); }}
+          onCancel={() => setConfirmLiveOff(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/** One master switch row. `danger` tints the OFF state red so a disabled LIVE
+ *  guard reads as a warning, not a neutral setting. */
+function EnforcementToggle({
+  label, sub, on, onToggle, danger,
+}: { label: string; sub: string; on: boolean; onToggle: () => void; danger?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <div className="text-[0.6875rem] font-bold">{label}</div>
+        <div className="text-[0.5625rem] text-muted-foreground font-mono">{sub}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`px-2 py-0.5 rounded text-[0.625rem] font-bold transition-colors ${
+          on
+            ? 'bg-bullish/15 text-bullish'
+            : danger ? 'bg-loss-red/20 text-loss-red' : 'bg-muted text-muted-foreground'
+        }`}
+      >
+        {on ? 'ON' : 'OFF'}
+      </button>
+    </div>
   );
 }
 
