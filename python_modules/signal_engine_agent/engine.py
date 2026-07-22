@@ -1298,17 +1298,26 @@ def run(
                         }
                         raw_logger.log(ma_signal_out)
                         _send_signal_to_tray(ma_signal_out)  # Mongo + WS (chart)
-                        # MA-Signal rides with NO auto-exit (server flags cohort=
-                        # ma_signal manual-exit-only); it is closed ONLY here, on its
-                        # own EXIT. Entry captures the tradeId; EXIT closes that leg.
+                        # MA-Signal Glide trades ride with NO auto-exit; they are
+                        # closed ONLY here, on the leg-end EXIT.
+                        #
+                        # Close by POSITION (instrument + side), not by a
+                        # remembered tradeId. One entry can create several trades
+                        # (paper races strategies) and the id captured below is the
+                        # first twin, not the Glide one — so closing by id left the
+                        # Glide trade open forever. Position-close hits the right
+                        # trade every time and survives a SEA restart (this
+                        # in-memory `_ma_open` map does not).
                         if _ma_exit:
-                            _tid = _ma_open.pop(_ma_side, None)
-                            if _tid:
-                                try:
-                                    from signal_engine_agent.risk_control_client import close_trade
-                                    close_trade(_tid)
-                                except Exception as exc:
-                                    print(f"  MA-Signal close error: {exc}", file=sys.stderr)
+                            try:
+                                from signal_engine_agent.risk_control_client import close_glide_position
+                                # Same instrument string the entry stored (both
+                                # go through `instrument.upper()`), so the server
+                                # position-match is exact.
+                                close_glide_position(ma_signal_out["instrument"], _ma_side)
+                            except Exception as exc:
+                                print(f"  MA-Signal close error: {exc}", file=sys.stderr)
+                            _ma_open.pop(_ma_side, None)  # tidy the (now unused) map
                         else:
                             _tid = _maybe_submit_ai_trade(ma_signal_out)
                             if _tid:

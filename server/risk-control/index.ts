@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, getAiConfig, modeForChannel, aiModeForChannel } from "../portfolio/aiModeConfig";
+import { getActiveStrategies, strategiesForCohort, getAiConfig, modeForChannel, aiModeForChannel } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -405,7 +405,10 @@ class RcaMonitor {
     // idempotency is keyed on it, else twins collapse to one. Zero active = the
     // mode is paused: the signal fired but no trade is placed.
     const mode = modeForChannel(input.channel);
-    const strategies = getActiveStrategies(mode);
+    // Glide is MA-Signal ONLY — see strategiesForCohort. Without this a
+    // Scalp/Trend signal would spawn a Glide twin that rides forever (no
+    // leg-end EXIT ever comes to close it).
+    const strategies = strategiesForCohort(getActiveStrategies(mode), input.cohort);
     if (strategies.length === 0) {
       log.info(`no strategies enabled for ${mode} — signal not placed`);
       return { decision: "REJECT", reason: `No strategies enabled for ${mode} mode` };
@@ -482,6 +485,21 @@ class RcaMonitor {
           targets.push({ channel, trade });
         } else if (input.scope.kind === "TRADE_IDS" && input.scope.tradeIds.includes(trade.id)) {
           targets.push({ channel, trade });
+        } else if (input.scope.kind === "GLIDE") {
+          // MA-Signal leg-end EXIT. Close every open GLIDE trade on this
+          // instrument + side — never the Sprint/Runway/Anchor comparison twins
+          // from the same entry, which manage their own exits. Matching by
+          // strategy + position (not a remembered id) is what fixes the twin the
+          // old close-by-id path missed.
+          const wantCall = input.scope.optionType === "CE";
+          const isCall = trade.type.includes("CALL");
+          if (
+            trade.exitStrategy === "glide" &&
+            trade.instrument === input.scope.instrument &&
+            isCall === wantCall
+          ) {
+            targets.push({ channel, trade });
+          }
         }
       }
     }

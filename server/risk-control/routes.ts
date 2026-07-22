@@ -74,6 +74,7 @@ const disciplineRequestSchema = z
         z.object({ kind: z.literal("ALL") }).strict(),
         z.object({ kind: z.literal("INSTRUMENT"), instrument: z.string().min(1) }).strict(),
         z.object({ kind: z.literal("TRADE_IDS"), tradeIds: z.array(z.string().min(1)).min(1) }).strict(),
+        z.object({ kind: z.literal("GLIDE"), instrument: z.string().min(1), optionType: z.enum(["CE", "PE"]) }).strict(),
       ]),
   })
   .strict();

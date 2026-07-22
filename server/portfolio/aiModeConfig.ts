@@ -349,6 +349,22 @@ export function getActiveStrategies(mode: AiMode): StrategyName[] {
 }
 
 /**
+ * Drop Glide from a strategy list unless the signal is MA-Signal.
+ *
+ * Glide has no auto-exit — it rides until the MA leg-end EXIT closes it. On any
+ * other cohort no EXIT ever comes (a Scalp/Trend signal has no leg-end), so a
+ * Glide twin would ride forever. The RCA fan-out races every active strategy
+ * without checking cohort, so this guard is applied there. Same rule as
+ * resolveExitStrategy, for the multi-strategy race.
+ */
+export function strategiesForCohort(
+  strategies: StrategyName[],
+  cohort: string | null | undefined,
+): StrategyName[] {
+  return strategies.filter((s) => s !== "glide" || cohort === "ma_signal");
+}
+
+/**
  * The exit strategy a trade should run when the caller did not name one.
  *
  * This exists because the old fallback was the bare literal "sprint", and every

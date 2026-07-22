@@ -234,6 +234,69 @@ describe("rcaMonitor.disciplineRequest", () => {
     expect(result.failed).toBe(1);
     expect(result.details[0].error).toContain("BROKER_DESYNC");
   });
+
+  // ── scope=GLIDE (MA-Signal leg-end EXIT) ──────────────────────────────────
+  //
+  // The bug this fixes: one MA entry creates several trades (paper races
+  // strategies), only the Glide one waits for EXIT, and the id SEA captured was
+  // the FIRST twin (Sprint) — so closing by id left the Glide trade riding
+  // forever. GLIDE scope closes by instrument + side + strategy instead.
+  const glideTrade = (id: string, instrument: string, type: string, strategy: string) => ({
+    id, instrument, type, strike: 24100, entryPrice: 100, exitPrice: null, ltp: 102,
+    qty: 65, capitalPercent: 10, pnl: 0, unrealizedPnl: 130, charges: 0, chargesBreakdown: [],
+    status: "OPEN" as const, exitStrategy: strategy,
+  });
+
+  it("scope=GLIDE closes only the Glide twin on the matching instrument + side", async () => {
+    (portfolioAgent.getPositions as any).mockImplementation(async (channel: string) =>
+      channel === "paper"
+        ? [
+            glideTrade("T-sprint", "NIFTY50", "PUT_BUY", "sprint"),
+            glideTrade("T-runway", "NIFTY50", "PUT_BUY", "runway"),
+            glideTrade("T-glide", "NIFTY50", "PUT_BUY", "glide"),
+          ]
+        : [],
+    );
+    const result = await rcaMonitor.disciplineRequest({
+      reason: "AI_EXIT",
+      channels: ["paper"],
+      scope: { kind: "GLIDE", instrument: "NIFTY50", optionType: "PE" },
+    });
+    // Only the Glide trade — the comparison twins manage their own exits.
+    expect(result.exited).toBe(1);
+    expect(result.details[0].tradeId).toBe("T-glide");
+  });
+
+  it("scope=GLIDE closes the matching SIDE only (EXIT_PE must not touch a CE)", async () => {
+    (portfolioAgent.getPositions as any).mockImplementation(async () => [
+      glideTrade("T-ce", "NIFTY50", "CALL_BUY", "glide"),
+      glideTrade("T-pe", "NIFTY50", "PUT_BUY", "glide"),
+    ]);
+    const result = await rcaMonitor.disciplineRequest({
+      reason: "AI_EXIT",
+      channels: ["paper"],
+      scope: { kind: "GLIDE", instrument: "NIFTY50", optionType: "PE" },
+    });
+    expect(result.exited).toBe(1);
+    expect(result.details[0].tradeId).toBe("T-pe");
+  });
+
+  it("scope=GLIDE closes EVERY matching Glide trade — not one remembered id", async () => {
+    // The whole point: a restart-proof, id-free close. Two Glide legs open on
+    // the same instrument+side both go.
+    (portfolioAgent.getPositions as any).mockImplementation(async () => [
+      glideTrade("T-a", "BANKNIFTY", "CALL_BUY", "glide"),
+      glideTrade("T-b", "BANKNIFTY", "CALL_BUY", "glide"),
+      glideTrade("T-other", "BANKNIFTY", "CALL_BUY", "sprint"),
+    ]);
+    const result = await rcaMonitor.disciplineRequest({
+      reason: "AI_EXIT",
+      channels: ["paper"],
+      scope: { kind: "GLIDE", instrument: "BANKNIFTY", optionType: "CE" },
+    });
+    expect(result.exited).toBe(2);
+    expect(result.details.map((d) => d.tradeId).sort()).toEqual(["T-a", "T-b"]);
+  });
 });
 
 // ─── aiSignal ────────────────────────────────────────────────────

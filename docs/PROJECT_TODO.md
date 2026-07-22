@@ -1627,6 +1627,28 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T106 [Execution] — MA-Signal EXIT closes the Glide trade by POSITION ✅ DONE 2026-07-22
+Reported: an EXIT_PE arrived but the MA Glide trade stayed open. Root cause,
+confirmed from paper data (signals #2/#4 Glide twins still OPEN): one MA entry
+creates several trades (paper races strategies), SEA captured only the FIRST
+twin's id (Sprint), and closed THAT on EXIT — already closed on its own stop —
+so the Glide twin, the one that needed the EXIT, rode forever.
+
+- New `GLIDE` discipline-exit scope: closes every open Glide trade on
+  `instrument` + `optionType`, never the Sprint/Runway/Anchor comparison twins.
+  Closes by POSITION, not a remembered id → hits the right trade, survives a SEA
+  restart, covers a hand-placed Glide trade.
+- SEA `close_glide_position(instrument, side)` replaces the by-id close on EXIT.
+- Fan-out now gates Glide to the `ma_signal` cohort (`strategiesForCohort`) —
+  a Scalp/Trend signal used to be able to spawn a Glide twin with no EXIT ever
+  coming to close it.
+- 7 tests (GLIDE scope + cohort gate), mutation-verified: ignoring strategy
+  (2 fail), ignoring side (2 fail).
+
+⚠️ Python change (engine.py, risk_control_client.py) needs a SEA restart to take
+effect. Orphaned Glide trades already open (paper #2/#4 PE, one CALL) self-heal
+on the next EXIT for that instrument+side once SEA is restarted.
+
 ### T105 [UI] — Discipline master toggle on the app bar ✅ DONE 2026-07-22
 The Discipline shield on the app bar was hover-only. It is now a clickable menu
 with the two enforcement master switches — Live (my-live · ai-live) and Paper —

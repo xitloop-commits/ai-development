@@ -22,6 +22,7 @@ vi.mock("fs", () => ({
 import {
   resolveExitStrategy,
   resolveManualCohort,
+  strategiesForCohort,
   sprintOpeningLevels,
   updateAiConfig,
   updateExitConfig,
@@ -223,5 +224,33 @@ describe("manual cohort defaults to MA-Signal", () => {
   it("falls back to ma_signal when nothing is enabled", () => {
     updateAiConfig("manual", { cohorts: { scalp: false, trend: false, ma: false, swing: false } });
     expect(resolveManualCohort()).toBe("ma_signal");
+  });
+});
+
+/**
+ * strategiesForCohort — the RCA fan-out races every active strategy, so Glide
+ * must be filtered out there too when the signal is not MA-Signal. Otherwise a
+ * Scalp/Trend entry spawns a Glide twin that rides forever (no leg-end EXIT).
+ */
+describe("strategiesForCohort", () => {
+  const ALL: Array<"sprint" | "runway" | "anchor" | "glide"> = ["sprint", "runway", "anchor", "glide"];
+
+  it("keeps Glide for the ma_signal cohort", () => {
+    expect(strategiesForCohort(ALL, "ma_signal")).toEqual(ALL);
+  });
+
+  it("drops Glide for every other cohort", () => {
+    for (const c of ["scalp", "trend", "swing", null, undefined]) {
+      expect(strategiesForCohort(ALL, c)).toEqual(["sprint", "runway", "anchor"]);
+    }
+  });
+
+  it("leaves a Glide-free list untouched", () => {
+    expect(strategiesForCohort(["sprint", "runway"], "scalp")).toEqual(["sprint", "runway"]);
+  });
+
+  it("can yield an empty list — a Glide-only book on a non-MA signal places nothing", () => {
+    expect(strategiesForCohort(["glide"], "scalp")).toEqual([]);
+    expect(strategiesForCohort(["glide"], "ma_signal")).toEqual(["glide"]);
   });
 });

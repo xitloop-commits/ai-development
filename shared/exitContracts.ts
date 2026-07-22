@@ -77,11 +77,19 @@ export type ChannelCode =
  *   ALL         — every open position on the listed channels
  *   INSTRUMENT  — every open position on `instrument` across channels
  *   TRADE_IDS   — explicit trade IDs (e.g. carry-forward FAIL list)
+ *   GLIDE       — every open GLIDE trade on `instrument` + `optionType`. This is
+ *                 how an MA-Signal leg-end EXIT closes its position. It closes by
+ *                 POSITION, not by a remembered trade id: one MA entry can create
+ *                 several trades (paper races strategies), the id SEA captured is
+ *                 the first twin (not the Glide one), and SEA's memory is wiped on
+ *                 restart. Matching instrument+side+strategy closes the RIGHT
+ *                 trade regardless, and covers a hand-placed Glide trade too.
  */
 export type DisciplineExitScope =
   | { kind: "ALL" }
   | { kind: "INSTRUMENT"; instrument: string }
-  | { kind: "TRADE_IDS"; tradeIds: string[] };
+  | { kind: "TRADE_IDS"; tradeIds: string[] }
+  | { kind: "GLIDE"; instrument: string; optionType: "CE" | "PE" };
 
 /**
  * The DA→RCA push payload. Populated by Discipline Agent when:
