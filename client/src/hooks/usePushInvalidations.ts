@@ -13,6 +13,7 @@ export function usePushInvalidations() {
   const utils = trpc.useUtils();
   const brokerEpoch = useSignalEpoch('broker');
   const disciplineEpoch = useSignalEpoch('discipline');
+  const seaEpoch = useSignalEpoch('sea');
 
   useEffect(() => {
     if (brokerEpoch === 0) return; // skip the initial mount value
@@ -26,4 +27,11 @@ export function usePushInvalidations() {
     void utils.discipline.getDashboard.invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disciplineEpoch]);
+
+  useEffect(() => {
+    if (seaEpoch === 0) return;
+    // SEA cohort/model changed → the model + cohort badges read seaCohortState.
+    void utils.trading.seaCohortState.invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seaEpoch]);
 }

@@ -379,6 +379,12 @@ function connectWs() {
         liveSignals.bumpSignal("aiConfig");
       } else if (data.type === "discipline_changed") {
         liveSignals.bumpSignal("discipline"); // → refetch discipline.getDashboard
+      } else if (data.type === "sea_control") {
+        // SEA cohort/model changed (e.g. a replay hot-swapped the model). Refetch
+        // seaCohortState NOW instead of waiting for its 10s poll — otherwise the
+        // model badge shows the OLD version for up to 10s after a swap (worse in
+        // a backgrounded tab, where the poll timer is throttled).
+        liveSignals.bumpSignal("sea");
       }
     } catch {
       // ignore

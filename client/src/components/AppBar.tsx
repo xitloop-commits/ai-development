@@ -115,8 +115,10 @@ function MarketStatusIndicator() {
   const seaByInst = new Map(sea.instruments.map((i) => [i.instrument, i]));
   // Always show the engines we auto-start, plus any others that have pinged.
   const seaInsts = Array.from(new Set(['nifty50', 'banknifty', ...sea.instruments.map((i) => i.instrument)]));
-  // What SEA is RUNNING — model + cohorts. Pushed over /ws/ticks on every
-  // change (seaControl broadcasts to browsers), so no polling.
+  // What SEA is RUNNING — model + cohorts. The server broadcasts sea_control on
+  // every change; usePushInvalidations invalidates this query on that push, so
+  // the badge updates the instant SEA swaps (e.g. a replay model hot-swap). The
+  // 10s poll is just a fallback if a push is ever missed.
   const cohortState = trpc.trading.seaCohortState.useQuery(undefined, { refetchInterval: 10_000 });
   const seaModels = (cohortState.data?.models ?? {}) as Record<string, string>;
   const distinctModels = Array.from(new Set(Object.values(seaModels)));
