@@ -437,13 +437,20 @@ class TickHandler extends EventEmitter {
         anyUpdated = true;
 
         // ── LIVE channels ────────────────────────────────────────────────
-        // The broker (Dhan Super Order) enforces the SL/TP/native-trailing
-        // exits, so we do NOT run the paper exit detection here. We DO drive the
-        // dynamic layer for Super Order trades: arm the gated TSL once, and
-        // ratchet the TP (both via throttled events → TEA → leg modify). Plain
-        // live orders (no superOrderId) have no broker bracket to modify, so
-        // they're skipped (pre-existing unprotected behavior — see Phase 1 gate).
-        if (channel === "my-live" || channel === "ai-live") {
+        // LIVE exit ownership (AI-menu "Lubas exit" toggle, default on).
+        //
+        // Lubas-managed (default): fall through to the SAME exit detection the
+        // paper path runs below — staged strategy, Glide disaster stop, Sprint
+        // TP/SL/TSL. That path emits autoExitDetected → recordAutoExit →
+        // exitTrade, which already places a REAL market exit on live channels.
+        // This is the only way Runway/Anchor/Glide/trailing work on live, since
+        // Dhan legs can hold only a fixed SL + fixed TP. These trades carry no
+        // superOrderId (the entry gate placed a plain order).
+        //
+        // Dhan-managed (toggle off): the broker Super Order enforces SL/TP; we
+        // only drive the dynamic layer (arm gated TSL, ratchet TP via leg
+        // modify) and skip our own detection.
+        if ((channel === "my-live" || channel === "ai-live") && !getExitConfig().lubasManagedExit) {
           if (trailingStopEnabled && trade.superOrderId) {
             const lBuy = trade.type.includes("BUY");
             const breakeven = trade.breakevenPrice ?? trade.entryPrice;

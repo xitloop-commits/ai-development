@@ -26,6 +26,7 @@ import {
   sprintOpeningLevels,
   updateAiConfig,
   updateExitConfig,
+  getExitConfig,
   initAiConfig,
 } from "./aiModeConfig";
 
@@ -252,5 +253,35 @@ describe("strategiesForCohort", () => {
   it("can yield an empty list — a Glide-only book on a non-MA signal places nothing", () => {
     expect(strategiesForCohort(["glide"], "scalp")).toEqual([]);
     expect(strategiesForCohort(["glide"], "ma_signal")).toEqual(["glide"]);
+  });
+});
+
+/**
+ * lubasManagedExit — who manages LIVE exits. Default ON (Lubas): the tick engine
+ * places a real market exit, which is the only way the staged strategies + Glide
+ * run on live. OFF hands SL/TP back to Dhan Super Order legs.
+ */
+describe("lubasManagedExit", () => {
+  it("defaults to true", () => {
+    initAiConfig();
+    expect(getExitConfig().lubasManagedExit).toBe(true);
+  });
+
+  it("survives a config that predates the key (deep-merge back-fill)", () => {
+    // initAiConfig loads defaults (fs mocked → existsSync false), so an old
+    // persisted file missing the key falls back to the default rather than
+    // undefined — which would read as Dhan-managed and silently change behaviour.
+    initAiConfig();
+    expect(getExitConfig().lubasManagedExit).toBe(true);
+  });
+
+  it("toggles and persists via a partial patch", () => {
+    initAiConfig();
+    updateExitConfig({ lubasManagedExit: false });
+    expect(getExitConfig().lubasManagedExit).toBe(false);
+    // A partial patch must not disturb the other exit knobs.
+    expect(getExitConfig().sprint).toBeDefined();
+    updateExitConfig({ lubasManagedExit: true });
+    expect(getExitConfig().lubasManagedExit).toBe(true);
   });
 });

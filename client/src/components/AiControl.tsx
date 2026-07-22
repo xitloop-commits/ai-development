@@ -32,7 +32,7 @@ interface SprintCfg {
 /** SHARED across paper / live / manual. */
 /** Glide has no trading levels — only the disaster stop. See GlideConfig. */
 interface GlideCfg { disasterSlPct: number }
-interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg }
+interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; lubasManagedExit: boolean }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
@@ -531,6 +531,30 @@ export function AiControl() {
                     </div>
                   </div>
                 </div>
+
+                {/* Live-only: who manages the exit. Stored in the SHARED exits
+                    config (governs both live books), so it applies IMMEDIATELY on
+                    click via a partial patch — the server deep-merges — rather than
+                    riding this mode's Apply. */}
+                {mode === 'live' && all && (
+                  <div className="border-t border-border pt-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <SectionLabel>Lubas exit</SectionLabel>
+                      <Pill
+                        label={all.exits.lubasManagedExit ? 'Lubas' : 'Dhan'}
+                        on={all.exits.lubasManagedExit}
+                        onClick={() =>
+                          applyExitsMut.mutate({ patch: { lubasManagedExit: !all.exits.lubasManagedExit } })
+                        }
+                      />
+                    </div>
+                    <p className="text-[0.5625rem] text-muted-foreground -mt-1 leading-snug">
+                      {all.exits.lubasManagedExit
+                        ? 'App watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live. No stop at the exchange if the app is down.'
+                        : 'Dhan holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run.'}
+                    </p>
+                  </div>
+                )}
 
                 {/* Sizing */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">

@@ -1627,6 +1627,33 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T107 [Execution] — Lubas-managed live exits (AI-menu toggle, default ON) ✅ DONE 2026-07-22
+Live exits were managed by Dhan (Super Order legs). Dhan can hold only a fixed
+SL + fixed TP, so Runway/Anchor/Glide/trailing could never run on live. Added a
+"Lubas exit" toggle (AI menu → live section, default ON) so the tick engine owns
+the exit and places a real market order when its strategy fires.
+
+- Shared flag `lubasManagedExit` in `SharedExitConfig` (governs both live books),
+  default true, read via `getExitConfig()` in both entry and exit paths.
+- Entry (`tradeExecutor` useSuperOrder gate): `&& !lubasManagedExit` → plain
+  order, no broker legs, when Lubas-managed.
+- Exit (`tickHandler` live block): when ON, fall through to the SAME detection
+  paper runs (staged / Glide disaster / Sprint TP/SL/TSL) → autoExitDetected →
+  recordAutoExit → exitTrade, which already places a real live market exit.
+- UI: one toggle in AiControl live view, immediate-apply via partial patch to
+  `updateExitConfig` (server deep-merges); label states the trade-off.
+
+⚠️ **Safety:** Lubas-managed exits do NOT survive an app/laptop/feed outage — a
+live position then has no stop at the exchange until recovery or EOD square-off.
+Broker legs (toggle OFF) do survive a crash but only fixed SL/TP. **Fast-follow
+worth doing: a broker-side wide disaster-stop backstop** (placeSuperOrder needs
+both SL+TP, so it needs a wide-SL+far-TP super order or a new cover-order path).
+
+Tests: config default/merge (3) + live exit gate ON/OFF incl. Glide disaster (3).
+Exit gate mutation-verified (removing it fails 2). Entry gate NOT unit-tested —
+`tradeExecutor.test.ts` doesn't mock aiModeConfig and flipping the real config
+would write the live file; covered by tsc + the config test.
+
 ### T106 [Execution] — MA-Signal EXIT closes the Glide trade by POSITION ✅ DONE 2026-07-22
 Reported: an EXIT_PE arrived but the MA Glide trade stayed open. Root cause,
 confirmed from paper data (signals #2/#4 Glide twins still OPEN): one MA entry

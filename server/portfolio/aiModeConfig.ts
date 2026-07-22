@@ -94,6 +94,21 @@ export interface SharedExitConfig {
   runway: ExitStrategyConfig;
   anchor: ExitStrategyConfig;
   glide: GlideConfig;
+  /**
+   * Who manages LIVE exits (both my-live + ai-live).
+   *
+   * `true` (default) — LUBAS manages: the tick engine watches ticks and places a
+   * real market exit when the strategy fires. This is the ONLY way Runway /
+   * Anchor / Glide / tick-driven trailing work on live, since Dhan can hold only
+   * a fixed SL + fixed TP. The entry is placed as a plain order (no super-order).
+   *
+   * `false` — DHAN manages: the entry is a Super Order and the broker fires the
+   * SL/TP legs at the exchange (survives an app crash, but only fixed SL/TP).
+   *
+   * ⚠️ Lubas-managed exits do NOT survive an app/laptop/feed outage — a live
+   * position then has no stop at the exchange until recovery or EOD square-off.
+   */
+  lubasManagedExit: boolean;
 }
 
 /** Per-mode (per-book) config. */
@@ -133,6 +148,9 @@ function baseExits(): SharedExitConfig {
       tpTrailPercent: 1.5,
     },
     glide: { disasterSlPct: 50 },
+    // Lubas owns live exits by default — the staged strategies + Glide only work
+    // this way. Flip to false in the AI menu to hand SL/TP back to Dhan legs.
+    lubasManagedExit: true,
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
   };
