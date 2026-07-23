@@ -1,9 +1,19 @@
 /**
  * TSL trail-from-start + ratchet + auto-exit tests for tickHandler.
  *
- * Trailing now trails from the FIRST tick — no activation gate, no hold, no
- * breakeven floor. The stop sits a fixed gap below the running peak from the
- * start; the gap comes from the setting:
+ * Trailing waits for an ACTIVATION GATE (T124): price must clear
+ * `trailingActivationGatePercent` above breakeven and HOLD it for
+ * `trailingActivationHoldSeconds` before the stop starts trailing. Until then
+ * the stop stays where the strategy opened it.
+ *
+ * This file previously asserted the opposite — "trails from the FIRST tick, no
+ * gate" — which pinned a bug rather than a behaviour: on tick one the peak IS
+ * the entry, so the trail instantly ratcheted a 5% stop to the 2% trail gap and
+ * the trade died on tick noise. Over 2026-07-22/23 that killed 31 trades in
+ * under a minute for -26,953 at a 29% win rate.
+ *
+ * Once activated the stop sits a fixed gap below the running peak; the gap comes
+ * from the setting:
  *   - "config" → trailingStopPercent % of the peak
  *   - "signal" → the trade's own initial SL distance (trade.slDistance, rupees)
  * It only ratchets in the favourable direction — never crawls back.
@@ -14,7 +24,7 @@
  *   3. SELL: trails DOWN from the first favourable tick
  *   4. SL_HIT fires at the ratcheted SL level
  *   5. per-trade auto TSL trails even when the global switch is off (independence)
- *   6. trails even on a small move (no gate to clear)
+ *   6. the gate: no trail below it, trail above it, one-way once activated
  *   7. signal mode: trails at the trade's slDistance, not the config gap
  *   8. no breakeven floor: the stop can trail below breakeven
  *   9. peak tracking (peakLtp) is restart-safe
@@ -151,7 +161,7 @@ async function processTicks(trade: any, ltps: number[]): Promise<void> {
   for (const ltp of ltps) await processWith(trade, makeTick({ ltp }));
 }
 
-describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
+describe("tickHandler TSL — gated activation, ratchet, no floor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tickHandler.clearStateCache();
@@ -184,7 +194,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     });
   });
 
-  it("BUY: trails UP from the first favourable tick (no gate)", async () => {
+  it("BUY: trails UP once the gate is cleared", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
     // One tick: peak 110 → 110 × 0.985 = 108.35, immediately.
     await processWith(trade, makeTick({ ltp: 110 }));
@@ -263,10 +273,87 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     expect(trade.stopLossPrice).toBeCloseTo(108.35, 2); // trails despite global off
   });
 
-  it("trails on a small favourable move (no gate to clear)", async () => {
-    // A 101 tick — barely in profit, well under the old 102 gate — still trails.
+  // ── T124 — the activation gate ───────────────────────────────────
+  //
+  // Trailing used to start on the FIRST tick. On tick one the peak IS the entry,
+  // so the trail computed entry − trailingStopPercent and instantly ratcheted the
+  // opening stop from 5% to 2%. On a ₹140 option 2% is ₹2.80 — inside tick noise.
+  // Measured over 2026-07-22/23: 31 trades stopped out in UNDER A MINUTE for
+  // −₹26,953 at a 29% win rate.
+
+  it("does NOT trail on a small favourable move that has not cleared the gate", async () => {
+    // 101 = +1%, under the 2% gate. The opening stop must be left alone — this is
+    // the exact case that used to snap the stop to 99.49 and die on noise.
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    await processWith(trade, makeTick({ ltp: 101 })); // peak 101 → 101 × 0.985 = 99.485
+    await processWith(trade, makeTick({ ltp: 101 }));
+    expect(trade.stopLossPrice).toBe(95);
+  });
+
+  it("does NOT trail on the very first tick, when the peak IS the entry", async () => {
+    // THE bug: with peak == entry the trail computes entry × 0.985 and ratchets
+    // a 5% stop to 1.5% before the trade has earned anything.
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+    await processWith(trade, makeTick({ ltp: 100 }));
+    expect(trade.stopLossPrice).toBe(95);
+  });
+
+  it("SELL: does not trail until the gate is cleared downward", async () => {
+    const trade = makeSellTrade({ entryPrice: 100, stopLossPrice: 105 });
+    await processWith(trade, makeTick({ ltp: 99 })); // +1% in the profitable direction
+    expect(trade.stopLossPrice).toBe(105);
+  });
+
+  it("starts trailing once the gate IS cleared", async () => {
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+    await processWith(trade, makeTick({ ltp: 101 }));
+    expect(trade.stopLossPrice).toBe(95);          // still parked
+    await processWith(trade, makeTick({ ltp: 103 })); // clears the 2% gate
+    expect(trade.stopLossPrice).toBeCloseTo(101.46, 2); // 103 × 0.985
+  });
+
+  it("keeps trailing after activation even if price falls back through the gate", async () => {
+    // Activation is one-way. Re-arming on every dip would let a trade that has
+    // already run give the whole move back while the stop sat at its opening level.
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+    await processWith(trade, makeTick({ ltp: 110 }));   // activates, stop → 108.35
+    await processWith(trade, makeTick({ ltp: 101 }));   // back under the gate
+    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2); // held, not reset
+  });
+
+  it("restarts the hold clock if the gate breaks before the hold elapses", async () => {
+    Object.assign(aiSprint, { trailingActivationHoldSeconds: 30 });
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+    await processWith(trade, makeTick({ ltp: 103 })); // past the gate, clock starts
+    await processWith(trade, makeTick({ ltp: 101 })); // falls back — clock cleared
+    expect((tickHandler as any).tslArmedAt.has(trade.id)).toBe(false);
+    expect((tickHandler as any).tslActivated.has(trade.id)).toBe(false);
+    expect(trade.stopLossPrice).toBe(95);
+  });
+
+  it("waits out the hold before activating", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-23T04:00:00Z"));
+      Object.assign(aiSprint, { trailingActivationHoldSeconds: 30 });
+      const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+
+      await processWith(trade, makeTick({ ltp: 110 }));
+      expect(trade.stopLossPrice).toBe(95); // past the gate, but the hold has not elapsed
+
+      vi.setSystemTime(new Date("2026-07-23T04:00:31Z"));
+      await processWith(trade, makeTick({ ltp: 110 }));
+      expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a gate of 0 restores trail-from-the-first-favourable-tick", async () => {
+    // The knob must be able to express the old behaviour — someone who wants it
+    // should be able to ask for it rather than edit code.
+    Object.assign(aiSprint, { trailingActivationGatePercent: 0 });
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+    await processWith(trade, makeTick({ ltp: 101 }));
     expect(trade.stopLossPrice).toBeCloseTo(99.49, 2);
   });
 

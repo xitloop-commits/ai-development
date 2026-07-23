@@ -614,6 +614,42 @@ class TickHandler extends EventEmitter {
             tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: tick.ltp });
             continue;
           }
+
+          // T124 — GIVE-BACK GUARD. Glide waits for the MA EXIT, and that exit
+          // routinely arrives long after the move is over: across 2026-07-22/23
+          // its 22 trades reached ₹4,56,745 of peak unrealised profit and booked
+          // ₹1,33,824 — 69% handed back, with six winners finishing as losses.
+          //
+          // This is NOT a stop-loss, and the difference is the point: it can only
+          // fire on a trade that HAS worked. A Glide trade that never gets up by
+          // `giveBackArmPct` is untouched and still rides to the MA EXIT, so the
+          // strategy's "no stop, let the signal decide" character is intact for
+          // every trade that hasn't yet earned anything.
+          //
+          // Also sits ABOVE the manualExitOnly guard, for the same reason the
+          // disaster stop does — that guard skips every exit below it.
+          const gb = getExitConfig().glide;
+          if (gb.giveBackPct > 0 && trade.entryPrice > 0) {
+            const peak = this.peakPrices.get(trade.id) ?? trade.peakLtp ?? trade.entryPrice;
+            // Gain measured in the direction the trade profits: a bought option
+            // gains as the premium RISES, a sold one as it FALLS.
+            const peakGain = isBuy ? peak - trade.entryPrice : trade.entryPrice - peak;
+            const nowGain = isBuy ? tick.ltp - trade.entryPrice : trade.entryPrice - tick.ltp;
+            const armAt = trade.entryPrice * (gb.giveBackArmPct / 100);
+            if (peakGain >= armAt && peakGain > 0) {
+              const kept = nowGain / peakGain;               // 1 = at the peak, 0 = back to entry
+              if (kept <= 1 - gb.giveBackPct / 100) {
+                this.exitingTrades.set(trade.id, Date.now());
+                log.important(
+                  `[XSYNC-SVR] GLIDE-GIVEBACK ${channel} trade=${trade.id} ${trade.instrument} ` +
+                  `peakGain=${peakGain.toFixed(2)} nowGain=${nowGain.toFixed(2)} ` +
+                  `kept=${Math.round(kept * 100)}% (limit ${100 - gb.giveBackPct}%)`,
+                );
+                tradesToExit.push({ trade, reason: "TSL_HIT", exitPrice: tick.ltp });
+                continue;
+              }
+            }
+          }
         }
 
         // Manual-exit-only (master switch): this trade rides until its OWN exit
@@ -623,9 +659,7 @@ class TickHandler extends EventEmitter {
         // these.) Set for MA-Signal at open and togglable per-trade from the row.
         if (trade.manualExitOnly) continue;
 
-        // Trailing stop (workspace-wide switch). Trails from the FIRST tick — no
-        // activation gate, no hold, no breakeven floor: the stop sits a fixed gap
-        // below the running peak from the start. The gap comes from the setting:
+        // Trailing stop (workspace-wide switch). The gap comes from the setting:
         //   "config" → trailingStopPercent % of the peak (widens as price runs)
         //   "signal" → the trade's own initial SL distance in rupees (fixed)
         // It only ever ratchets in the favourable direction — never crawls back.
@@ -633,7 +667,62 @@ class TickHandler extends EventEmitter {
         // (which only SEEDED this trade's mode at open): "manual" freezes
         // auto-trailing (operator sets the stop via updateTrade); "auto" trails
         // using the settings config (percent / gate / hold / distance source).
+        //
+        // T124 — ACTIVATION GATE. This block used to trail from the FIRST tick,
+        // which quietly destroyed the strategy: on tick one the peak IS the entry,
+        // so the trail computed entry−trailingStopPercent and immediately ratcheted
+        // the opening stop from 5% to 2%. A 2% move on a ₹140 option is ₹2.80 —
+        // inside tick noise. Measured over 2026-07-22/23: 31 trades stopped out in
+        // UNDER A MINUTE for −₹26,953 at a 29% win rate.
+        //
+        // `trailingActivationGatePercent` / `trailingActivationHoldSeconds` already
+        // existed and are exactly this rule — but they were only honoured on the
+        // Dhan super-order path (~:460). Same maps (`tslArmedAt`/`tslActivated`)
+        // and the same semantics are reused here so the two paths cannot drift.
+        //
+        // Until the gate holds, the stop stays where the strategy opened it.
+        //
+        // NOT gated on the global `trailingStopEnabled`: per-trade `tslMode`
+        // drives trailing independently of the workspace switch (which only
+        // SEEDS a trade's mode at open). Gating here would silently re-couple
+        // them and undo that independence.
         if (trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
+          const breakeven = trade.breakevenPrice ?? trade.entryPrice;
+          const gatePrice = isBuy
+            ? breakeven * (1 + tslGatePercent / 100)
+            : breakeven * (1 - tslGatePercent / 100);
+          const pastGate = isBuy ? tick.ltp >= gatePrice : tick.ltp <= gatePrice;
+
+          if (!this.tslActivated.has(trade.id)) {
+            if (!pastGate) {
+              // Fell back through the gate before the hold elapsed — restart the
+              // clock rather than banking partial credit toward activation.
+              this.tslArmedAt.delete(trade.id);
+            } else {
+              // Arm and test in the SAME pass, so a hold of 0 means "activate on
+              // the first tick past the gate" rather than costing an extra tick.
+              let armedAt = this.tslArmedAt.get(trade.id);
+              if (armedAt == null) {
+                armedAt = Date.now();
+                this.tslArmedAt.set(trade.id, armedAt);
+              }
+              if (Date.now() - armedAt >= tslHoldMs) {
+                this.tslActivated.add(trade.id);
+                this.tslArmedAt.delete(trade.id);
+                if (trade.tslActivatedAt == null) {
+                  trade.tslActivatedAt = Date.now();
+                  anyUpdated = true;
+                }
+                log.important(
+                  `[XSYNC-SVR] TSL-ACTIVATED ${channel} trade=${trade.id} ${trade.instrument} ` +
+                  `ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100}`,
+                );
+              }
+            }
+          }
+        }
+
+        if (trade.tslMode !== "manual" && trade.stopLossPrice !== null && this.tslActivated.has(trade.id)) {
           const useSignal =
             trailingDistanceSource === "signal" && trade.slDistance != null && trade.slDistance > 0;
           const trailedRaw = useSignal
@@ -644,9 +733,6 @@ class TickHandler extends EventEmitter {
             ? trailedSL > trade.stopLossPrice
             : trailedSL < trade.stopLossPrice;
           if (shouldTrail) {
-            // Stamp activation time once, on the first upward trail (survives
-            // restart) — drives the UI's "TSL running" stopwatch.
-            if (trade.tslActivatedAt == null) trade.tslActivatedAt = Date.now();
             // TEMP DIAGNOSTIC ([XSYNC] exit-sync): stop trailed up.
             log.info(`[XSYNC-SVR] TSL-TRAIL ${channel} trade=${trade.id} src=${trailingDistanceSource} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
             trade.stopLossPrice = trailedSL;

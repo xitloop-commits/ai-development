@@ -87,6 +87,26 @@ export interface GlideConfig {
    * that normal MA behaviour never reaches it.
    */
   disasterSlPct: number;
+  /**
+   * T124 — give-back guard. Once a Glide trade has been up by at least
+   * `giveBackArmPct` of entry, close it if it surrenders `giveBackPct` of that
+   * PEAK GAIN. Set `giveBackPct` to 0 to switch the guard off entirely.
+   *
+   * This is NOT a stop-loss, and the distinction is the whole point. A stop
+   * fires on a trade that never worked; this fires only on a trade that DID
+   * work and is handing the profit back. A Glide trade that simply chops around
+   * entry still rides to the MA EXIT untouched.
+   *
+   * Measured over 2026-07-22/23: 22 Glide trades reached ₹4,56,745 of peak
+   * unrealised profit and booked ₹1,33,824 — 69% given back. Six that were in
+   * profit finished as losses; the worst peaked at +₹8,775 and closed at
+   * −₹51,550. The MA EXIT routinely arrives long after the move is over.
+   *
+   * Defaults are deliberately loose (arm at +10%, exit on giving back half)
+   * so normal Glide behaviour is untouched and only a real collapse triggers.
+   */
+  giveBackArmPct: number;
+  giveBackPct: number;
 }
 
 export interface SharedExitConfig {
@@ -147,7 +167,7 @@ function baseExits(): SharedExitConfig {
       trailingActivationHoldSeconds: 10,
       tpTrailPercent: 1.5,
     },
-    glide: { disasterSlPct: 50 },
+    glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50 },
     // Lubas owns live exits by default — the staged strategies + Glide only work
     // this way. Flip to false in the AI menu to hand SL/TP back to Dhan legs.
     lubasManagedExit: true,
@@ -237,6 +257,13 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   e.sprint.trailingActivationGatePercent = clampNum(e.sprint.trailingActivationGatePercent, 0, 50, 2);
   e.sprint.trailingActivationHoldSeconds = Math.round(clampNum(e.sprint.trailingActivationHoldSeconds, 0, 120, 10));
   e.sprint.tpTrailPercent = clampNum(e.sprint.tpTrailPercent, 0.1, 50, 1.5);
+  // Glide was never clamped at all — a hand-edited config could put the disaster
+  // stop at 0 (instant exit) and nothing would have caught it.
+  e.glide.disasterSlPct = clampNum(e.glide.disasterSlPct, 5, 95, 50);
+  e.glide.giveBackArmPct = clampNum(e.glide.giveBackArmPct, 0, 200, 10);
+  // 0 = guard OFF. Anything above 0 is clamped into a usable band rather than
+  // silently becoming a hair-trigger.
+  e.glide.giveBackPct = e.glide.giveBackPct === 0 ? 0 : clampNum(e.glide.giveBackPct, 10, 95, 50);
   for (const st of [e.runway, e.anchor]) {
     st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
     st.defaultSlPct = clampNum(st.defaultSlPct, 1, 90, 25);

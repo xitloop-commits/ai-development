@@ -36,7 +36,7 @@ interface SprintCfg {
 }
 /** SHARED across paper / live / manual. */
 /** Glide has no trading levels — only the disaster stop. See GlideConfig. */
-interface GlideCfg { disasterSlPct: number }
+interface GlideCfg { disasterSlPct: number; giveBackArmPct: number; giveBackPct: number }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; lubasManagedExit: boolean }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
@@ -196,6 +196,15 @@ const HELP = {
     "Which trained model version the running SEA scores signals with. Switching applies immediately — SEA swaps the model and its feature preprocessor together at the next tick, no restart. It also becomes the startup default. Each option shows its mean AUC and head count; AUC is only comparable between versions with the SAME head count, since it averages over whichever heads that version trained.",
 
   // Strategy-level: what the whole strategy does.
+  glide:
+    "MA-Signal only. No stop, no target, no trailing — the trade rides until MA-Signal sends its own EXIT. Two safety nets sit under it: a wide disaster stop for the case where that exit never arrives, and a give-back guard for the case where it arrives too late.",
+  glideDisaster:
+    "Last line of defence, NOT a trading stop. Only fires if the MA EXIT never comes at all (SEA restarted and lost its leg map, or a manual Glide trade was forgotten). Keep it wide enough that ordinary MA behaviour never reaches it — a 40% swing in an option premium is normal inside one leg.",
+  glideArm:
+    "How far up a trade must go, as a % of entry, before the give-back guard starts watching it. Below this the trade is left completely alone and rides to the MA EXIT — which is what keeps this from being a stop-loss.",
+  glideGiveBack:
+    "Once armed, close the trade if it hands back this much of its BEST profit. 50% means: up 30 points at the peak, exit if it falls back to 15. Set to 0 to switch the guard off and get pure Glide. Measured 22-23 Jul: Glide reached ₹4.6L of peak profit and booked ₹1.3L — 69% given back, six winners finishing as losses.",
+
   sprint:
     "Simplest strategy. Sets a fixed stop and target at entry from the percentages below, then trails the stop up behind the running peak. No staged phases — the stop starts where you set it and only ever ratchets in your favour.",
   runway:
@@ -646,6 +655,18 @@ export function AiControl() {
                     <Num help={HELP.cooledStop} label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
                     <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
                     <Num help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
+                  </Group>
+
+                  <Group title="Glide" help={HELP.glide}>
+                    <Num help={HELP.glideDisaster} label="Disaster stop" value={ed.glide.disasterSlPct} step={5} min={5} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.disasterSlPct = v; })} />
+                    <Num help={HELP.glideArm} label="Guard arms at" value={ed.glide.giveBackArmPct} step={1} min={0} max={200} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackArmPct = v; })} />
+                    <Num help={HELP.glideGiveBack} label="Give-back exit" value={ed.glide.giveBackPct} step={5} min={0} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackPct = v; })} />
+                    {ed.glide.giveBackPct === 0 && (
+                      <span className="text-[0.5625rem] text-warning-amber leading-snug">
+                        Give-back guard OFF — a Glide trade will hand back the whole
+                        move if the MA EXIT is late. Only the disaster stop is left.
+                      </span>
+                    )}
                   </Group>
 
                   <div className="flex items-center gap-2 pt-1">

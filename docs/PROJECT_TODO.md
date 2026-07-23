@@ -1627,6 +1627,54 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T124 [Execution] 🔴 — three settings fixes from the 22–23 Jul paper data ✅ DONE 2026-07-23
+
+**1. Sprint's trailing stop fired on the FIRST tick.** On tick one the peak IS
+the entry, so the trail computed `entry − trailingStopPercent` and instantly
+ratcheted the opening 5% stop to 2%. On a ₹140 option that is ₹2.80 — inside
+tick noise. **31 trades stopped out in UNDER A MINUTE for −₹26,953, 29% win.**
+`trailingActivationGatePercent` (2) and `trailingActivationHoldSeconds` (30)
+already existed and are exactly the missing rule — but were honoured **only on
+the Dhan super-order path**. The paper/Lubas path in
+[tickHandler.ts](../server/portfolio/tickHandler.ts) now reuses the same
+`tslArmedAt`/`tslActivated` maps and semantics so the two cannot drift.
+NOT gated on the global `trailingStopEnabled` — per-trade `tslMode` drives
+trailing independently, and gating there would silently re-couple them.
+`tickHandler.tsl.test.ts` **was pinning the bug** ("trail from the FIRST tick, no
+gate") — rewritten to the real behaviour + 7 gate cases.
+
+**2. Glide gave back 69% of its peak.** Its 22 trades reached ₹4,56,745 of peak
+unrealised profit and booked ₹1,33,824; six winners finished as losses, the worst
+peaking at +₹8,775 and closing at **−₹51,550**. The MA EXIT routinely arrives
+long after the move is over. New `glide.giveBackArmPct` / `giveBackPct` (default
+10 / 50): once a trade is up 10% of entry, close it if it hands back half its
+**peak gain**. **Deliberately not a stop-loss** — it can only fire on a trade
+that HAS worked, so a Glide trade that never earns anything still rides to the MA
+EXIT untouched. `giveBackPct: 0` restores pure Glide. Also added the missing
+clamps for `glide` (it was never sanitised at all) and a Glide section in the AI
+menu — the disaster stop had no UI either.
+
+**3. Paper and live were testing different strategies.** paper = **Glide only**,
+live = **Runway only**, manual = Glide. So nothing validated on paper said
+anything about how live would behave. `config/ai_mode_config.json` live block now
+matches paper (Glide). Safe to change today: the live book is unfunded (₹0) and
+cannot place a trade until funded by hand.
+
+Supporting evidence — hold time vs outcome across both days: `<1m` 31 trades
+−₹26,953 (29% win); `1–10m` 40 trades +₹26,879; `>60m` **8 trades +₹1,81,554**
+(88% win). The edge is in letting winners run; the settings were cutting them off
+early (Sprint) and holding them past the exit (Glide).
+
+Tests: 7 gate + 9 give-back. All three gates mutation-verified — removing the
+activation gate fails 6, disabling the guard fails 3, removing the arm threshold
+(which turns the guard into a stop-loss) fails 3.
+
+**Next:** the trailing simulation suggested a tighter give-back could be worth
+more (10% ≈ ₹2.25L vs 50% ≈ ₹1.5L), but those are UPPER BOUNDS — they assume the
+trail was never clipped on the way up. Race the settings over a few days before
+tightening. Also: the live super-order path arms one tick later than this one for
+`hold = 0`; harmless but they should be made identical.
+
 ### T123 [Execution] 🔴 — every AI trade was stored with expiry: null ✅ FIXED 2026-07-23
 Found chasing "why is the copy button missing" — 94 of 109 trades had no expiry.
 The split was exact: **every manual trade had one, every AI trade had none.**
