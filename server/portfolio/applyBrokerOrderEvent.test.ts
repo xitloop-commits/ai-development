@@ -432,6 +432,58 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(written.trades.find((x) => x.id.startsWith("EXT-"))).toBeUndefined(); // no bogus duplicate
   });
 
+  it("race guard (EXIT- tag) — an exit fill that beats the close is BUFFERED, then re-books the real price", async () => {
+    // Reproduces the live miss on 2026-07-23. Dhan reported the exit FILLED at
+    // 145.95 six milliseconds BEFORE exitTrade persisted the close, so no CLOSED
+    // trade carried that exitBrokerOrderId yet and the event was dropped — the
+    // trade kept 146.45, the LTP the close had assumed, overstating P&L by
+    // Rs 32.50. The buffer only accepted "TEA-" (entries); exits fell through.
+    getCapitalStateMock.mockResolvedValue(null);
+    getDayRecordMock.mockResolvedValue(null);
+    const earlyExit = baseEvent({
+      orderId: "34226072318830",
+      status: "FILLED",
+      averagePrice: 145.95,
+      filledQuantity: 65,
+      brokerId: "dhan-primary-ac",
+      securityId: "63937",
+      transactionType: "SELL",
+      assetKind: "option",
+      correlationId: "EXIT-T-LIVE",
+    });
+    const buffered = await portfolioAgent.applyBrokerOrderEvent(earlyExit);
+    expect(buffered.matched).toBe(false);
+    expect(upsertDayRecordMock).not.toHaveBeenCalled(); // buffered, never adopted
+
+    // The close lands a moment later, stamping exitBrokerOrderId, and exitTrade
+    // drains the buffer.
+    const closedTrade = makeTrade({
+      id: "T-LIVE",
+      status: "CLOSED",
+      type: "CALL_BUY",
+      entryPrice: 142.4,
+      qty: 65,
+      exitPrice: 146.45,     // what the app assumed (its own LTP)
+      exitBrokerOrderId: "34226072318830",
+      pnl: 194.16,
+      charges: 69.09,
+    });
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([closedTrade]) : null));
+
+    await portfolioAgent.replayBufferedFills("34226072318830");
+
+    // Re-booked at the broker's REAL fill, not the LTP.
+    expect(closedTrade.exitPrice).toBe(145.95);
+    // P&L was RECOMPUTED from the corrected price — not left at the stale value.
+    // Asserted against the trade's own charges rather than a hardcoded rupee
+    // figure, since charge rates are mocked here (live, this is 194.16 → 161.66,
+    // the Rs 32.50 the book was overstating).
+    expect(closedTrade.pnl).not.toBe(194.16);
+    const expectedGross = (145.95 - 142.4) * 65;
+    expect(closedTrade.pnl).toBeCloseTo(expectedGross - (closedTrade.charges ?? 0), 2);
+  });
+
   it("external OPTION fill (no app tag) is NOT adopted — options need contract resolution (deferred to ③)", async () => {
     getCapitalStateMock.mockResolvedValue(null);
     getDayRecordMock.mockResolvedValue(null);

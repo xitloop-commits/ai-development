@@ -1302,14 +1302,23 @@ class PortfolioAgentImpl {
     }
 
     // ── Early app-fill buffer (race guard) ────────────────────────────────
-    // Nothing above matched. If this is an APP order (correlationId "TEA-…"),
-    // its trade record simply hasn't persisted yet — the order filled within
-    // milliseconds of being placed, beating submitTrade's DB write. Buffer it;
-    // submitTrade replays it via replayBufferedFills() once the trade exists.
+    // Nothing above matched. If this is an APP order, its trade record simply
+    // hasn't persisted yet — the order filled within milliseconds of being
+    // placed, beating the DB write. Buffer it; the placing side replays it via
+    // replayBufferedFills() once the record exists.
     // NEVER adopt an app order (that stole this trade's fill in the pre-fix bug).
+    //
+    // BOTH tags qualify:
+    //   "TEA-…"  entry orders  → replayed by submitTrade
+    //   "EXIT-…" exit orders   → replayed by exitTrade
+    // Exits were missing here, so a fast exit fill was dropped and the trade
+    // kept the price the app had assumed (its own LTP) instead of the broker's.
+    // Observed 2026-07-23: Dhan filled at 145.95, app recorded 146.45 — the fill
+    // event landed 6ms BEFORE the close persisted, so correctExitFill (which
+    // already existed and works) never found the trade to correct.
     if (
       (update.status === "FILLED" || update.status === "PARTIALLY_FILLED") &&
-      update.correlationId?.startsWith("TEA-")
+      (update.correlationId?.startsWith("TEA-") || update.correlationId?.startsWith("EXIT-"))
     ) {
       const now = Date.now();
       // Purge orphaned buffers (submitTrade threw after placeOrder → never drained).

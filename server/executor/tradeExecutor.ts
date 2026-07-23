@@ -756,6 +756,25 @@ class TradeExecutorAgent {
         exitBrokerOrderId,
       );
 
+      // Race guard, exit side — mirrors the entry path above. A live exit can
+      // fill in single-digit milliseconds, BEFORE this close persists; the fill
+      // event then finds no CLOSED trade carrying its order id and is buffered.
+      // Drain it now (and on a short schedule, for a fill landing just after)
+      // so correctExitFill re-books the trade at the broker's REAL price instead
+      // of the LTP the close assumed. Without this the book drifts optimistic on
+      // every live exit — a sell fills into the bid, so the LTP is the better
+      // price. Idempotent: the buffer is drained first and the correction no-ops
+      // once the recorded price already matches.
+      if (exitBrokerOrderId) {
+        await portfolioAgent.replayBufferedFills(exitBrokerOrderId);
+        for (const delayMs of [750, 2500]) {
+          const t = setTimeout(() => {
+            void portfolioAgent.replayBufferedFills(exitBrokerOrderId);
+          }, delayMs);
+          if (typeof t.unref === "function") t.unref();
+        }
+      }
+
       // Audit + Discipline push
       const closedAt = closed.closedAt ?? Date.now();
       const grossEntryValue = closed.entryPrice * closed.qty;

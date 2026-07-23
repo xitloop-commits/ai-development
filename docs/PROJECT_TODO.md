@@ -1627,6 +1627,33 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T108 [Execution] — live exit re-booked at the broker's real fill ✅ DONE 2026-07-23
+First live trade of the day: Dhan filled the exit at **145.95**, the app recorded
+**146.45** (its own LTP) — P&L booked 194.16 vs a real 161.66, **overstated
+Rs 32.50 (~20% of the actual gain)**. Biased, not noise: a market sell fills into
+the bid, so the LTP is normally the better price and the book drifts optimistic
+on EVERY live exit.
+
+Not a missing feature — `correctExitFill` already existed and works, and
+`exitBrokerOrderId` was already stamped. It was a **race**: Dhan reported FILLED
+at 10:13:04.652, exitTrade persisted the close at .658. Six milliseconds early,
+so no CLOSED trade carried that exit order id yet and the event was dropped.
+
+The existing early-fill buffer covers exactly this race but only accepted
+`TEA-` (entry) tags, and `replayBufferedFills` was only ever called from
+submitTrade. Fix reuses the whole mechanism:
+- buffer now accepts `EXIT-` tagged fills too;
+- `exitTrade` drains the buffer after the close persists (immediately + 750ms /
+  2500ms, mirroring the entry path) so a fill landing either side is applied.
+
+Also confirmed NOT a bug: the exit going out as `LMT 139.15` on a MARKET order is
+**NSE/Dhan market-order protection** (a 5% band below LTP so a market sell can't
+fill absurdly in a thin book). We send MARKET with price 0; the fill was at the
+true 145.95, never the band.
+
+1 test reproducing the exact 6ms race with the live numbers; mutation-verified
+(reverting the `EXIT-` acceptance fails it).
+
 ### T107 [Execution] — Lubas-managed live exits (AI-menu toggle, default ON) ✅ DONE 2026-07-22
 Live exits were managed by Dhan (Super Order legs). Dhan can hold only a fixed
 SL + fixed TP, so Runway/Anchor/Glide/trailing could never run on live. Added a
