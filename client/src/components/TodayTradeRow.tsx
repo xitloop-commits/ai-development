@@ -90,6 +90,23 @@ function _TodayTradeRow({
   const { hexOf } = useInstrumentColors();
   const instHex = hexOf(trade.instrument);
   const isOpen = trade.status === 'OPEN';
+
+  // Roll the exit strategy by clicking the pill. Glide is offered ONLY on an
+  // MA-Signal trade — it has no stop of its own and waits for MA's leg-end EXIT,
+  // so on any other cohort nothing would ever close the trade. The server
+  // enforces the same rule; this just keeps it out of the cycle.
+  const utils = trpc.useUtils();
+  const rollStrategy = trpc.executor.setExitStrategy.useMutation({
+    onSuccess: () => { void utils.portfolio.invalidate(); },
+    onError: (e) => window.alert(`Could not change strategy: ${e.message}`),
+  });
+  const STRATEGY_CYCLE = (['sprint', 'runway', 'anchor', 'glide'] as const)
+    .filter((x) => x !== 'glide' || trade.cohort === 'ma_signal');
+  const nextStrategy = () => {
+    const cur = (trade.exitStrategy ?? 'sprint') as typeof STRATEGY_CYCLE[number];
+    const i = STRATEGY_CYCLE.indexOf(cur);
+    return STRATEGY_CYCLE[(i + 1) % STRATEGY_CYCLE.length];
+  };
   // Whether THIS trade is actively trailing: paper-only (the live exit engine is
   // skipped — see T60 / gap #4) and only when its per-trade TSL mode is "auto".
   // Independent of the global trailing switch, which only SEEDS the mode at open.
@@ -307,13 +324,25 @@ function _TodayTradeRow({
               {/* Every strategy gets a pill (Sprint included) so the row always
                   says which exit engine is managing the trade. */}
               {trade.exitStrategy && (
-                <span
-                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                <button
+                  type="button"
+                  disabled={!isOpen || rollStrategy.isPending}
+                  onClick={() => {
+                    if (!isOpen) return;
+                    rollStrategy.mutate({ channel, tradeId: trade.id, exitStrategy: nextStrategy() });
+                  }}
+                  className={`text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0 ${
+                    isOpen ? 'cursor-pointer hover:brightness-125' : 'cursor-default'
+                  } disabled:opacity-60`}
                   style={strategyPillStyle(trade.exitStrategy)}
-                  title={`Exit strategy: ${strategyLabel(trade.exitStrategy)}`}
+                  title={
+                    isOpen
+                      ? `Exit strategy: ${strategyLabel(trade.exitStrategy)} — click to switch to ${strategyLabel(nextStrategy())}`
+                      : `Exit strategy: ${strategyLabel(trade.exitStrategy)}`
+                  }
                 >
                   {strategyLabel(trade.exitStrategy)}
-                </span>
+                </button>
               )}
         </div>
       </td>

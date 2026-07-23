@@ -566,3 +566,64 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(result.tradeId).toBe("T-AI");
   });
 });
+
+/**
+ * Rolling the exit strategy on an OPEN trade — the desk's strategy pill.
+ *
+ * Exercises the REAL portfolioAgent.updateTrade (not a mirrored copy), because
+ * the two interactions here decide whether a live position stays managed at all.
+ */
+describe("portfolioAgent.updateTrade — strategy roll", () => {
+  beforeEach(() => {
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
+  });
+
+  it("switching TO glide sets manualExitOnly, so the tick engine stops auto-exiting", async () => {
+    const t = makeTrade({ id: "T-ROLL", status: "OPEN", exitStrategy: "sprint", manualExitOnly: false, cohort: "ma_signal" });
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+
+    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL", { exitStrategy: "glide" });
+    expect(trade.exitStrategy).toBe("glide");
+    expect(trade.manualExitOnly).toBe(true);
+  });
+
+  it("switching AWAY from glide clears manualExitOnly AND backfills the null levels", async () => {
+    // A glide trade has no SL/TP. Handed to Sprint without levels, nothing would
+    // ever close it — the failure this backfill exists to prevent.
+    const t = makeTrade({
+      id: "T-ROLL2", status: "OPEN", exitStrategy: "glide", manualExitOnly: true,
+      entryPrice: 100, stopLossPrice: null, targetPrice: null, cohort: "ma_signal",
+    });
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+
+    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL2", { exitStrategy: "sprint" });
+    expect(trade.exitStrategy).toBe("sprint");
+    expect(trade.manualExitOnly).toBe(false);
+    expect(trade.stopLossPrice).not.toBeNull();
+    expect(trade.targetPrice).not.toBeNull();
+    // A BUY's stop sits BELOW entry and its target ABOVE.
+    expect(trade.stopLossPrice!).toBeLessThan(100);
+    expect(trade.targetPrice!).toBeGreaterThan(100);
+  });
+
+  it("does not overwrite levels that already exist", async () => {
+    // Clobbering here would undo a deliberate manual widening.
+    const t = makeTrade({
+      id: "T-ROLL3", status: "OPEN", exitStrategy: "sprint",
+      entryPrice: 100, stopLossPrice: 88, targetPrice: 130,
+    });
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+
+    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL3", { exitStrategy: "runway" });
+    expect(trade.stopLossPrice).toBe(88);
+    expect(trade.targetPrice).toBe(130);
+  });
+
+  it("refuses to modify a CLOSED trade", async () => {
+    const t = makeTrade({ id: "T-CLOSED", status: "CLOSED", exitStrategy: "sprint" });
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+    await expect(
+      portfolioAgent.updateTrade("my-live", "T-CLOSED", { exitStrategy: "glide" }),
+    ).rejects.toThrow(/closed/i);
+  });
+});

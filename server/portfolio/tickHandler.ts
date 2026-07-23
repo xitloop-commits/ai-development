@@ -223,6 +223,9 @@ class TickHandler extends EventEmitter {
       targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
       manualExitOnly?: boolean;
+      /** Operator rolled the strategy on an OPEN trade. Must be mirrored here or
+       *  the per-tick persist writes the cached trade back and reverts it. */
+      exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
     },
   ): void {
     const cached = this.stateCache.get(channel);
@@ -235,6 +238,7 @@ class TickHandler extends EventEmitter {
     // this the flag "moves then resets" every tick.
     if (patch.stopLossPrice !== undefined) trade.stopLossPrice = patch.stopLossPrice;
     if (patch.targetPrice !== undefined) trade.targetPrice = patch.targetPrice;
+    if (patch.exitStrategy !== undefined) trade.exitStrategy = patch.exitStrategy;
     if (patch.stopLossDisabled !== undefined) trade.stopLossDisabled = patch.stopLossDisabled;
     if (patch.targetDisabled !== undefined) trade.targetDisabled = patch.targetDisabled;
     if (patch.tslMode !== undefined) trade.tslMode = patch.tslMode;

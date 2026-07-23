@@ -606,6 +606,43 @@ export const executorRouter = router({
     }),
 
   /**
+   * Roll the exit strategy on an OPEN trade (the desk's strategy pill).
+   *
+   * Goes straight to portfolioAgent.updateTrade rather than through
+   * modifyOrder: this is LOCAL state only. There is no broker order to modify —
+   * routing it through the broker path could fire a real modify call for a
+   * change the exchange knows nothing about.
+   *
+   * Glide is refused for any cohort but MA-Signal: it has no stop of its own and
+   * relies on MA's leg-end EXIT, so on another cohort nothing would ever close
+   * the trade (same rule as resolveExitStrategy and the RCA fan-out).
+   */
+  setExitStrategy: protectedProcedure
+    .input(z.object({
+      channel: channelSchema,
+      tradeId: z.string().min(1),
+      exitStrategy: z.enum(["sprint", "runway", "anchor", "glide"]),
+    }))
+    .mutation(async ({ input }) => {
+      const day = await portfolioAgent.ensureCurrentDay(input.channel);
+      const existing = day.trades.find((t) => t.id === input.tradeId);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Trade not found" });
+      if (existing.status !== "OPEN") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only an OPEN trade's strategy can be changed" });
+      }
+      if (input.exitStrategy === "glide" && existing.cohort !== "ma_signal") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Glide needs the MA-Signal cohort — nothing would close this trade otherwise.",
+        });
+      }
+      const { trade } = await portfolioAgent.updateTrade(input.channel, input.tradeId, {
+        exitStrategy: input.exitStrategy,
+      });
+      return { trade };
+    }),
+
+  /**
    * UI-friendly SL / TP / TSL update. Wraps tradeExecutor.modifyOrder with
    * the legacy `portfolio.updateTrade` input shape.
    */

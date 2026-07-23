@@ -1627,6 +1627,31 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T110 [UI] — roll a trade's exit strategy by clicking its pill ✅ DONE 2026-07-23
+The desk's strategy pill was display-only. It now cycles the strategy on an OPEN
+trade: sprint → runway → anchor → (glide, MA-Signal only) → sprint.
+
+Two interactions decide whether the trade stays managed, both handled in
+`portfolioAgent.updateTrade`:
+- **→ glide** sets `manualExitOnly`, the flag the tick engine reads to skip every
+  auto-exit. Without it Sprint's stops keep firing on a trade meant to ride.
+- **← from glide** clears it AND backfills the NULL levels from the Sprint config
+  — a glide trade has no SL/TP, so handed to Sprint as-is nothing would ever
+  close it. Existing levels are never overwritten (that would undo a manual
+  widening).
+
+- `exitStrategy` added to `applyTradeEdit` so the per-tick persist can't revert
+  the roll from the live cache.
+- New `executor.setExitStrategy` goes straight to portfolioAgent, NOT through
+  modifyOrder: this is local state, and the broker path could fire a real modify
+  for a change the exchange knows nothing about.
+- Glide refused for any cohort but ma_signal (server + client cycle).
+- CLOSED trades refused.
+
+4 tests against the REAL updateTrade (in applyBrokerOrderEvent.test.ts, which
+already has the state mocks), mutation-verified both ways. A separate
+rollExitStrategy.test.ts documents the cycle/level rules as pure logic.
+
 ### T109 [UI] — all discipline rules editable from the app-bar shield ✅ DONE 2026-07-23
 The shield menu only exposed the two enforcement master switches. Added
 `DisciplineRulesDialog` behind a "Customize rules" button: every gating rule with

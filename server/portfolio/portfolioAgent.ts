@@ -57,6 +57,7 @@ import {
   processClawback,
 } from "./compounding";
 import { recordCapitalEvent } from "./capitalLedger";
+import { sprintOpeningLevels } from "./aiModeConfig";
 import { calculateTradeCharges, estimateSingleLegCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { chargeRatesForTrade } from "../../shared/chargesEngine";
@@ -958,6 +959,8 @@ class PortfolioAgentImpl {
       targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
       manualExitOnly?: boolean;
+      /** Roll the exit strategy on an OPEN trade (the desk's strategy pill). */
+      exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
     const day = await this.ensureCurrentDay(channel);
@@ -991,18 +994,55 @@ class PortfolioAgentImpl {
     if (modifications.tslMode !== undefined) trade.tslMode = modifications.tslMode;
     if (modifications.manualExitOnly !== undefined) trade.manualExitOnly = modifications.manualExitOnly;
 
+    // ── Rolling the exit strategy on a LIVE position ────────────────────────
+    //
+    // Two things have to move with it, or the trade ends up in a state no engine
+    // manages:
+    //
+    //  → GLIDE has no SL/TP/trailing; it rides until MA-Signal's EXIT. That is
+    //    expressed by `manualExitOnly`, which the tick engine reads to skip
+    //    every auto-exit. Setting the strategy without it leaves Sprint's stops
+    //    still firing on a trade meant to ride.
+    //
+    //  ← LEAVING glide, the trade has NULL levels (Glide never set any). Handing
+    //    it to Sprint as-is gives a position with no stop and no target — the
+    //    engine would simply never exit it. So backfill from the AI menu's
+    //    Sprint config, mirroring how a fresh Sprint trade opens.
+    //    Runway/Anchor recompute both from entry on their first tick, so they
+    //    need no backfill — but a level is still set so the row never shows a
+    //    blank stop on a live position.
+    if (modifications.exitStrategy !== undefined) {
+      const next = modifications.exitStrategy;
+      trade.exitStrategy = next;
+      trade.manualExitOnly = next === "glide";
+      if (next !== "glide" && trade.entryPrice > 0 &&
+          (trade.stopLossPrice == null || trade.targetPrice == null)) {
+        const lv = sprintOpeningLevels(trade.entryPrice, trade.type.includes("BUY"));
+        if (trade.stopLossPrice == null) trade.stopLossPrice = lv.stopLoss;
+        if (trade.targetPrice == null) trade.targetPrice = lv.takeProfit;
+      }
+      log.important(
+        `strategy rolled ${channel} trade=${tradeId} → ${next} ` +
+          `(manualExitOnly=${trade.manualExitOnly} SL=${trade.stopLossPrice} TP=${trade.targetPrice})`,
+      );
+    }
+
     await upsertDayRecord(channel, day);
     // Push EVERY edit into the tickHandler's live cache — its per-tick persist
     // writes the cached trade, so any field not mirrored here is clobbered back
     // on the next tick ("moves then resets"). Covers prices AND the risk-flag
     // toggles (SL/TP-disable, TSL mode, manual-exit-only).
     tickHandler.applyTradeEdit(channel, tradeId, {
-      stopLossPrice: modifications.stopLossPrice,
-      targetPrice: modifications.targetPrice,
+      exitStrategy: modifications.exitStrategy,
+      // On a strategy roll, push the RESOLVED values (manualExitOnly and any
+      // backfilled levels the roll just set) — not the caller's, which carried
+      // none of them. Otherwise the next tick persist reverts the roll.
+      stopLossPrice: modifications.stopLossPrice ?? (modifications.exitStrategy ? trade.stopLossPrice : undefined),
+      targetPrice: modifications.targetPrice ?? (modifications.exitStrategy ? trade.targetPrice : undefined),
+      manualExitOnly: modifications.exitStrategy ? trade.manualExitOnly : modifications.manualExitOnly,
       stopLossDisabled: modifications.stopLossDisabled,
       targetDisabled: modifications.targetDisabled,
       tslMode: modifications.tslMode,
-      manualExitOnly: modifications.manualExitOnly,
     });
     await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>
       log.warn(`mirrorPosition (update) failed for ${trade.id}: ${(err as Error).message}`),
