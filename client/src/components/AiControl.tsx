@@ -1,25 +1,27 @@
 /**
  * AiControl — the single AI menu (merges the old SEA control + AI-trades mode).
  *
- * One AppBar CTA ("AI") opens a per-mode control panel. The Paper/Live toggle at
- * the top selects which book's config you're editing — it does NOT route trades;
- * routing is the per-book AI-trades switch beneath it (aiPaperEnabled /
- * aiLiveEnabled), so both books can run at once. Edits are batched into a local
- * draft; hitting Apply pushes the whole draft to the server
- * (trading.updateAiConfig), which clamps + persists + broadcasts, so backend and
- * every open panel update at once. A dim backdrop closes on click-out.
+ * The "AI" CTA (now on the desk header, beside the trade filter) opens a control
+ * panel for the AI stream of the CURRENT BOOK — it follows the app-bar Paper/Live
+ * tab and has no toggle of its own (T131). The per-book AI-trades switch at the
+ * top routes signals (aiPaperEnabled / aiLiveEnabled), so both books can run at
+ * once. Edits are batched into a local draft; Apply pushes the whole draft to the
+ * server (trading.updateAiConfig), which clamps + persists + broadcasts.
  *
  * MANUAL ("My Trades") settings are NOT here — they moved to their own AppBar
  * CTA (MyTradesControl). They govern trades you place by hand, so living inside
  * the AI menu implied the AI mode toggle applied to them, which it never did.
  *
- * Sections: cohorts · strategies (N on = N trades/signal) · sizing · order ·
- * Sprint / Runway / Anchor exit configs · global exits · EOD square-off.
+ * Sections: AI-trades switch · cohorts · strategies (N on = N trades/signal) ·
+ * model · sizing · order · Sprint / Runway / Anchor / Glide exit configs. The
+ * system-wide knobs (revPct, global exits, square-off, Lubas exit) moved to the
+ * Settings menu (T129); manual sizing lives in My Trades.
  */
 import { useState, useEffect, useMemo, useRef } from "react";
 import { BrainCircuit, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useSeaStatus } from "@/stores/seaStatusStore";
+import { useChannel } from "@/contexts/CapitalContext";
 import { useSignalEpoch } from "@/stores/liveSignals";
 
 // ── Local mirror of the server AiModeConfig (client has no router-output type) ──
@@ -288,7 +290,11 @@ const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
 
 export function AiControl() {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("paper");
+  // T131 — the menu follows the app-bar Paper/Live tab; it has no toggle of its
+  // own. Editing "on the paper tab" whose config you're changing was ambiguous,
+  // and the desk tab already says which book you're in.
+  const { channel } = useChannel();
+  const mode: Mode = channel === "paper" ? "paper" : "live";
   const [draft, setDraft] = useState<ModeCfg | null>(null);
   const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
   const sea = useSeaStatus();
@@ -297,9 +303,7 @@ export function AiControl() {
   const cfgQuery = trpc.trading.aiConfig.useQuery(undefined, { enabled: open });
   const all = cfgQuery.data as AllCfg | undefined;
 
-  // The Paper/Live toggle also routes AI trades (aiTradesMode).
   const settingsQuery = trpc.settings.get.useQuery(undefined, { enabled: open });
-  const activeMode: Mode = (settingsQuery.data?.tradingMode?.aiTradesMode as Mode) ?? "paper";
   // Master switch for AI-sourced trades in BOTH modes. Defaults ON so a settings
   // doc predating the field doesn't silently stop AI trading.
   const aiTradesEnabled: boolean = settingsQuery.data?.tradingMode?.aiTradesEnabled ?? true;
@@ -323,12 +327,6 @@ export function AiControl() {
   const setAiMode = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => utils.settings.get.invalidate(),
   });
-
-  // Open on the currently-active mode.
-  useEffect(() => {
-    if (open) setMode(activeMode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   // Hydrate the drafts when the menu opens, when data first arrives, and (for
   // the per-mode block) when the mode changes — deliberately NOT on every `all`
@@ -386,15 +384,6 @@ export function AiControl() {
       return n;
     });
 
-  const switchMode = (m: Mode) => {
-    if (m === mode) return;
-    setMode(m);
-    // Switching the view no longer ROUTES trades — that is the per-book AI-trades
-    // switch. `aiTradesMode` is still synced because it decides whose cohorts get
-    // pushed to SEA (one process, one cohort set), so the cohorts you see edited
-    // are the ones actually firing.
-    if (m !== activeMode) setAiMode.mutate({ aiTradesMode: m });
-  };
 
   const apply = () => { if (draft) applyMut.mutate({ book: mode, kind: "ai", patch: draft }); };
   const reset = () => { if (all) setDraft(structuredClone(all[mode].ai)); };
@@ -428,7 +417,7 @@ export function AiControl() {
       <button
         onClick={() => setOpen((o) => !o)}
         className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
-        title="AI control — mode, cohorts, strategies, sizing, exits"
+        title="AI trades — cohorts, strategies, sizing, exits for the current book"
       >
         <BrainCircuit className={`h-3.5 w-3.5 ${aliveTone}`} />
         <span className={`font-display text-[0.625rem] font-bold tracking-wider ${aliveTone}`}>AI</span>
@@ -437,33 +426,7 @@ export function AiControl() {
       {open && (
         <>
           <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
-            {/* ① Mode — FIRST, because it selects which book everything below
-                belongs to. It no longer routes trades: routing is the per-mode
-                AI-trades switch underneath (aiPaperEnabled / aiLiveEnabled), so
-                paper and live are genuinely independent. */}
-            <div className="p-3 border-b border-border flex items-center justify-between">
-              <div className="flex flex-col">
-                <SectionLabel>Mode</SectionLabel>
-                <span className="text-[0.5625rem] text-muted-foreground">which book you are editing</span>
-              </div>
-              <div className="flex rounded-md border border-border overflow-hidden">
-                {(["paper", "live"] as const).map((m) => {
-                  const active = mode === m;
-                  const tone = m === "live" ? "bg-bullish/25 text-bullish" : "bg-warning-amber/25 text-warning-amber";
-                  return (
-                    <button
-                      key={m}
-                      onClick={() => switchMode(m)}
-                      className={`px-3 py-1 text-[0.625rem] font-bold tracking-wide transition-colors ${active ? tone : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
-                    >
-                      {m === "live" ? "LIVE" : "PAPER"}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* ② AI trades — PER MODE. Paper and live each have their own switch,
+            {/* ① AI trades — PER BOOK. Paper and live each have their own switch,
                 so turning one off leaves the other running. Both on = one signal
                 is placed on BOTH books. Applies immediately (no Apply): it is a
                 safety control and must never sit in a draft. */}
