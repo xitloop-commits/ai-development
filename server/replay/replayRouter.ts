@@ -11,6 +11,7 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { listRuns, getRun, deleteRun, summariseRun } from "./replayRuns";
 import { getUserSettings } from "../userSettings";
+import { getSeaStatus } from "../seaHeartbeat";
 import { TRPCError } from "@trpc/server";
 import { getISTNow } from "../discipline/types";
 import { listReplayDates, getReplayStatus, startReplay, stopReplay } from "./tickReplay";
@@ -75,6 +76,18 @@ export const replayRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Turn OFF live AI trades before replaying — replay must not run while the live account is armed.",
+        });
+      }
+
+      // T136 — a replay streams recorded ticks back through SEA. If no engine is
+      // alive there is nothing to score them, so the run records ticks with zero
+      // signals and zero trades — a silent failure that looks like "replay did
+      // nothing". Refuse up front with the actual reason.
+      const sea = getSeaStatus();
+      if (!sea.anyAlive) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No SEA engine is running — start SEA before replaying, or the run records ticks with no signals.",
         });
       }
       try {
