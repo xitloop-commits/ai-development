@@ -16,6 +16,7 @@
 import { trpc } from '@/lib/trpc';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertTriangle } from 'lucide-react';
+import { InfoDot } from './InfoDot';
 
 /** A numeric threshold belonging to a rule. */
 interface Field {
@@ -174,7 +175,10 @@ export function DisciplineRulesDialog({ open, onClose }: { open: boolean; onClos
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-sm">Discipline rules</DialogTitle>
+          <DialogTitle className="text-sm flex items-center gap-1.5">
+            Discipline rules
+            <InfoDot text="Changes save immediately — no Apply. Carry-forward and IV-classifier tuning stay in Settings; they are interdependent config rather than on/off policy." />
+          </DialogTitle>
         </DialogHeader>
 
         {q.isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -183,10 +187,10 @@ export function DisciplineRulesDialog({ open, onClose }: { open: boolean; onClos
           <div className="space-y-4">
             {/* Master switches first — they override every rule below. */}
             <div className="rounded-lg border border-border p-2.5 space-y-2">
-              <div className="text-[0.6875rem] font-bold">Enforcement</div>
-              <p className="text-[0.5625rem] text-muted-foreground -mt-1">
-                Master switches. OFF means every rule below is skipped for that book.
-              </p>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[0.6875rem] font-bold">Enforcement</span>
+                <InfoDot text="Master switches. OFF means every rule below is skipped for that book — nothing checks a trade before it is placed." />
+              </span>
               {([
                 ['liveEnforcement', 'Live', 'live · live', liveOn],
                 ['simulationEnforcement', 'Paper', 'paper', simOn],
@@ -267,11 +271,6 @@ export function DisciplineRulesDialog({ open, onClose }: { open: boolean; onClos
                 ))}
               </div>
             ))}
-
-            <p className="text-[0.5625rem] text-muted-foreground">
-              Changes save immediately. Carry-forward and IV-classifier tuning stay in Settings —
-              they are interdependent config rather than on/off policy.
-            </p>
           </div>
         )}
       </DialogContent>
@@ -307,11 +306,11 @@ function RuleRow({
 }) {
   return (
     <div className="border-t border-border/40 pt-1.5 first:border-t-0 first:pt-0">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[0.6875rem] font-bold">{label}</div>
-          <div className="text-[0.5625rem] text-muted-foreground leading-snug">{hint}</div>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[0.6875rem] font-bold">{label}</span>
+          <InfoDot text={hint} />
+        </span>
         <Pill on={on} onClick={onToggle} />
       </div>
       {fields && fields.length > 0 && (
