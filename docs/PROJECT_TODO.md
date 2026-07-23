@@ -1627,6 +1627,21 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T120 [UI] — trade number leads the row; clock centred, 12-hour ✅ DONE 2026-07-23
+- **Number first, everywhere.** The `#signal` / `#tradeNo` badge now leads the
+  identity block in BOTH [TodayTradeRow](../client/src/components/TodayTradeRow.tsx)
+  and [PastTradeRow](../client/src/components/PastTradeRow.tsx), ahead of the
+  timestamp — it is how a trade is referred to out loud. `SignalsFeed` already
+  led with `#seq`; `InstrumentChartPage` shows it after a static "Why this
+  trade" label, so both were already right. Pinned by a test, since ordering
+  reads as cosmetic and a later edit could reshuffle it unnoticed.
+- **Clock centred + 12-hour.** Moved out of the left-hand mode-toggle group into
+  an absolutely-positioned centre cell on the bar. Absolute, not a flex child:
+  as a flex child it drifts with whatever the left/right clusters weigh, and
+  those change (holiday cell appears, replay badge appears).
+  `pointer-events-none` on the wrapper so a narrow window can't have it swallow
+  a click meant for a control underneath.
+
 ### T119 [UI] 🔴 — expanded past-day trades misaligned + off-style ✅ FIXED 2026-07-23
 Reported: "when day collapse the inside trades have a different look, not the
 same as today's trades." True — and underneath it, a real misalignment.

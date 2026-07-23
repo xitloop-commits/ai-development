@@ -222,19 +222,12 @@ function _TodayTradeRow({
           which is the one element that genuinely benefits from width. */}
       <td colSpan={5} className="px-2 py-1.5 border-r border-border align-middle">
         <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap min-w-0">
-            {/* Entry date + clock time (IST). The date matters once the desk
-                shows a replayed or historical day — a bare HH:MM silently reads
-                as "today". Full timestamp with seconds stays in the tooltip. */}
-            <span
-              className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
-              title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
-            >
-              {formatIstDayClock(trade.openedAt)}
-            </span>
-            {/* Signal # when the trade came from a SEA signal (it matches the
+            {/* The number LEADS the row (Partha, 2026-07-23): it is how a trade
+                is referred to out loud, so it should be the first thing the eye
+                lands on rather than sitting behind the timestamp.
+                Signal # when the trade came from a SEA signal (it matches the
                 tray card). Manual trades have no signalSeq, so they fall back to
-                their 1-based position in the day — previously they showed no
-                number at all and were the only rows you couldn't refer to. */}
+                their 1-based position in the day. */}
             {trade.signalSeq != null ? (
               <span
                 className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
@@ -250,6 +243,15 @@ function _TodayTradeRow({
                 #{tradeNo}
               </span>
             ) : null}
+            {/* Entry date + clock time (IST). The date matters once the desk
+                shows a replayed or historical day — a bare HH:MM silently reads
+                as "today". Full timestamp with seconds stays in the tooltip. */}
+            <span
+              className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+              title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
+            >
+              {formatIstDayClock(trade.openedAt)}
+            </span>
             {/* Expiry lives in the instrument's copy tooltip: at this width it
                 cost more than it told you, and the strike + side are what you
                 actually scan for. */}

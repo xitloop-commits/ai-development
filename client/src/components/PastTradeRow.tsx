@@ -80,15 +80,10 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
     >
       {/* Identity, packed into the five day-level columns (Day, Date, Capital,
           Profit+, Capital+) which carry no per-trade value — same order as
-          today: WHEN · WHICH · WHAT · HOW. */}
+          today: WHICH · WHEN · WHAT · HOW. The number leads because it is how a
+          trade is referred to out loud. */}
       <td colSpan={5} className="px-2 py-1.5 border-r border-border align-middle">
         <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap min-w-0">
-          <span
-            className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
-            title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
-          >
-            {formatIstDayClock(trade.openedAt)}
-          </span>
           {trade.signalSeq != null ? (
             <span
               className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
@@ -104,6 +99,12 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
               #{tradeNo}
             </span>
           ) : null}
+          <span
+            className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+            title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
+          >
+            {formatIstDayClock(trade.openedAt)}
+          </span>
           {/* Wrapped rather than passed a title prop — InstrumentTag has none,
               and the contract string is worth having on hover here too. */}
           <span title={copyText || undefined} className="shrink-0">

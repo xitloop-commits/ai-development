@@ -414,13 +414,12 @@ function ChannelModeToggle() {
           {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
         </button>
       )}
-      <IstClock />
     </div>
   );
 }
 
 /**
- * IST date + running clock, next to CLEAR.
+ * IST date + running clock, CENTRED in the app bar.
  *
  * Everything in this app is stamped in IST (signal logs, day records, the
  * square-off schedule), so the bar shows IST explicitly rather than the
@@ -428,6 +427,10 @@ function ChannelModeToggle() {
  * timestamp on screen.
  *
  * Ticks on a 1s interval, cleared on unmount so it can't outlive the component.
+ *
+ * 12-hour format (Partha, 2026-07-23). The am/pm suffix is what makes a bare
+ * "3:04" unambiguous on a bar that also shows a trading day; 24-hour needed a
+ * mental conversion against every other clock in the room.
  */
 function IstClock() {
   const [now, setNow] = useState(() => new Date());
@@ -438,7 +441,7 @@ function IstClock() {
 
   const opts = { timeZone: 'Asia/Kolkata' } as const;
   const date = now.toLocaleDateString('en-IN', { ...opts, day: '2-digit', month: 'short' });
-  const time = now.toLocaleTimeString('en-IN', { ...opts, hour12: false });
+  const time = now.toLocaleTimeString('en-IN', { ...opts, hour12: true });
 
   return (
     <div
@@ -538,6 +541,18 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         {/* Spacer to push right items to the end */}
         <div className="flex-1" />
+
+        {/* Clock, centred on the BAR rather than sat in the flow. Absolute
+            positioning is what makes it truly centred: as a flex child its
+            position would drift with whatever the left and right clusters
+            happen to weigh, and those change (holiday cell, replay running).
+            `pointer-events-none` on the wrapper so it can never swallow a click
+            meant for a control underneath if a narrow window overlaps them. */}
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center">
+          <div className="pointer-events-auto">
+            <IstClock />
+          </div>
+        </div>
 
         {/* Tick-replay live-simulation control (date + speed + Replay/Stop) */}
         <ReplayControl />

@@ -78,7 +78,7 @@ describe("PastTradeRow column alignment", () => {
 });
 
 describe("PastTradeRow look and feel", () => {
-  it("shows the same identity as today's row — time, signal #, contract, cohort, strategy", () => {
+  it("shows the same identity as today's row — number, time, contract, cohort, strategy", () => {
     const row = renderRow();
     const identity = row.querySelector("td")!.textContent ?? "";
     expect(identity).toContain("#7");        // signal number
@@ -86,6 +86,14 @@ describe("PastTradeRow look and feel", () => {
     expect(identity).toContain("Long(CE)");  // direction + contract, one pill
     expect(identity.toLowerCase()).toContain("ma");     // cohort pill
     expect(identity.toLowerCase()).toContain("glide");  // strategy pill
+  });
+
+  it("leads with the number, not the timestamp", () => {
+    // Partha, 2026-07-23: "trade no should come first everywhere" — it is how a
+    // trade is referred to out loud. Pinned because it reads as a cosmetic
+    // ordering detail that a later edit could reshuffle without noticing.
+    const identity = renderRow().querySelector("td")!.textContent ?? "";
+    expect(identity.indexOf("#7")).toBeLessThan(identity.indexOf("pm"));
   });
 
   it("falls back to the trade number when there is no signal (manual trades)", () => {
