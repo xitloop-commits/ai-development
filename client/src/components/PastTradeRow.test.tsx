@@ -126,6 +126,11 @@ describe("PastTradeRow look and feel", () => {
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.textContent).toBe("Long(CE)");
     expect(buttons[0]!.getAttribute("title")).toContain("chart");
+    // Reported: "cursor pointer is not up over the pill." Global CSS already
+    // gives every enabled button a pointer, but the class is asserted here so a
+    // refactor back to a <span> is caught rather than silently losing the hint.
+    expect(buttons[0]!.className).toContain("cursor-pointer");
+    expect(buttons[0]!.tagName).toBe("BUTTON");
   });
 
   it("makes the instrument itself the COPY button when the contract is nameable", () => {
