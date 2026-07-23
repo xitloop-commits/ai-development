@@ -421,21 +421,15 @@ function IstClock() {
 
   return (
     <div
-      className="px-2.5 flex items-center gap-1.5 shrink-0 cursor-default select-none"
+      className="px-2.5 flex items-baseline gap-1.5 shrink-0 cursor-default select-none animate-pulse"
       title={now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'medium' })}
     >
-      {/* Pulsing dot — a live "heartbeat" so the clock reads as running, not a
-          frozen timestamp. A steady dot with an expanding ping ring behind it. */}
-      <span className="relative flex h-1.5 w-1.5">
-        <span className="absolute inline-flex h-full w-full rounded-full bg-warning-amber opacity-75 animate-ping" />
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning-amber" />
-      </span>
-      <span className="flex items-baseline gap-1.5">
-        <span className="text-[0.625rem] font-bold uppercase tracking-wide text-info-cyan">{date}</span>
-        {/* tabular-nums so the seconds digit doesn't shuffle the layout each tick */}
-        <span className="text-xs font-bold tabular-nums text-warning-amber">{time}</span>
-        <span className="text-[0.5rem] font-bold text-muted-foreground">IST</span>
-      </span>
+      {/* Whole clock breathes (animate-pulse on the row); each part keeps its
+          own colour so it stays multi-colour while it pulses. */}
+      <span className="text-[0.625rem] font-bold uppercase tracking-wide text-info-cyan">{date}</span>
+      {/* tabular-nums so the seconds digit doesn't shuffle the layout each tick */}
+      <span className="text-xs font-bold tabular-nums text-warning-amber">{time}</span>
+      <span className="text-[0.5rem] font-bold text-bullish">IST</span>
     </div>
   );
 }
