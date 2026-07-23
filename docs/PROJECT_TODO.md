@@ -1627,6 +1627,25 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T114 [Ops] — API server logs to a rolling dated file (2-day retention) ✅ DONE 2026-07-23
+The server only logged to the console, so history vanished on every scroll or
+restart — and `tsx watch` restarts on every edit, which is exactly when you want
+the previous run's log.
+
+- Every line is now ALSO appended to `logs/server/api-<YYYY-MM-DD>.log`.
+- Day boundary is **IST**, matching every other timestamp in the system; rolling
+  on UTC would split a trading session across two files.
+- Retention `LOG_RETAIN_DAYS` (default 2) — older files pruned on startup and on
+  each day rollover.
+- `pino.multistream`, not `transport`: a worker-thread transport can't also feed
+  a second destination. Console keeps pretty output; the FILE always gets raw
+  JSON (agent / module / requestId intact) so it stays greppable.
+- Every failure path is swallowed — logging must never crash the server.
+
+Verified live: file written (101 lines on first boot), and pruning proven by
+planting 07-19/07-20/07-22 files and confirming only 07-22 + 07-23 survived.
+`logs` is already gitignored.
+
 ### T113 [Execution] 🔴 — live auto-exit never reached the broker ✅ FIXED 2026-07-23
 **Regression introduced by T107 (Lubas-managed live exits), same day.**
 

@@ -23,6 +23,9 @@
  * Legacy single-argument calls (`createLogger("Dhan")`) default to agent=BSA.
  */
 import pino, { type Logger as PinoLogger } from "pino";
+import pinoPretty from "pino-pretty";
+import { createWriteStream, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { resolve, join } from "path";
 import { getCorrelationFields } from "../_core/correlationContext";
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -86,28 +89,94 @@ export function logColor(text: string, color: keyof typeof ANSI): string {
   return usePretty ? `${ANSI[color] ?? ""}${text}${ANSI.reset}` : text;
 }
 
-const root: PinoLogger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  base: undefined, // strip pid/hostname; agent+module is enough
-  // mixin is invoked on every emit and merged into the log object — this
-  // is where AsyncLocalStorage correlation IDs land.
-  mixin: () => getCorrelationFields(),
-  ...(usePretty
-    ? {
-        transport: {
-          target: "pino-pretty",
-          options: {
+// ─── Rolling file destination ────────────────────────────────────
+//
+// The console is ephemeral — once the terminal scrolls or the process is
+// restarted (tsx watch does that on every edit) the history is gone, which is
+// exactly when you most want it. So every line is ALSO appended to a dated file.
+//
+// Dated-per-day, matching the convention the rest of the system already uses
+// (logs/tfa_NIFTY_<date>.log, logs/signals/<inst>/<date>_signals.log). The day
+// boundary is IST because every other timestamp in this system is IST — rolling
+// on UTC would split a trading session across two files.
+//
+// The file always gets raw JSON even when the console is pretty: pretty output
+// is for eyes, the file is for grepping and post-mortems.
+
+const LOG_DIR = resolve(process.cwd(), "logs", "server");
+/** How many days of history to keep, including today. */
+const LOG_RETAIN_DAYS = Number(process.env.LOG_RETAIN_DAYS ?? 2);
+
+const istDay = (d = new Date()): string =>
+  d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); // YYYY-MM-DD
+
+/** Delete dated logs older than the retention window. Best-effort. */
+function pruneOldLogs(): void {
+  try {
+    const cutoff = new Date(Date.now() - (LOG_RETAIN_DAYS - 1) * 86_400_000);
+    const keepFrom = istDay(cutoff);
+    for (const f of readdirSync(LOG_DIR)) {
+      const m = /^api-(\d{4}-\d{2}-\d{2})\.log$/.exec(f);
+      if (m && m[1] < keepFrom) unlinkSync(join(LOG_DIR, f));
+    }
+  } catch {
+    /* never let log housekeeping break logging */
+  }
+}
+
+/**
+ * Append-only stream that swaps to a new file when the IST date changes.
+ * Rotation is checked per write rather than on a timer, so a process that sits
+ * idle across midnight still lands the next line in the right file.
+ */
+function rollingFileStream(): { write(chunk: string): void } {
+  let day = "";
+  let ws: ReturnType<typeof createWriteStream> | null = null;
+  return {
+    write(chunk: string) {
+      try {
+        const today = istDay();
+        if (today !== day || !ws) {
+          ws?.end();
+          mkdirSync(LOG_DIR, { recursive: true });
+          ws = createWriteStream(join(LOG_DIR, `api-${today}.log`), { flags: "a" });
+          day = today;
+          pruneOldLogs();
+        }
+        ws.write(chunk);
+      } catch {
+        /* a failed write must never crash the server */
+      }
+    },
+  };
+}
+
+const root: PinoLogger = pino(
+  {
+    level: process.env.LOG_LEVEL ?? "info",
+    base: undefined, // strip pid/hostname; agent+module is enough
+    // mixin is invoked on every emit and merged into the log object — this
+    // is where AsyncLocalStorage correlation IDs land.
+    mixin: () => getCorrelationFields(),
+  },
+  // multistream (not `transport`) so console AND file are fed from one logger.
+  // A worker-thread transport can't also hand us a second destination.
+  pino.multistream([
+    {
+      stream: usePretty
+        ? pinoPretty({
             colorize: true,
             translateTime: "SYS:HH:MM:ss.l",
             messageFormat: "({agent}:{module}) {msg}",
             // agent + module are already rendered in messageFormat; suppress
             // the data-field dump below each line so each log entry is one row.
             ignore: "pid,hostname,agent,module",
-          },
-        },
-      }
-    : {}),
-});
+          })
+        : process.stdout,
+    },
+    { stream: rollingFileStream() },
+  ]),
+);
 
 // ─── Factory ───────────────────────────────────────────────────
 
