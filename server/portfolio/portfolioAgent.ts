@@ -883,7 +883,7 @@ class PortfolioAgentImpl {
    * Adopt an externally-placed order (not placed through the app) by mirroring
    * it into the app via position netting. Called when a FILLED event from the
    * PRIMARY account matched no local trade. Attribution: equity → stocks-live,
-   * else my-live. A fill either opens a position in its own direction or
+   * else live. A fill either opens a position in its own direction or
    * closes/reduces an existing opposite one (handles sell-first-then-cover).
    */
   private async adoptExternalFill(update: BrokerOrderEvent): Promise<BrokerOrderEventResult> {
@@ -898,8 +898,8 @@ class PortfolioAgentImpl {
     // correctly (buildExternalTrade would otherwise create an equity-shaped
     // trade for a CE/PE) — deferred to step ③.
     if (update.assetKind !== "equity") return { matched: false };
-    // Stocks fold into the My book (T87): equity fills are adopted into my-live.
-    const channel: Channel = "my-live";
+    // Stocks fold into the My book (T87): equity fills are adopted into live.
+    const channel: Channel = "live";
     const symbol = update.symbol ?? securityId;
 
     const state = await getCapitalState(channel).catch(() => null);
@@ -1183,7 +1183,7 @@ class PortfolioAgentImpl {
     // notify (single-writer invariant preserved).
     if (update.status === "FILLED" && (update.legNo === 2 || update.legNo === 3)) {
       const reason: AutoExitEvent["reason"] = update.legNo === 2 ? "SL_HIT" : "TP_HIT";
-      const legChannels: Channel[] = ["my-live", "ai-live"];
+      const legChannels: Channel[] = ["live"];
       for (const channel of legChannels) {
         const state = await getCapitalState(channel).catch(() => null);
         if (!state) continue;
@@ -1222,7 +1222,7 @@ class PortfolioAgentImpl {
 
     // Brokers don't tell us which channel the order belongs to. Each live
     // channel could have placed it — scan and stop at the first match.
-    const liveChannels: Channel[] = ["my-live", "ai-live"];
+    const liveChannels: Channel[] = ["live"];
     for (const channel of liveChannels) {
       const state = await getCapitalState(channel).catch(() => null);
       if (!state) continue;
@@ -1289,7 +1289,7 @@ class PortfolioAgentImpl {
         // 2026-07-01: Telegram push for broker-side kills (REJECTED /
         // CANCELLED / EXPIRED). Previously silent — the operator had no
         // signal that the AI had tried to enter but was blocked at the
-        // broker. Fire-and-forget; the notifier gates on ai-live +
+        // broker. Fire-and-forget; the notifier gates on live +
         // ai-paper so manual and testing trades stay silent.
         try {
           notifyOrderRejected({
@@ -1389,7 +1389,7 @@ class PortfolioAgentImpl {
     // ── External-order adoption ───────────────────────────────────────────
     // A fill from the PRIMARY account that matched no local trade (entry or
     // exit) was placed outside the app — mirror it via position netting. Primary
-    // account only; the secondary/ai-live (spouse/TFA) account stays off-limits.
+    // account only; the secondary/live (spouse/TFA) account stays off-limits.
     if (
       update.status === "FILLED" &&
       update.brokerId === "dhan-primary-ac" &&
@@ -1434,17 +1434,18 @@ class PortfolioAgentImpl {
    * in TEA Phase 1 commit 6.
    */
   /** The two live books share ONE 250-day staircase (T87). Kept in lockstep. */
-  private static readonly LIVE_JOURNEY_CHANNELS: Channel[] = ["ai-live", "my-live"];
+  private static readonly LIVE_JOURNEY_CHANNELS: Channel[] = ["live"];
 
   private async maybeCompleteOrClawback(
     channel: Channel,
     stateBeforeClose: CapitalState,
     day: DayRecord,
   ): Promise<void> {
-    // Live books (ai-live + my-live) share one journey: a live day completes on the
-    // COMBINED result, but each account compounds/claws only its OWN capital
-    // (T87 option a — shared staircase, separate wallets). Paper is a single book.
-    if (channel === "ai-live" || channel === "my-live") {
+    // T126 — one live book now, so the "shared staircase, separate wallets" rule
+    // that combined two live books into one journey has nothing left to combine.
+    // completeOrClawbackLive is kept as the live path (it owns the broker-aware
+    // day close); it simply has a single book to work on.
+    if (channel === "live") {
       return this.completeOrClawbackLive();
     }
     return this.completeOrClawbackSingle(channel, day);
@@ -1570,9 +1571,9 @@ class PortfolioAgentImpl {
   }
 
   /**
-   * Shared LIVE journey (T87): ai-live + my-live climb ONE staircase together but
+   * Shared LIVE journey (T87): live + live climb ONE staircase together but
    * keep SEPARATE capital ("shared staircase, separate wallets"). A live day
-   * completes when the COMBINED (ai-live + my-live) P&L clears the COMBINED target
+   * completes when the COMBINED (live + live) P&L clears the COMBINED target
    * and neither book has an open trade; on completion each account compounds its
    * OWN day profit (75/25) and both counters advance together. A combined loss ≥
    * the combined target claws each account back by its OWN loss and rewinds both

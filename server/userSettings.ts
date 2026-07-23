@@ -91,8 +91,8 @@ export interface TradingModeSettings {
   aiLiveEnabled: boolean;
   myTradesMode: "live" | "paper";     // My Trades workspace mode (on-screen toggle, persisted)
   testingMode: "live";                // Testing workspace is live-only (sandbox removed)
-  aiKillSwitch: boolean;              // Kill switch for ai-live channel
-  myKillSwitch: boolean;              // Kill switch for my-live channel
+  aiKillSwitch: boolean;              // Kill switch for live channel
+  myKillSwitch: boolean;              // Kill switch for live channel
   testingKillSwitch: boolean;         // Kill switch for testing-live channel
   stocksKillSwitch: boolean;          // Kill switch for stocks-live channel
   defaultWorkspace: "ai" | "my"; // Which group the app opens on at launch (default "my")

@@ -114,13 +114,13 @@ function makeDay(trades: TradeRecord[]): DayRecord {
     instruments: [],
     status: "ACTIVE",
     rating: "future",
-    channel: "my-live",
+    channel: "live",
   };
 }
 
 function makeState(): CapitalState {
   return {
-    channel: "my-live",
+    channel: "live",
     initialFunding: 100000,
     tradingPool: 75000,
     reservePool: 25000,
@@ -152,12 +152,12 @@ const baseEvent = (overrides?: Partial<BrokerOrderEvent>): BrokerOrderEvent => (
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: my-live has the trade; ai-live and testing-live are empty.
+  // Default: live has the trade; live and testing-live are empty.
   getCapitalStateMock.mockImplementation(async (channel: any) =>
-    channel === "my-live" ? makeState() : null,
+    channel === "live" ? makeState() : null,
   );
   getDayRecordMock.mockImplementation(async (channel: any) =>
-    channel === "my-live" ? makeDay([makeTrade()]) : null,
+    channel === "live" ? makeDay([makeTrade()]) : null,
   );
 });
 
@@ -170,7 +170,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     );
     expect(result.matched).toBe(true);
     expect(result.tradeId).toBe("T-1");
-    expect(result.channel).toBe("my-live");
+    expect(result.channel).toBe("live");
     expect(result.newStatus).toBe("OPEN");
 
     const written = upsertDayRecordMock.mock.calls[0][1] as DayRecord;
@@ -180,7 +180,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("Super Order SL leg fill (legNo 2) → closes parent via autoExitDetected SL_HIT", async () => {
     getDayRecordMock.mockImplementation(async (channel: any) =>
-      channel === "my-live"
+      channel === "live"
         ? makeDay([makeTrade({ superOrderId: "SUP-1", stopLossPrice: 98 })])
         : null,
     );
@@ -192,14 +192,14 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(result.tradeId).toBe("T-1");
     expect(emitSpy).toHaveBeenCalledWith(
       "autoExitDetected",
-      expect.objectContaining({ channel: "my-live", tradeId: "T-1", reason: "SL_HIT", exitPrice: 98 }),
+      expect.objectContaining({ channel: "live", tradeId: "T-1", reason: "SL_HIT", exitPrice: 98 }),
     );
     emitSpy.mockRestore();
   });
 
   it("Super Order TP leg fill (legNo 3) → closes parent via autoExitDetected TP_HIT", async () => {
     getDayRecordMock.mockImplementation(async (channel: any) =>
-      channel === "my-live"
+      channel === "live"
         ? makeDay([makeTrade({ superOrderId: "SUP-1", targetPrice: 105 })])
         : null,
     );
@@ -227,7 +227,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("FILLED with partial qty — adjusts qty + promotes PENDING → OPEN", async () => {
     getDayRecordMock.mockImplementationOnce(async (channel: any) =>
-      channel === "my-live"
+      channel === "live"
         ? makeDay([makeTrade({ status: "PENDING", qty: 75 })])
         : null,
     );
@@ -291,7 +291,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("PARTIALLY_FILLED — promotes PENDING → OPEN, sets filled qty + avg price", async () => {
     getDayRecordMock.mockImplementation(async (c: any) =>
-      c === "my-live" ? makeDay([makeTrade({ status: "PENDING", qty: 75 })]) : null,
+      c === "live" ? makeDay([makeTrade({ status: "PENDING", qty: 75 })]) : null,
     );
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({ status: "PARTIALLY_FILLED", filledQuantity: 50, averagePrice: 101 }),
@@ -307,7 +307,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("CANCELLED after a partial fill — keeps the filled position open, not cancelled", async () => {
     getDayRecordMock.mockImplementation(async (c: any) =>
-      c === "my-live" ? makeDay([makeTrade({ status: "OPEN", qty: 75, entryPrice: 101 })]) : null,
+      c === "live" ? makeDay([makeTrade({ status: "OPEN", qty: 75, entryPrice: 101 })]) : null,
     );
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({ status: "CANCELLED", filledQuantity: 50, averagePrice: 101 }),
@@ -322,7 +322,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("exit-fill correction (B1) — restates a CLOSED trade's exit price + P&L via exitBrokerOrderId", async () => {
     getDayRecordMock.mockImplementation(async (c: any) =>
-      c === "my-live"
+      c === "live"
         ? makeDay([
             makeTrade({
               status: "CLOSED",
@@ -349,19 +349,19 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t.pnl).toBe(300); // (104-100)*75, recomputed
     // Capital was adjusted by the delta only (375 → 300 = -75).
     expect(updateCapitalStateMock).toHaveBeenCalledWith(
-      "my-live",
+      "live",
       expect.objectContaining({ sessionPnl: expect.any(Number) }),
     );
   });
 
-  it("external-order adoption — an unmatched primary-account fill opens a position in my-live", async () => {
-    // No local trade anywhere; my-live is empty. An external BUY on the
-    // primary account should be mirrored as a new OPEN long in my-live.
+  it("external-order adoption — an unmatched primary-account fill opens a position in live", async () => {
+    // No local trade anywhere; live is empty. An external BUY on the
+    // primary account should be mirrored as a new OPEN long in live.
     getCapitalStateMock.mockImplementation(async (c: any) =>
-      c === "my-live" ? { ...makeState(), channel: "my-live" } : null,
+      c === "live" ? { ...makeState(), channel: "live" } : null,
     );
     getDayRecordMock.mockImplementation(async (c: any) =>
-      c === "my-live" ? { ...makeDay([]), channel: "my-live" } : null,
+      c === "live" ? { ...makeDay([]), channel: "live" } : null,
     );
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({
@@ -378,7 +378,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
       }),
     );
     expect(result.matched).toBe(true);
-    expect(result.channel).toBe("my-live");
+    expect(result.channel).toBe("live");
 
     const written = upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord;
     const t = written.trades.find((x) => x.id === "EXT-OBUY1");
@@ -420,8 +420,8 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
       entryPrice: 122,
       qty: 65,
     });
-    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([pending]) : null));
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "live" ? makeState() : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([pending]) : null));
 
     await portfolioAgent.replayBufferedFills("APP-ORD-RACE");
 
@@ -468,8 +468,8 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
       pnl: 194.16,
       charges: 69.09,
     });
-    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([closedTrade]) : null));
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "live" ? makeState() : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([closedTrade]) : null));
 
     await portfolioAgent.replayBufferedFills("34226072318830");
 
@@ -525,7 +525,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("legacy trades with brokerId=null fall back to orderId-only match", async () => {
     getDayRecordMock.mockImplementationOnce(async (channel: any) =>
-      channel === "my-live"
+      channel === "live"
         ? makeDay([makeTrade({ brokerId: null })])
         : null,
     );
@@ -538,7 +538,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
 
   it("CLOSED / CANCELLED trades on the day are not re-touched", async () => {
     getDayRecordMock.mockImplementationOnce(async (channel: any) =>
-      channel === "my-live"
+      channel === "live"
         ? makeDay([makeTrade({ status: "CLOSED", brokerOrderId: "BORD-1" })])
         : null,
     );
@@ -549,20 +549,23 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(upsertDayRecordMock).not.toHaveBeenCalled();
   });
 
-  it("scans live channels — finds match on ai-live when my-live has no trade", async () => {
+  it("finds the trade on the live book, skipping paper", async () => {
+    // T126 — this used to prove the scan reached the SECOND live book. With one
+    // live book what still matters is that a broker event never matches a paper
+    // trade: paper fills are simulated and have no broker order behind them.
     getCapitalStateMock.mockImplementation(async (channel: any) =>
-      channel === "my-live" || channel === "ai-live" ? makeState() : null,
+      channel === "live" || channel === "paper" ? makeState() : null,
     );
     getDayRecordMock.mockImplementation(async (channel: any) => {
-      if (channel === "my-live") return makeDay([]);
-      if (channel === "ai-live") return makeDay([makeTrade({ id: "T-AI", brokerId: "dhan-secondary-ac" })]);
+      if (channel === "paper") return makeDay([makeTrade({ id: "T-PAPER" })]);
+      if (channel === "live") return makeDay([makeTrade({ id: "T-AI", brokerId: "dhan-primary-ac" })]);
       return null;
     });
     const result = await portfolioAgent.applyBrokerOrderEvent(
-      baseEvent({ brokerId: "dhan-secondary-ac" }),
+      baseEvent({ brokerId: "dhan-primary-ac" }),
     );
     expect(result.matched).toBe(true);
-    expect(result.channel).toBe("ai-live");
+    expect(result.channel).toBe("live");
     expect(result.tradeId).toBe("T-AI");
   });
 });
@@ -575,14 +578,14 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
  */
 describe("portfolioAgent.updateTrade — strategy roll", () => {
   beforeEach(() => {
-    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "live" ? makeState() : null));
   });
 
   it("switching TO glide sets manualExitOnly, so the tick engine stops auto-exiting", async () => {
     const t = makeTrade({ id: "T-ROLL", status: "OPEN", exitStrategy: "sprint", manualExitOnly: false, cohort: "ma_signal" });
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([t]) : null));
 
-    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL", { exitStrategy: "glide" });
+    const { trade } = await portfolioAgent.updateTrade("live", "T-ROLL", { exitStrategy: "glide" });
     expect(trade.exitStrategy).toBe("glide");
     expect(trade.manualExitOnly).toBe(true);
   });
@@ -594,9 +597,9 @@ describe("portfolioAgent.updateTrade — strategy roll", () => {
       id: "T-ROLL2", status: "OPEN", exitStrategy: "glide", manualExitOnly: true,
       entryPrice: 100, stopLossPrice: null, targetPrice: null, cohort: "ma_signal",
     });
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([t]) : null));
 
-    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL2", { exitStrategy: "sprint" });
+    const { trade } = await portfolioAgent.updateTrade("live", "T-ROLL2", { exitStrategy: "sprint" });
     expect(trade.exitStrategy).toBe("sprint");
     expect(trade.manualExitOnly).toBe(false);
     expect(trade.stopLossPrice).not.toBeNull();
@@ -612,18 +615,18 @@ describe("portfolioAgent.updateTrade — strategy roll", () => {
       id: "T-ROLL3", status: "OPEN", exitStrategy: "sprint",
       entryPrice: 100, stopLossPrice: 88, targetPrice: 130,
     });
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([t]) : null));
 
-    const { trade } = await portfolioAgent.updateTrade("my-live", "T-ROLL3", { exitStrategy: "runway" });
+    const { trade } = await portfolioAgent.updateTrade("live", "T-ROLL3", { exitStrategy: "runway" });
     expect(trade.stopLossPrice).toBe(88);
     expect(trade.targetPrice).toBe(130);
   });
 
   it("refuses to modify a CLOSED trade", async () => {
     const t = makeTrade({ id: "T-CLOSED", status: "CLOSED", exitStrategy: "sprint" });
-    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([t]) : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([t]) : null));
     await expect(
-      portfolioAgent.updateTrade("my-live", "T-CLOSED", { exitStrategy: "glide" }),
+      portfolioAgent.updateTrade("live", "T-CLOSED", { exitStrategy: "glide" }),
     ).rejects.toThrow(/closed/i);
   });
 });

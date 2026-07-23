@@ -37,9 +37,7 @@ const log = createLogger("DA", "REST");
 // ─── Schema ────────────────────────────────────────────────────
 
 const channelSchema = z.enum([
-  "paper",
-  "ai-live",
-  "my-live",
+  "paper", "live",
 ]);
 
 /**
@@ -146,7 +144,7 @@ export function registerDisciplineRoutes(app: Express): void {
       let aiChannels: Array<typeof body.channel> = [];
       // T87 — AI trades route by the SEA menu's aiTradesMode setting (the server
       // owns it), NOT the caller's posted channel: PAPER → the shared paper book,
-      // LIVE → the real ai-live Dhan account. Default paper (safe). My/manual
+      // LIVE → the real live Dhan account. Default paper (safe). My/manual
       // trades (origin USER/RCA) keep their posted channel.
       if (body.origin === "AI") {
         const tm = (await getUserSettings(1)).tradingMode;
@@ -176,7 +174,7 @@ export function registerDisciplineRoutes(app: Express): void {
         const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
         aiChannels = [
           ...(paperOn ? ["paper" as const] : []),
-          ...(liveOn ? ["ai-live" as const] : []),
+          ...(liveOn ? ["live" as const] : []),
         ];
         if (aiChannels.length === 0) {
           log.info(`AI trade blocked — neither paper nor live routing is on (${body.instrument})`);
@@ -283,7 +281,7 @@ export function registerDisciplineRoutes(app: Express): void {
           // channel's trading pool spent on premium / (premium * lotSize). Falls
           // back to the SEA-sent lots only if no sizing is configured.
           const { sizedLots } = await import("../executor/positionSizing");
-          // Sizing per mode (paper/live from the AI menu; my-live from the
+          // Sizing per mode (paper/live from the AI menu; live from the
           // manual block). Falls back to the SEA-sent lots only if unset.
           const { modeForChannel, getAiConfig } = await import("../portfolio/aiModeConfig");
           const sizing = getAiConfig(modeForChannel(body.channel)).sizing.perInstrument[body.instrument.toLowerCase()];

@@ -37,7 +37,7 @@ const meta = {
     isFirst: true,
     showNet: true,
     canManageTrades: true,
-    channel: "my-live" as const,
+    channel: "live" as const,
     onExit: () => console.log("exit"),
     onUpdateTpSl: (id: string, patch: unknown) => console.log("tp/sl", id, patch),
   },

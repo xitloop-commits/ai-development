@@ -4,7 +4,7 @@
  * Single source of truth for capital data across the entire app.
  * Channel-aware: provides per-channel capital state. The active channel can
  * be switched via setChannel(). Seven channels per BSA v1.8:
- *   ai-live, ai-paper, my-live, my-paper, testing-live, stocks-live, stocks-paper.
+ *   live, ai-paper, live, my-paper, testing-live, stocks-live, stocks-paper.
  */
 import {
   createContext,
@@ -440,11 +440,11 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   // Pool-affecting ops (inject/reset/transfer) are pinned to My-Live.
   //
   // T92: the SERVER honours whichever channel it's given (it used to write
-  // my-live regardless — and resetCapital validated the requested channel then
-  // wiped my-live, so resetting paper destroyed the live book).
+  // live regardless — and resetCapital validated the requested channel then
+  // wiped live, so resetting paper destroyed the live book).
   //
   // Funding follows the mode you are VIEWING. These used to be pinned to
-  // 'my-live' alongside resetCapital, which is a safeguard for a destructive
+  // 'live' alongside resetCapital, which is a safeguard for a destructive
   // wipe but the opposite of safe here: adding funds while looking at Paper
   // silently topped up the REAL-money book, and the paper figure never moved.
   //
@@ -514,7 +514,7 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
 
   const resetCapital = useCallback(
     (initialFunding: number) => {
-      resetCapitalMutation.mutate({ channel: 'my-live', initialFunding, force: true });
+      resetCapitalMutation.mutate({ channel: 'live', initialFunding, force: true });
     },
     [resetCapitalMutation]
   );

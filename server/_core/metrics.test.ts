@@ -29,12 +29,12 @@ describe("metrics — counters increment", () => {
     teaSubmitTradeTotal.labels({ channel: "ai-paper", status: "success" }).inc();
     teaSubmitTradeTotal.labels({ channel: "ai-paper", status: "success" }).inc();
     teaSubmitTradeTotal.labels({ channel: "ai-paper", status: "rejected" }).inc();
-    teaSubmitTradeTotal.labels({ channel: "my-live", status: "success" }).inc();
+    teaSubmitTradeTotal.labels({ channel: "live", status: "success" }).inc();
 
     const text = await registry.metrics();
     expect(text).toContain('tea_submit_trade_total{channel="ai-paper",status="success"} 2');
     expect(text).toContain('tea_submit_trade_total{channel="ai-paper",status="rejected"} 1');
-    expect(text).toContain('tea_submit_trade_total{channel="my-live",status="success"} 1');
+    expect(text).toContain('tea_submit_trade_total{channel="live",status="success"} 1');
   });
 
   it("teaExitTotal accepts the trigger label", async () => {

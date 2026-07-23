@@ -4,7 +4,7 @@
  * Scenario coverage:
  *   - notifyDesync increments the per-channel sliding-window counter
  *   - timestamps outside `windowSeconds` are evicted
- *   - per-channel isolation: a desync on ai-live doesn't trip my-live
+ *   - per-channel isolation: a desync on live doesn't trip live
  *   - threshold breach trips toggleWorkspaceKillSwitch + telegram alert
  *   - re-trip suppression: once tripped, subsequent desyncs don't
  *     re-fire alerts until clearDesyncCounter is called
@@ -61,7 +61,7 @@ import { rcaMonitor } from "./index";
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset every channel's counter so tests don't bleed state.
-  (["ai-live", "my-live", "paper"] as const).forEach(
+  (["live", "paper"] as const).forEach(
     (c) => rcaMonitor.clearDesyncCounter(c),
   );
   settingsMock.desyncKillSwitchEnabled = true;
@@ -78,21 +78,23 @@ describe("rcaMonitor desync kill switch", () => {
   });
 
   it("trips kill switch + fires telegram on threshold breach", async () => {
-    await rcaMonitor.notifyDesync("ai-live", "T1", "boom");
-    await rcaMonitor.notifyDesync("ai-live", "T2", "boom");
-    await rcaMonitor.notifyDesync("ai-live", "T3", "boom");
-    expect(toggleKillSwitch).toHaveBeenCalledTimes(1);
+    await rcaMonitor.notifyDesync("live", "T1", "boom");
+    await rcaMonitor.notifyDesync("live", "T2", "boom");
+    await rcaMonitor.notifyDesync("live", "T3", "boom");
+    // Two calls, one per workspace — T126 halts the whole book (see below).
+    expect(toggleKillSwitch).toHaveBeenCalledTimes(2);
     expect(toggleKillSwitch).toHaveBeenCalledWith("ai", "ACTIVATE");
+    expect(toggleKillSwitch).toHaveBeenCalledWith("my", "ACTIVATE");
     expect(telegramMock).toHaveBeenCalledTimes(1);
     expect(telegramMock.mock.calls[0][0]).toContain("BROKER_DESYNC");
   });
 
-  it("isolates counters per channel — ai-live trip does not touch my-live", async () => {
-    await rcaMonitor.notifyDesync("ai-live", "T1", "x");
-    await rcaMonitor.notifyDesync("my-live", "T2", "y");
-    await rcaMonitor.notifyDesync("ai-live", "T3", "x");
-    expect(rcaMonitor.getDesyncCount("ai-live")).toBe(2);
-    expect(rcaMonitor.getDesyncCount("my-live")).toBe(1);
+  it("isolates counters per channel — a live trip does not touch paper", async () => {
+    await rcaMonitor.notifyDesync("live", "T1", "x");
+    await rcaMonitor.notifyDesync("live", "T2", "y");
+    await rcaMonitor.notifyDesync("paper", "T3", "x");
+    expect(rcaMonitor.getDesyncCount("live")).toBe(2);
+    expect(rcaMonitor.getDesyncCount("paper")).toBe(1);
     expect(toggleKillSwitch).not.toHaveBeenCalled();
   });
 
@@ -109,49 +111,45 @@ describe("rcaMonitor desync kill switch", () => {
   });
 
   it("suppresses duplicate trips until clearDesyncCounter", async () => {
-    await rcaMonitor.notifyDesync("ai-live", "T1", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T2", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T3", "x");
-    expect(toggleKillSwitch).toHaveBeenCalledTimes(1);
+    await rcaMonitor.notifyDesync("live", "T1", "x");
+    await rcaMonitor.notifyDesync("live", "T2", "x");
+    await rcaMonitor.notifyDesync("live", "T3", "x");
+    expect(toggleKillSwitch).toHaveBeenCalledTimes(2); // one per workspace
     // 4th + 5th desync — already tripped, must not re-fire.
-    await rcaMonitor.notifyDesync("ai-live", "T4", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T5", "x");
-    expect(toggleKillSwitch).toHaveBeenCalledTimes(1);
+    await rcaMonitor.notifyDesync("live", "T4", "x");
+    await rcaMonitor.notifyDesync("live", "T5", "x");
+    expect(toggleKillSwitch).toHaveBeenCalledTimes(2); // still just the first trip
     expect(telegramMock).toHaveBeenCalledTimes(1);
 
     // Operator clears the trip after reconcile — next breach re-fires.
-    rcaMonitor.clearDesyncCounter("ai-live");
-    await rcaMonitor.notifyDesync("ai-live", "T6", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T7", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T8", "x");
-    expect(toggleKillSwitch).toHaveBeenCalledTimes(2);
+    rcaMonitor.clearDesyncCounter("live");
+    await rcaMonitor.notifyDesync("live", "T6", "x");
+    await rcaMonitor.notifyDesync("live", "T7", "x");
+    await rcaMonitor.notifyDesync("live", "T8", "x");
+    expect(toggleKillSwitch).toHaveBeenCalledTimes(4); // second trip, both workspaces
     expect(telegramMock).toHaveBeenCalledTimes(2);
   });
 
   it("no-op when disabled in settings", async () => {
     settingsMock.desyncKillSwitchEnabled = false;
-    await rcaMonitor.notifyDesync("ai-live", "T1", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T2", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T3", "x");
-    expect(rcaMonitor.getDesyncCount("ai-live")).toBe(0);
+    await rcaMonitor.notifyDesync("live", "T1", "x");
+    await rcaMonitor.notifyDesync("live", "T2", "x");
+    await rcaMonitor.notifyDesync("live", "T3", "x");
+    expect(rcaMonitor.getDesyncCount("live")).toBe(0);
     expect(toggleKillSwitch).not.toHaveBeenCalled();
     expect(telegramMock).not.toHaveBeenCalled();
   });
 
-  it("maps channel → workspace correctly", async () => {
-    // Desyncs only occur on live (broker) channels: my-live → "my" workspace.
-    await rcaMonitor.notifyDesync("my-live", "T1", "x");
-    await rcaMonitor.notifyDesync("my-live", "T2", "x");
-    await rcaMonitor.notifyDesync("my-live", "T3", "x");
-    expect(toggleKillSwitch).toHaveBeenCalledWith("my", "ACTIVATE");
+  it("halts BOTH streams — a desync is a book-level fault, not an AI or manual one", async () => {
+    // T126: one live book, one Dhan account, two streams trading it. If the
+    // app's record disagrees with the broker, both streams are unsafe. Tripping
+    // only one workspace (which is what the old channel→workspace mapping did)
+    // would have left half the book still placing orders into the disagreement.
+    await rcaMonitor.notifyDesync("live", "T1", "x");
+    await rcaMonitor.notifyDesync("live", "T2", "x");
+    await rcaMonitor.notifyDesync("live", "T3", "x");
 
-    rcaMonitor.clearDesyncCounter("my-live");
-    toggleKillSwitch.mockClear();
-
-    // ai-live → "ai" workspace.
-    await rcaMonitor.notifyDesync("ai-live", "T1", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T2", "x");
-    await rcaMonitor.notifyDesync("ai-live", "T3", "x");
     expect(toggleKillSwitch).toHaveBeenCalledWith("ai", "ACTIVATE");
+    expect(toggleKillSwitch).toHaveBeenCalledWith("my", "ACTIVATE");
   });
 });

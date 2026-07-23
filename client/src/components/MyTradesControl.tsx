@@ -9,7 +9,7 @@
  *
  * Governs the `manual` config block: which cohort a hand-placed trade is tagged
  * with, which exit strategy manages it, and its per-instrument size. Order type,
- * EOD square-off and the safety exits are NOT here — my-live shares those with
+ * EOD square-off and the safety exits are NOT here — live shares those with
  * your broker/executor Settings.
  */
 import { useState, useEffect, useMemo, useRef } from "react";

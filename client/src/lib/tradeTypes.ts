@@ -4,11 +4,11 @@
  * Canonical state vocabulary (T87 two-book model, 2026-07-18):
  *   mode    ∈ { live, paper }
  *   source  ∈ { ai, my }                   // per-trade attribution (display/filter)
- *   channel ∈ { paper, ai-live, my-live }  // capital/journey key = the "book"
+ *   channel ∈ { paper, live, live }  // capital/journey key = the "book"
  *
  * PAPER is ONE merged book: AI + My share its capital pool and 250-day journey;
  * AI-vs-My is the per-trade `source` tag, not a separate channel.
- * LIVE stays split by real Dhan account (ai-live = secondary, my-live = primary),
+ * LIVE stays split by real Dhan account (live = secondary, live = primary),
  * but the two share one live journey.
  *
  * `channel` is the single source of truth on the wire and in storage.
@@ -22,19 +22,19 @@ export type Source = 'ai' | 'my';
  *  AI-vs-My of individual paper trades. */
 export type Workspace = 'ai' | 'my';
 
+/** T126 — TWO books. See the note on the server's Channel type: the two live
+ *  books were merged because both sat on the same Dhan account. AI-vs-manual
+ *  still comes from the trade's own `source`, never from the channel. */
 export type Channel =
   | 'paper'
-  | 'ai-live'
-  | 'my-live';
+  | 'live';
 
 export const ALL_CHANNELS: readonly Channel[] = [
-  'paper',
-  'ai-live',
-  'my-live',
+  'paper', 'live',
 ] as const;
 
 /** The two live books (share one live journey; separate real-account capital). */
-export const LIVE_CHANNELS: readonly Channel[] = ['ai-live', 'my-live'] as const;
+export const LIVE_CHANNELS: readonly Channel[] = ['live'] as const;
 
 /** First-launch landing channel — the shared paper book. */
 export const DEFAULT_LANDING_CHANNEL: Channel = 'paper';
@@ -50,17 +50,23 @@ export function channelToMode(channel: Channel): Mode {
   return channel === 'paper' ? 'paper' : 'live';
 }
 
-/** Build a channel from a workspace + mode. Paper is the shared book (both
- *  workspaces map to it); live is split by workspace/account. */
-export function channelOf(workspace: Workspace, mode: Mode): Channel {
-  return mode === 'paper' ? 'paper' : (`${workspace}-live` as Channel);
+/** Build a channel from a mode. Both workspaces now share BOTH books, so the
+ *  workspace no longer selects a channel — it is kept in the signature only so
+ *  existing call sites read unchanged, and is deliberately unused. */
+export function channelOf(_workspace: Workspace, mode: Mode): Channel {
+  return mode === 'paper' ? 'paper' : 'live';
 }
 
-/** The workspace a channel belongs to. The shared `paper` book maps to 'my'
- *  (manual controls enabled); for AI-vs-My of an individual paper trade use its
- *  `source` tag, not the channel. */
-export function channelToWorkspace(channel: Channel): Workspace {
-  return channel === 'ai-live' ? 'ai' : 'my';
+/**
+ * The workspace a channel belongs to.
+ *
+ * T126 — with one live book this can no longer be derived from the channel at
+ * all, and every book now allows manual controls. Returns 'my' always. Callers
+ * that need AI-vs-manual for a specific TRADE must read its `source` tag; this
+ * function only drives workspace-level theming.
+ */
+export function channelToWorkspace(_channel: Channel): Workspace {
+  return 'my';
 }
 
 export function isLiveChannel(channel: Channel): boolean {
@@ -74,7 +80,7 @@ export function isPaperChannel(channel: Channel): boolean {
 /** AI/My source implied by a LIVE channel. Paper trades carry their own `source`
  *  tag (the paper book is shared), so this is only meaningful for live channels. */
 export function liveChannelSource(channel: Channel): Source {
-  return channel === 'ai-live' ? 'ai' : 'my';
+  return channel === 'live' ? 'ai' : 'my';
 }
 
 export type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';

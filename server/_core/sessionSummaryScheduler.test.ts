@@ -52,7 +52,7 @@ describe("sessionSummaryScheduler — computeSummary", () => {
   it("returns zeros when no trades on any channel", () => {
     const s = computeSummary(
       [
-        { channel: "ai-live", trades: [] },
+        { channel: "live", trades: [] },
         { channel: "ai-paper", trades: [] },
       ],
       100_000,
@@ -67,7 +67,7 @@ describe("sessionSummaryScheduler — computeSummary", () => {
     expect(s.worstTrade).toBeNull();
     expect(s.currentCapital).toBe(100_000);
     // Per-channel breakdown reflects both empty buckets.
-    expect(s.perChannel.map((c) => c.channel)).toEqual(["ai-live", "ai-paper"]);
+    expect(s.perChannel.map((c) => c.channel)).toEqual(["live", "ai-paper"]);
     expect(s.perChannel.every((c) => c.trades === 0 && c.net === 0)).toBe(true);
   });
 
@@ -103,7 +103,7 @@ describe("sessionSummaryScheduler — computeSummary", () => {
       trade({ id: "T3", pnl: 0 }),
       trade({ id: "T4", pnl: 100 }),
     ];
-    const s = computeSummary(oneChannel("ai-live", trades), 100_000, 100_300);
+    const s = computeSummary(oneChannel("live", trades), 100_000, 100_300);
     expect(s.wins).toBe(2);
     expect(s.losses).toBe(1);
     expect(s.breakevens).toBe(1);
@@ -113,7 +113,7 @@ describe("sessionSummaryScheduler — computeSummary", () => {
     const s = computeSummary(
       [
         {
-          channel: "ai-live",
+          channel: "live",
           trades: [trade({ id: "T1", pnl: 500, instrument: "NIFTY 50" })],
         },
         {
@@ -137,7 +137,7 @@ describe("sessionSummaryScheduler — computeSummary", () => {
     const s = computeSummary(
       [
         {
-          channel: "ai-live",
+          channel: "live",
           trades: [
             trade({ id: "T1", pnl: 300 }),
             trade({ id: "T2", pnl: -100 }),
@@ -154,9 +154,9 @@ describe("sessionSummaryScheduler — computeSummary", () => {
       100_000,
       101_200,
     );
-    const live = s.perChannel.find((c) => c.channel === "ai-live")!;
+    const live = s.perChannel.find((c) => c.channel === "live")!;
     const paper = s.perChannel.find((c) => c.channel === "ai-paper")!;
-    expect(live).toEqual({ channel: "ai-live", trades: 2, gain: 300, loss: 100, net: 200 });
+    expect(live).toEqual({ channel: "live", trades: 2, gain: 300, loss: 100, net: 200 });
     expect(paper).toEqual({ channel: "ai-paper", trades: 2, gain: 1000, loss: 0, net: 1000 });
     expect(s.netPnl).toBe(1200); // 200 + 1000
   });
@@ -185,7 +185,7 @@ describe("sessionSummaryScheduler — formatSummary", () => {
 
   it("loss close: 'net loss' phrasing, magnitude only", () => {
     const summary = computeSummary(
-      oneChannel("ai-live", [trade({ pnl: -800 })]),
+      oneChannel("live", [trade({ pnl: -800 })]),
       100_000,
       99_200,
     );
@@ -193,7 +193,7 @@ describe("sessionSummaryScheduler — formatSummary", () => {
     expect(msg.split("\n")).toEqual([
       "MCX closed",
       "gain Rs.0 · loss Rs.800 · net loss Rs.800 (0.80%)",
-      "ai-live: -Rs.800 (1 trades)",
+      "live: -Rs.800 (1 trades)",
       "1 trades · W 0 / L 1 / BE 0",
     ]);
   });
@@ -202,7 +202,7 @@ describe("sessionSummaryScheduler — formatSummary", () => {
     const summary = computeSummary(
       [
         {
-          channel: "ai-live",
+          channel: "live",
           trades: [
             trade({ id: "A", pnl: 500, instrument: "NIFTY 50" }),
             trade({ id: "B", pnl: -300, instrument: "BANK NIFTY" }),
@@ -220,7 +220,7 @@ describe("sessionSummaryScheduler — formatSummary", () => {
     expect(msg).toBe(
       "NSE closed\n" +
         "gain Rs.2,700 · loss Rs.300 · net profit Rs.2,400 (2.40%)\n" +
-        "ai-live: +Rs.200 (2 trades)  ·  ai-paper: +Rs.2,200 (1 trades)\n" +
+        "live: +Rs.200 (2 trades)  ·  ai-paper: +Rs.2,200 (1 trades)\n" +
         "3 trades · W 2 / L 1 / BE 0",
     );
   });
@@ -230,7 +230,7 @@ describe("sessionSummaryScheduler — formatSummary", () => {
     // formatter still has to render safely if called directly.
     const summary = computeSummary(
       [
-        { channel: "ai-live", trades: [] },
+        { channel: "live", trades: [] },
         { channel: "ai-paper", trades: [] },
       ],
       100_000,

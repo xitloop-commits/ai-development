@@ -66,8 +66,7 @@ export type ExitTriggeredBy =
  */
 export type ChannelCode =
   | "paper"
-  | "ai-live"
-  | "my-live";
+  | "live";
 
 // ─── DA → RCA: DisciplineExitRequest ─────────────────────────────
 

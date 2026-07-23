@@ -722,11 +722,11 @@ export function TradingModeSection() {
 
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div>
-              <FieldLabel hint="Blocks new orders on ai-live. Cancel and exit always bypass.">
+              <FieldLabel hint="Blocks new orders on live. Cancel and exit always bypass.">
                 AI Kill Switch
               </FieldLabel>
               {tm?.aiKillSwitch && (
-                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — ai-live blocked</span>
+                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — live blocked</span>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -754,11 +754,11 @@ export function TradingModeSection() {
 
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div>
-              <FieldLabel hint="Blocks new orders on my-live. Cancel and exit always bypass.">
+              <FieldLabel hint="Blocks new orders on live. Cancel and exit always bypass.">
                 My Kill Switch
               </FieldLabel>
               {tm?.myKillSwitch && (
-                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — my-live blocked</span>
+                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — live blocked</span>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -2201,8 +2201,8 @@ export function ExecutorSettingsSection() {
   // Post-T87 channels: one merged paper book + the two separate live accounts.
   const allChannels: Array<{ id: string; label: string }> = [
     { id: 'paper', label: 'Paper' },
-    { id: 'ai-live', label: 'AI Live' },
-    { id: 'my-live', label: 'My Live' },
+    { id: 'live', label: 'AI Live' },
+    { id: 'live', label: 'My Live' },
   ];
   const toggleArr = (arr: string[], v: string): string[] =>
     arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
@@ -2215,7 +2215,7 @@ export function ExecutorSettingsSection() {
           bell so orders fill before the broker force-squares (with a penalty).
           Delivery (CNC) holdings are never touched. Times are IST.
           <span className="block mt-1 text-muted-foreground/60">
-            Applies to My Trades — the AI books (paper / ai-live) use their own
+            Applies to My Trades — the AI books (paper / live) use their own
             per-mode times in the AI menu.
           </span>
         </p>
@@ -2259,7 +2259,7 @@ export function ExecutorSettingsSection() {
           When the Risk Control Agent triggers an exit. Lower thresholds = more
           aggressive exits.
           <span className="block mt-1 text-muted-foreground/60">
-            Applies to My Trades — the AI books (paper / ai-live) use their own
+            Applies to My Trades — the AI books (paper / live) use their own
             per-mode age / stale / volatility values in the AI menu.
           </span>
         </p>
@@ -2303,7 +2303,7 @@ export function ExecutorSettingsSection() {
 
       <SettingsCard title="Monitored Channels">
         <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
-          Which channels RCA watches for risk-driven exits. Add ai-live
+          Which channels RCA watches for risk-driven exits. Add live
           to RCA when the canary launches.
         </p>
         <div className="space-y-3">

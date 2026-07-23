@@ -22,13 +22,10 @@ import { formatINR as fmt } from "@/lib/formatINR";
 
 type Channel =
   | "paper"
-  | "ai-live"
-  | "my-live";
+  | "live";
 
 const ALL_CHANNELS: Channel[] = [
-  "paper",
-  "ai-live",
-  "my-live",
+  "paper", "live",
 ];
 
 function getChannelsFromUrl(): Channel[] {
@@ -36,7 +33,7 @@ function getChannelsFromUrl(): Channel[] {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("channels");
   if (!raw) return ALL_CHANNELS;
-  const valid: Channel[] = ["paper", "ai-live", "my-live"];
+  const valid: Channel[] = ["paper", "live"];
   return raw.split(",").filter((c): c is Channel => valid.includes(c as Channel));
 }
 

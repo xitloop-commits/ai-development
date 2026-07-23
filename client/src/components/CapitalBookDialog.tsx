@@ -98,22 +98,22 @@ function PoolBook({ title, days, emptyHint }: { title: string; days: PoolBookDay
 }
 
 /**
- * The Net Worth panel shows LIVE as my-live + ai-live combined, so the book has
+ * The Net Worth panel shows LIVE as live + live combined, so the book has
  * to cover both — a book for one account could never reconcile to the figure
  * printed above it. Paper is a single book.
  */
 export function CapitalBookDialog({
   open, onClose, channel,
 }: { open: boolean; onClose: () => void; channel: string }) {
-  const channels = channel === 'paper' ? ['paper'] : ['my-live', 'ai-live'];
+  const channels = channel === 'paper' ? ['paper'] : ['live'];
   // Combined total for live, matching the Net Worth figure in the footer. The
   // footer adds both books; without this the panel above and the book below
   // would print different numbers for the same thing.
   const myLive = trpc.portfolio.book.useQuery(
-    { channel: 'my-live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
+    { channel: 'live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
   );
   const aiLive = trpc.portfolio.book.useQuery(
-    { channel: 'ai-live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
+    { channel: 'live' }, { enabled: open && channel !== 'paper', refetchOnWindowFocus: false },
   );
   const combined = channel === 'paper' ? null : {
     netWorth: (myLive.data?.netWorth ?? 0) + (aiLive.data?.netWorth ?? 0),
@@ -129,7 +129,7 @@ export function CapitalBookDialog({
           <DialogTitle className="text-sm">
             Book of records · {channel === 'paper'
               ? <span className="font-mono">paper</span>
-              : <span className="font-mono">my-live + ai-live</span>}
+              : <span className="font-mono">live + live</span>}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-5">
@@ -162,7 +162,7 @@ export function CapitalBookDialog({
 
 function ChannelBook({ channel, open }: { channel: string; open: boolean }) {
   const book = trpc.portfolio.book.useQuery(
-    { channel: channel as 'paper' | 'ai-live' | 'my-live' },
+    { channel: channel as 'paper' | 'live' },
     { enabled: open, refetchOnWindowFocus: false },
   );
   const d = book.data;

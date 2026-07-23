@@ -12,7 +12,7 @@
  * apply when Mongo is empty / unreachable.
  *
  * Settings are user-wide for now (no per-channel splits). When the
- * canary needs different RCA params on ai-live vs ai-paper we'll
+ * canary needs different RCA params on live vs ai-paper we'll
  * add a `channel?` field — easy schema extension.
  */
 

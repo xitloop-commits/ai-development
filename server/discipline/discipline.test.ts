@@ -365,8 +365,8 @@ describe("Time Windows", () => {
     });
 
     it("does NOT bypass real-exchange channels", () => {
-      expect(isSimulationChannel("my-live")).toBe(false);
-      expect(isSimulationChannel("ai-live")).toBe(false);
+      expect(isSimulationChannel("live")).toBe(false);
+      expect(isSimulationChannel("live")).toBe(false);
     });
   });
 });
@@ -833,13 +833,13 @@ describe("isDisciplineBypassed", () => {
   });
 
   it("does NOT bypass live channels when only paper enforcement is off", () => {
-    for (const ch of ["my-live", "ai-live"]) {
+    for (const ch of ["live"]) {
       expect(isDisciplineBypassed(ch, paperOff)).toBe(false);
     }
   });
 
   it("bypasses live channels when live enforcement is off", () => {
-    for (const ch of ["my-live", "ai-live"]) {
+    for (const ch of ["live"]) {
       expect(isDisciplineBypassed(ch, liveOff)).toBe(true);
     }
   });
@@ -856,6 +856,6 @@ describe("isDisciplineBypassed", () => {
     delete (legacy as { simulationEnforcement?: unknown }).simulationEnforcement;
     delete (legacy as { liveEnforcement?: unknown }).liveEnforcement;
     expect(isDisciplineBypassed("paper", legacy)).toBe(false);
-    expect(isDisciplineBypassed("my-live", legacy)).toBe(false);
+    expect(isDisciplineBypassed("live", legacy)).toBe(false);
   });
 });

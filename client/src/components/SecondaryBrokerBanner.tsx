@@ -4,7 +4,7 @@
  *
  * Today CredentialGate hard-blocks the UI only on the primary account's
  * token expiry — primary is on the critical path for every channel. The
- * secondary account drives `ai-live` (and TFA's data subscription); when
+ * secondary account drives `live` (and TFA's data subscription); when
  * IT fails, manual / paper trading on the primary side still works fine,
  * so a hard block would be overkill. This banner sits below the AppBar
  * and surfaces the problem so it isn't silent (which today it is — only

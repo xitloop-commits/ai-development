@@ -13,7 +13,7 @@
  *   - tickHandler (exit engine)  → getExitConfig()          [shared]
  *   - risk-control (placement)   → getActiveStrategies(mode), order [per-mode]
  *   - validateTrade (sizing)     → getAiConfig(mode).sizing [per-mode]
- *   - RcaMonitor / square-off    → per-mode for AI channels; my-live keeps the
+ *   - RcaMonitor / square-off    → per-mode for AI channels; live keeps the
  *     executor-settings defaults (see aiModeForChannel).
  *
  * Persisted to config/ai_mode_config.json, hydrated at boot, deep-merged over
@@ -115,7 +115,7 @@ export interface SharedExitConfig {
   anchor: ExitStrategyConfig;
   glide: GlideConfig;
   /**
-   * Who manages LIVE exits (both my-live + ai-live).
+   * Who manages LIVE exits (both live + live).
    *
    * `true` (default) — LUBAS manages: the tick engine watches ticks and places a
    * real market exit when the strategy fires. This is the ONLY way Runway /
@@ -146,9 +146,9 @@ export interface AllAiConfig {
   exits: SharedExitConfig;
   paper: AiModeConfig;
   live: AiModeConfig;
-  /** Manual (my-live). Only `strategies` + `sizing` are used; order,
+  /** Manual (live). Only `strategies` + `sizing` are used; order,
    *  square-off and global exits come from the existing broker/executor
-   *  settings (my-live shares those). */
+   *  settings (live shares those). */
   manual: AiModeConfig;
 }
 
@@ -318,19 +318,19 @@ function persist(): void {
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /** The channel a trade is on → the mode block governing strategies / sizing:
- *  paper→paper, ai-live→live, my-live→manual. */
+ *  paper→paper, live→live, live→manual. */
 export function modeForChannel(channel: Channel): AiMode {
   if (channel === "paper") return "paper";
-  if (channel === "ai-live") return "live";
-  return "manual"; // my-live
+  if (channel === "live") return "live";
+  return "manual"; // live
 }
 
-/** AI-only guard: paper→paper, ai-live→live, my-live→null. Used where my-live
+/** AI-only guard: paper→paper, live→live, live→null. Used where live
  *  keeps the existing broker/executor defaults (order, square-off, RCA). */
 export function aiModeForChannel(channel: Channel): Exclude<AiMode, "manual"> | null {
   if (channel === "paper") return "paper";
-  if (channel === "ai-live") return "live";
-  return null; // my-live — not governed by the AI menu for these
+  if (channel === "live") return "live";
+  return null; // live — not governed by the AI menu for these
 }
 
 /**
@@ -433,8 +433,8 @@ export function strategiesForCohort(
  *   - MANUAL (origin USER) → the `manual` block on EVERY channel. The AI menu
  *     shows "My Trades · manual" as its own section, independent of the
  *     Paper/Live toggle, so a manual trade follows it whether it lands on
- *     paper or my-live.
- *   - AI / RCA → the channel's block (paper→paper, ai-live→live). In practice
+ *     paper or live.
+ *   - AI / RCA → the channel's block (paper→paper, live→live). In practice
  *     the RCA fan-out always passes an explicit strategy (one twin per active
  *     strategy), so this is only a backstop for that path.
  *

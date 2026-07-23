@@ -156,7 +156,7 @@ class RcaMonitor {
 
     // Hot-reload thresholds + monitored channels from executor_settings
     // (cached 30 s). Lets the TEA Settings page tune RCA without a
-    // server restart — including adding ai-live to the channel list
+    // server restart — including adding live to the channel list
     // when the canary launches.
     try {
       const s = await getExecutorSettings();
@@ -183,8 +183,8 @@ class RcaMonitor {
         log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
         continue;
       }
-      // Per-mode safety-exit thresholds: AI channels (paper/ai-live) read the
-      // AI menu's per-mode global-exits; my-live keeps the executor-settings
+      // Per-mode safety-exit thresholds: AI channels (paper/live) read the
+      // AI menu's per-mode global-exits; live keeps the executor-settings
       // defaults loaded into this.* .
       const geMode = aiModeForChannel(channel);
       const ge = geMode ? getAiConfig(geMode).globalExits : null;
@@ -583,18 +583,20 @@ class RcaMonitor {
   }
 
   private async tripKillSwitchForChannel(channel: Channel, count: number, reason: string): Promise<void> {
-    // Map channel → workspace. The kill switch is per-workspace ("ai" / "my").
-    // Desyncs only occur on live (broker) channels, so a desync on ai-live
-    // trips the AI workspace and my-live the My workspace.
-    const workspace = channel === "ai-live" ? "ai" : "my";
-
+    // T126 — ONE live book, so a desync is a BOOK-level fault: the app's record
+    // of the account disagrees with the broker's. Both streams trade that same
+    // account, so both are unsafe until it is reconciled — trip both workspaces
+    // rather than guessing which one caused it. Previously the channel picked
+    // the workspace (ai-live → "ai", my-live → "my"); with one channel that
+    // mapping would have silently halted only half the book.
     log.error(
-      `BROKER_DESYNC threshold breached — tripping kill switch workspace=${workspace} channel=${channel} count=${count}`,
+      `BROKER_DESYNC threshold breached — halting ALL trading on channel=${channel} count=${count}`,
     );
 
     try {
       const { toggleWorkspaceKillSwitch } = await import("../broker/brokerService");
-      await toggleWorkspaceKillSwitch(workspace, "ACTIVATE");
+      await toggleWorkspaceKillSwitch("ai", "ACTIVATE");
+      await toggleWorkspaceKillSwitch("my", "ACTIVATE");
     } catch (err: any) {
       log.error(`Kill-switch trip failed: ${err?.message ?? err}`);
     }
@@ -604,7 +606,7 @@ class RcaMonitor {
     void notifyTelegram(
       `🛑 <b>BROKER_DESYNC kill switch tripped</b>\n` +
         `Channel: ${channel}\n` +
-        `Workspace: ${workspace}\n` +
+        `Halted: AI + manual (the whole book)\n` +
         `Recent desyncs: ${count}\n` +
         `Last reason: ${reason}\n` +
         `\nReconcile open trades, clear the kill switch, then restart.`,

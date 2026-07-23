@@ -7,7 +7,7 @@
  * MCX 23:25, a few minutes BEFORE the actual bell so our closing orders fill
  * before the broker force-squares intraday positions with a penalty). When a
  * book's time is reached it flattens every OPEN option/intraday trade on all
- * channels (paper, ai-live, my-live) at market via the normal exit path, reason
+ * channels (paper, live, live) at market via the normal exit path, reason
  * EOD_SQUAREOFF. CNC/delivery holdings and market holidays are skipped.
  *
  * Idempotent: fires once per (exchange, IST date) via an in-memory guard, and
@@ -32,7 +32,7 @@ const log = createLogger("TEA", "EodSquareoff");
 const CHECK_INTERVAL_MS = 60_000;
 
 /** Books swept at square-off. All three; CNC filtering happens per-trade. */
-const SQUAREOFF_CHANNELS: Channel[] = ["paper", "ai-live", "my-live"];
+const SQUAREOFF_CHANNELS: Channel[] = ["paper", "live"];
 
 /**
  * Which exchange's bell governs a trade. Mirrors tradeExecutor.resolveExchange:
@@ -96,7 +96,7 @@ export async function runEodSquareoff(
 /**
  * Flatten ONE channel's open intraday trades for one exchange. The scheduler
  * uses this so each channel fires at ITS OWN square-off time (AI channels from
- * the AI menu per mode; my-live from executor settings).
+ * the AI menu per mode; live from executor settings).
  */
 export async function runEodSquareoffChannel(
   channel: Channel,
@@ -186,8 +186,8 @@ export async function checkOnce(): Promise<void> {
   const { minutes: nowMin, date } = istNowParts();
 
   for (const channel of SQUAREOFF_CHANNELS) {
-    // Per-mode square-off config: AI channels (paper/ai-live) read the AI menu's
-    // per-mode times; my-live keeps the executor-settings times.
+    // Per-mode square-off config: AI channels (paper/live) read the AI menu's
+    // per-mode times; live keeps the executor-settings times.
     const aiMode = aiModeForChannel(channel);
     const so = aiMode
       ? getAiConfig(aiMode).squareoff

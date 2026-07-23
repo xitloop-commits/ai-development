@@ -4,7 +4,7 @@
  * One CapitalState document per channel; one DayRecord per (channel, dayIndex).
  *
  * Channels (BSA v1.8):
- *   ai-live | ai-paper | my-live | my-paper | testing-live | stocks-live | stocks-paper
+ *   live | ai-paper | live | my-paper | testing-live | stocks-live | stocks-paper
  */
 import mongoose, { Schema } from "mongoose";
 import { PortfolioStateModel, PositionStateModel } from "./storage";
@@ -17,10 +17,23 @@ import { tickBus } from "../broker/tickBus";
  * Testing is live-only (the sandbox channel was removed); stocks has both
  * paper + live. See client/src/lib/tradeTypes.ts for the helper functions.
  */
+/**
+ * T126 — TWO books. `live` and `live` were merged into one `live` book.
+ *
+ * The split existed because the two live books sat on two different Dhan
+ * accounts. T118 ended that: Dhan whitelists one IP per account and this house
+ * has one static IP, so both were pointed at the primary account and two books
+ * were drawing on ONE pot of real money — with nothing stopping them being
+ * funded past what the account held.
+ *
+ * AI-vs-manual attribution did NOT depend on the channel and still doesn't: every
+ * trade carries `source` ("ai" | "my") and `origin`, so the desk filter still
+ * separates them. What went away is two capital pools and two daily targets on
+ * one real account, which is what caused the wrong-book funding bugs.
+ */
 export type Channel =
   | "paper"
-  | "ai-live"
-  | "my-live";
+  | "live";
 
 /** AI-vs-My attribution of a trade — display/filter only, independent of the
  *  capital channel. Stamped at placement from the channel prefix and persisted,
@@ -424,7 +437,7 @@ const dayRecordSchema = new Schema(
 );
 
 // One DayRecord per (channel, dayIndex) — the day number is unique *within* a
-// book (paper/ai-live/my-live each keep their own day sequence). This unique
+// book (paper/live/live each keep their own day sequence). This unique
 // compound index makes the racing findOneAndUpdate({channel,dayIndex},{upsert})
 // in ensureCurrentDay atomic, so two near-simultaneous calls can't insert
 // duplicate empty ACTIVE day twins (fixed 2026-07-19 — paper day 1/2 had shown
@@ -890,7 +903,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
  * brokerId that funds each live channel. Paper has no broker account.
  *
  * T118 — resolved through `brokerIdForChannel`, the single source of truth for
- * which real account backs which book (ai-live can be pointed at the primary
+ * which real account backs which book (live can be pointed at the primary
  * account when only one IP can be whitelisted).
  *
  * Returns null when the two live books SHARE one account: seeding both from the
@@ -901,8 +914,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
 async function seedBrokerFor(channel: Channel): Promise<string | null> {
   // Imported lazily: brokerService pulls in the whole adapter stack, and this
   // module is loaded during early bootstrap.
-  const { brokerIdForChannel, liveBooksShareAccount } = await import("../broker/brokerService");
-  if (channel === "ai-live" && liveBooksShareAccount()) return null;
+  const { brokerIdForChannel } = await import("../broker/brokerService");
   return brokerIdForChannel(channel);
 }
 
@@ -932,7 +944,7 @@ async function seedFromBroker(channel: Channel): Promise<number | null> {
   try {
     // _getAdapterByBrokerId, NOT getAdapter(channel): the latter falls back to
     // the PRIMARY adapter when the spouse account isn't initialised, which would
-    // seed ai-live from my-live's balance. This lookup is strict — null or the
+    // seed live from live's balance. This lookup is strict — null or the
     // right account, never someone else's money.
     const { _getAdapterByBrokerId } = await import("../broker/brokerService");
     const adapter = _getAdapterByBrokerId(brokerId);
@@ -950,8 +962,8 @@ async function seedFromBroker(channel: Channel): Promise<number | null> {
  * Read a channel's capital state, creating it on first use.
  *
  * T92 — nothing auto-funds to a default amount any more. Previously every
- * channel was lazily created at ₹100,000, which meant `ai-live` traded against a
- * balance nobody had deposited (and `inject` was pinned to my-live, so it could
+ * channel was lazily created at ₹100,000, which meant `live` traded against a
+ * balance nobody had deposited (and `inject` was pinned to live, so it could
  * never be corrected).
  *
  *   - LIVE channels seed once from their Dhan account (see seedFromBroker).

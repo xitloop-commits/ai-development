@@ -162,9 +162,9 @@ const streakSchema = new Schema(
 const disciplineStateSchema = new Schema<DisciplineState & Document>(
   {
     userId: { type: String, required: true, index: true },
-    /** Per-channel partitioning (PA Phase 4 follow-up). Default "my-live"
+    /** Per-channel partitioning (PA Phase 4 follow-up). Default "live"
      *  preserves single-channel callers' behaviour. */
-    channel: { type: String, required: true, default: "my-live", index: true },
+    channel: { type: String, required: true, default: "live", index: true },
     date: { type: String, required: true, index: true },
     updatedAt: { type: Date, default: Date.now },
 
@@ -356,7 +356,7 @@ export async function updateDisciplineSettings(
   return doc as unknown as DisciplineAgentSettings;
 }
 
-const DEFAULT_CHANNEL = "my-live";
+const DEFAULT_CHANNEL = "live";
 
 /** Get or create today's discipline state for (userId, channel). */
 export async function getDisciplineState(

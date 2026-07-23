@@ -2,8 +2,8 @@
  * T92 regression — capital ops must act on the channel they're given.
  *
  * `inject`, `transferFunds` and `resetCapital` all accepted a `channel` input
- * and then wrote to `'my-live'` regardless. The worst case was `resetCapital`:
- * it validated the REQUESTED channel and then destroyed my-live, so resetting
+ * and then wrote to `'live'` regardless. The worst case was `resetCapital`:
+ * it validated the REQUESTED channel and then destroyed live, so resetting
  * paper wiped the live book's day records, positions and pools.
  *
  * These tests seed several channels and assert the non-target channels are
@@ -70,55 +70,58 @@ beforeEach(() => {
 });
 
 describe("T92 — capital ops honour the requested channel", () => {
-  it("inject funds the requested channel, not my-live", async () => {
-    seed("my-live", 500_000);
-    seed("ai-live", 200_000);
+  it("inject funds the requested channel, not a hardcoded one", async () => {
+    // This used to be pinned to one book regardless of the argument, so a
+    // deposit meant for one landed in the other. T126: the two books that prove
+    // it are now paper and live.
+    seed("paper", 500_000);
+    seed("live", 200_000);
 
-    await caller.inject({ channel: "ai-live", amount: 50_000 });
+    await caller.inject({ channel: "live", amount: 50_000 });
 
-    expect(stateStore["ai-live"].tradingPool).toBe(250_000);
-    expect(stateStore["my-live"].tradingPool).toBe(500_000); // untouched
+    expect(stateStore["live"].tradingPool).toBe(250_000);
+    expect(stateStore["paper"].tradingPool).toBe(500_000); // untouched
   });
 
   it("inject adds to Trading only — the reserve split applies to profit, not capital", async () => {
-    seed("ai-live", 100_000, 10_000);
+    seed("live", 100_000, 10_000);
 
-    await caller.inject({ channel: "ai-live", amount: 40_000 });
+    await caller.inject({ channel: "live", amount: 40_000 });
 
-    expect(stateStore["ai-live"].tradingPool).toBe(140_000);
-    expect(stateStore["ai-live"].reservePool).toBe(10_000); // NOT given a 25% cut
+    expect(stateStore["live"].tradingPool).toBe(140_000);
+    expect(stateStore["live"].reservePool).toBe(10_000); // NOT given a 25% cut
   });
 
-  it("transferFunds moves pools on the requested channel, not my-live", async () => {
-    seed("my-live", 500_000, 100_000);
-    seed("ai-live", 200_000, 50_000);
+  it("transferFunds moves pools on the requested channel, not a hardcoded one", async () => {
+    seed("paper", 500_000, 100_000);
+    seed("live", 200_000, 50_000);
 
-    await caller.transferFunds({ channel: "ai-live", from: "trading", to: "reserve", amount: 20_000 });
+    await caller.transferFunds({ channel: "live", from: "trading", to: "reserve", amount: 20_000 });
 
-    expect(stateStore["ai-live"].tradingPool).toBe(180_000);
-    expect(stateStore["ai-live"].reservePool).toBe(70_000);
-    expect(stateStore["my-live"].tradingPool).toBe(500_000); // untouched
-    expect(stateStore["my-live"].reservePool).toBe(100_000);
+    expect(stateStore["live"].tradingPool).toBe(180_000);
+    expect(stateStore["live"].reservePool).toBe(70_000);
+    expect(stateStore["paper"].tradingPool).toBe(500_000); // untouched
+    expect(stateStore["paper"].reservePool).toBe(100_000);
   });
 
   it("resetCapital wipes ONLY the requested channel — resetting paper must not destroy the live book", async () => {
-    seed("my-live", 500_000, 100_000);
+    seed("live", 500_000, 100_000);
     seed("paper", 100_000);
 
     await caller.resetCapital({ channel: "paper", initialFunding: 100_000, force: true });
 
     // Live book completely untouched — pools, day records and positions.
-    expect(stateStore["my-live"].tradingPool).toBe(500_000);
-    expect(stateStore["my-live"].reservePool).toBe(100_000);
+    expect(stateStore["live"].tradingPool).toBe(500_000);
+    expect(stateStore["live"].reservePool).toBe(100_000);
     expect(deletedDaysFor).toEqual(["paper"]);
     expect(deletedPositionsFor).toEqual(["paper"]);
   });
 
   it("resetCapital reports the channel it acted on", async () => {
-    seed("ai-live", 200_000);
-    const res = await caller.resetCapital({ channel: "ai-live", initialFunding: 250_000, force: true });
+    seed("live", 200_000);
+    const res = await caller.resetCapital({ channel: "live", initialFunding: 250_000, force: true });
 
-    expect(res.channel).toBe("ai-live");
+    expect(res.channel).toBe("live");
     expect(res.tradingPool).toBe(250_000);
     expect(res.reservePool).toBe(0); // seed capital is 100% Trading
   });

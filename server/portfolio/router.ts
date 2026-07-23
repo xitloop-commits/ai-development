@@ -40,7 +40,7 @@ import { tickHandler } from "./tickHandler";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const channelSchema = z.enum(["paper", "ai-live", "my-live"]);
+const channelSchema = z.enum(["paper", "live"]);
 /**
  * Read the daily target % from broker config settings.
  * Falls back to the engine constant (5) if no broker config exists.
@@ -253,7 +253,7 @@ export const portfolioRouter = router({
       }
 
       // T92: fund the channel the caller asked for. This used to be pinned to
-      // 'my-live' regardless of input, so ai-live could never be funded at all.
+      // 'live' regardless of input, so live could never be funded at all.
       return syncWorkspace(input.channel);
     }),
 
@@ -385,7 +385,7 @@ export const portfolioRouter = router({
         return updated;
       }
 
-      // T92: operate on the channel the caller asked for (was pinned to 'my-live').
+      // T92: operate on the channel the caller asked for (was pinned to 'live').
       return syncWorkspace(input.channel);
     }),
 
@@ -675,7 +675,7 @@ export const portfolioRouter = router({
         return { newState, deletedDayRecords: deleted };
       }
 
-      // T92: reset the channel the caller asked for. This used to reset 'my-live'
+      // T92: reset the channel the caller asked for. This used to reset 'live'
       // unconditionally while the guard above checked `input.channel` — so
       // resetting 'paper' validated paper and then destroyed the LIVE book.
       const result = await resetWorkspace(input.channel);

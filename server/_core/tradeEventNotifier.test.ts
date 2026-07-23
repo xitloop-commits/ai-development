@@ -14,7 +14,7 @@ import {
 
 describe("formatExit", () => {
   const base = {
-    channel: "my-live",
+    channel: "live",
     instrument: "NATURALGAS",
     type: "CALL_BUY",
     strike: 24500,
@@ -106,7 +106,7 @@ describe("formatExit", () => {
 describe("formatGateRejection", () => {
   it("'blocked {qty} {instrument} — {reason}' when qty is known", () => {
     const msg = formatGateRejection({
-      channel: "ai-live",
+      channel: "live",
       instrument: "NIFTY 50",
       qty: 150,
       reason: "Discipline blocked: AI Live 1-lot cap exceeded",
@@ -116,7 +116,7 @@ describe("formatGateRejection", () => {
 
   it("omits the qty when not supplied", () => {
     const msg = formatGateRejection({
-      channel: "my-live",
+      channel: "live",
       instrument: "CRUDE OIL",
       reason: "Circuit breaker active",
     });

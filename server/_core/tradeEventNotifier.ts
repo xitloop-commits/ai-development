@@ -29,14 +29,14 @@ const log = createLogger("BSA", "TradeNotify");
 
 /**
  * Channels whose trade-lifecycle events (exit, order-rejected) push to
- * telegram. Narrowed 2026-07-01 to AI-only per operator: only ai-live
- * and ai-paper generate alerts today. `my-live` / `my-paper` are silent
+ * telegram. Narrowed 2026-07-01 to AI-only per operator: only live
+ * and ai-paper generate alerts today. `live` / `my-paper` are silent
  * (operator placed those trades manually, already knows about them);
  * `testing-live` is silent (developer sandbox). Widen this set later by
  * appending channels — every notifier below reads from this one place.
  */
 export const TELEGRAM_NOTIFY_CHANNELS: ReadonlySet<string> = new Set([
-  "ai-live",
+  "live",
   "paper",
 ]);
 // T87 follow-up: the `paper` book is now shared (AI + My). This gate fires for

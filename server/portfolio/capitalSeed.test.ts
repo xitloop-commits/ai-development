@@ -4,7 +4,7 @@
  * Live books read their opening capital from their OWN Dhan account exactly
  * once (`getMargin().total` = sodLimit), then the engine owns the pool forever.
  * Nothing auto-funds to a default amount any more — the old behaviour created
- * every channel at ₹100,000, so ai-live traded against money nobody deposited.
+ * every channel at ₹100,000, so live traded against money nobody deposited.
  *
  * The failure path matters as much as the happy one: a failed seed must persist
  * NOTHING, so the next read retries instead of baking an unfunded book into the
@@ -41,19 +41,13 @@ let registered: Record<string, unknown> = {};
 /** Every brokerId the seeder asked for, in order. */
 const requestedBrokerIds: string[] = [];
 
-/** T118 — which account backs ai-live; flipped per-test. */
-let aiLiveBrokerId = "dhan-secondary-ac";
-
 vi.mock("../broker/brokerService", () => ({
   _getAdapterByBrokerId: (brokerId: string) => {
     requestedBrokerIds.push(brokerId);
     return registered[brokerId] ? { getMargin: getMarginMock } : null;
   },
-  brokerIdForChannel: (channel: string) =>
-    channel === "my-live" ? "dhan-primary-ac"
-    : channel === "ai-live" ? aiLiveBrokerId
-    : null,
-  liveBooksShareAccount: () => aiLiveBrokerId === "dhan-primary-ac",
+  // T126 — one live book, one account.
+  brokerIdForChannel: (channel: string) => (channel === "live" ? "dhan-primary-ac" : null),
 }));
 
 vi.mock("../broker/tickBus", () => ({
@@ -65,17 +59,16 @@ import { getCapitalState } from "./state";
 beforeEach(() => {
   vi.clearAllMocks();
   for (const k of Object.keys(docs)) delete docs[k];
-  registered = { "dhan-primary-ac": {}, "dhan-secondary-ac": {} };
+  registered = { "dhan-primary-ac": {} };
   requestedBrokerIds.length = 0;
-  aiLiveBrokerId = "dhan-secondary-ac";
   getMarginMock.mockReset();
 });
 
 describe("T92 — live capital seeds once from Dhan", () => {
-  it("seeds my-live from sodLimit (getMargin().total), not available balance", async () => {
+  it("seeds live from sodLimit (getMargin().total), not available balance", async () => {
     getMarginMock.mockResolvedValue({ available: 120_000, used: 80_000, total: 500_000 });
 
-    const st = await getCapitalState("my-live");
+    const st = await getCapitalState("live");
 
     expect(st.tradingPool).toBe(500_000); // sodLimit — NOT available (120k)
     expect(st.initialFunding).toBe(500_000);
@@ -84,38 +77,41 @@ describe("T92 — live capital seeds once from Dhan", () => {
     expect(createMock).toHaveBeenCalledOnce();
   });
 
-  it("routes ai-live to the SPOUSE account and my-live to the PRIMARY", async () => {
+  it("routes the live book to the primary account, and paper to none", async () => {
     getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 111 });
 
-    await getCapitalState("ai-live");
-    expect(requestedBrokerIds).toEqual(["dhan-secondary-ac"]);
-
-    requestedBrokerIds.length = 0;
-    await getCapitalState("my-live");
+    await getCapitalState("live");
     expect(requestedBrokerIds).toEqual(["dhan-primary-ac"]);
+
+    // T126 — paper has no broker account behind it, so it must not ask ANY
+    // adapter for a balance. Seeding it from a real account would put money in
+    // the simulation book that nobody deposited.
+    requestedBrokerIds.length = 0;
+    await getCapitalState("paper");
+    expect(requestedBrokerIds).toEqual([]);
   });
 
-  it("does NOT fall back to the primary account when the spouse adapter is missing", async () => {
-    // getAdapter("ai-live") would fall back to dhanLive here — seeding ai-live
-    // from my-live's balance. The strict lookup must refuse instead.
-    registered = { "dhan-primary-ac": {} };
+  it("refuses to seed when the primary adapter is not registered", async () => {
+    // The lookup is strict on purpose: null or the right account, never someone
+    // else's money. An unseeded book is safe; a wrongly-seeded one is not.
+    registered = {};
     getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 999_999 });
 
-    const st = await getCapitalState("ai-live");
+    const st = await getCapitalState("live");
 
     expect(st.tradingPool).toBe(0);
     expect(st.seededAt).toBeNull();
-    expect(getMarginMock).not.toHaveBeenCalled(); // never touched the primary
+    expect(getMarginMock).not.toHaveBeenCalled();
   });
 
   it("does NOT re-seed a book that already exists — Dhan is read once, ever", async () => {
     getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 500_000 });
-    await getCapitalState("my-live");
+    await getCapitalState("live");
     getMarginMock.mockClear();
 
     // A later read — even after the pool has been drawn right down.
-    docs["my-live"].tradingPool = 0;
-    const again = await getCapitalState("my-live");
+    docs["live"].tradingPool = 0;
+    const again = await getCapitalState("live");
 
     expect(getMarginMock).not.toHaveBeenCalled();
     expect(again.tradingPool).toBe(0); // stays drained; NOT refilled from Dhan
@@ -124,26 +120,26 @@ describe("T92 — live capital seeds once from Dhan", () => {
   it("persists NOTHING when the seed fails, so the next read retries", async () => {
     getMarginMock.mockRejectedValue(new Error("Token expired. Restart BSA to refresh."));
 
-    const st = await getCapitalState("ai-live");
+    const st = await getCapitalState("live");
 
     expect(st.tradingPool).toBe(0);
     expect(st.seededAt).toBeNull(); // ← the "not tradeable" marker
     expect(createMock).not.toHaveBeenCalled();
-    expect(docs["ai-live"]).toBeUndefined();
+    expect(docs["live"]).toBeUndefined();
 
     // Token recovers → the retry succeeds and persists.
     getMarginMock.mockReset();
     getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 300_000 });
-    const retry = await getCapitalState("ai-live");
+    const retry = await getCapitalState("live");
     expect(retry.tradingPool).toBe(300_000);
     expect(retry.seededAt).toBeTypeOf("number");
-    expect(docs["ai-live"]).toBeDefined();
+    expect(docs["live"]).toBeDefined();
   });
 
   it("treats a missing adapter as a failed seed (no phantom balance)", async () => {
     registered = {}; // neither account configured yet
 
-    const st = await getCapitalState("my-live");
+    const st = await getCapitalState("live");
 
     expect(st.tradingPool).toBe(0);
     expect(st.seededAt).toBeNull();
@@ -153,7 +149,7 @@ describe("T92 — live capital seeds once from Dhan", () => {
   it("rejects a nonsensical balance rather than seeding zero/negative", async () => {
     getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 0 });
 
-    const st = await getCapitalState("my-live");
+    const st = await getCapitalState("live");
 
     expect(st.seededAt).toBeNull();
     expect(createMock).not.toHaveBeenCalled();
@@ -171,49 +167,10 @@ describe("T92 — live capital seeds once from Dhan", () => {
   it("never auto-funds ₹100,000 — the old phantom-balance behaviour is gone", async () => {
     getMarginMock.mockRejectedValue(new Error("down"));
 
-    for (const ch of ["paper", "ai-live", "my-live"] as const) {
+    for (const ch of ["paper", "live"] as const) {
       const st = await getCapitalState(ch);
       expect(st.tradingPool).not.toBe(100_000);
       expect(st.initialFunding).not.toBe(100_000);
     }
-  });
-});
-
-describe("T118 — ai-live sharing my-live's Dhan account", () => {
-  it("does NOT seed ai-live from the broker when both books share one account", async () => {
-    // The whole point: one real account behind two books. Seeding both from the
-    // same balance would count the same rupees twice and double the net worth.
-    aiLiveBrokerId = "dhan-primary-ac";
-    getMarginMock.mockResolvedValue({ available: 500_000, used: 0, total: 500_000 });
-
-    const st = await getCapitalState("ai-live");
-
-    expect(getMarginMock).not.toHaveBeenCalled(); // never even asked
-    expect(requestedBrokerIds).toEqual([]);
-    expect(st.tradingPool).toBe(0);
-    expect(st.seededAt).toBeNull();   // ← "not funded", so it is not tradeable
-    expect(createMock).not.toHaveBeenCalled(); // nothing baked into the database
-  });
-
-  it("still seeds my-live normally when ai-live is sharing its account", async () => {
-    aiLiveBrokerId = "dhan-primary-ac";
-    getMarginMock.mockResolvedValue({ available: 400_000, used: 0, total: 500_000 });
-
-    const st = await getCapitalState("my-live");
-
-    expect(requestedBrokerIds).toEqual(["dhan-primary-ac"]);
-    expect(st.tradingPool).toBe(500_000);
-    expect(st.seededAt).toBeTypeOf("number");
-  });
-
-  it("seeds ai-live from the secondary account when the books are NOT shared", async () => {
-    // Guard against the fix over-reaching: default config must behave as before.
-    getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 222_000 });
-
-    const st = await getCapitalState("ai-live");
-
-    expect(requestedBrokerIds).toEqual(["dhan-secondary-ac"]);
-    expect(st.tradingPool).toBe(222_000);
-    expect(st.seededAt).toBeTypeOf("number");
   });
 });

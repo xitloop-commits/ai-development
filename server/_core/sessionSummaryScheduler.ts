@@ -3,7 +3,7 @@
  *
  * Two timers — NSE @ 15:30 IST and MCX @ 23:30 IST — push a P&L digest
  * to yow-partha Telegram at each exchange's session close. The summary
- * aggregates trades across the live channels (`my-live`, `ai-live`,
+ * aggregates trades across the live channels (`live`, `live`,
  * `testing-live`) filtered to the exchange's instruments:
  *
  *   NSE  → NIFTY 50 + BANK NIFTY
@@ -69,7 +69,7 @@ function matchesInstrument(target: string[], actual: string): boolean {
 }
 /**
  * Channels included in the session close-out digest. Narrowed
- * 2026-07-01 to AI-only per operator: manually-placed trades (my-live /
+ * 2026-07-01 to AI-only per operator: manually-placed trades (live /
  * my-paper) are excluded because the operator already knows about them,
  * and testing-live is excluded because it's a developer sandbox that
  * would pollute the P&L number. Widen this array to expand later.
@@ -82,7 +82,7 @@ function matchesInstrument(target: string[], actual: string): boolean {
 // The digest books: the AI live account + the shared paper book (paper now
 // carries both AI and My trades — T87 follow-up: filter the paper line by
 // trade `source` if an AI-only figure is wanted).
-const AI_CHANNELS: Channel[] = ["ai-live", "paper"];
+const AI_CHANNELS: Channel[] = ["live", "paper"];
 
 export type Exchange = "NSE" | "MCX";
 
@@ -229,7 +229,7 @@ function fmtSignedRs(n: number): string {
  *
  *   NSE closed
  *   gain Rs.4,800 · loss Rs.1,200 · net profit Rs.3,600 (2.40%)
- *   ai-paper: +Rs.3,600 (23 trades)  ·  ai-live: 0 (0 trades)
+ *   ai-paper: +Rs.3,600 (23 trades)  ·  live: 0 (0 trades)
  *   23 trades · W 14 / L 6 / BE 3
  *
  * The per-channel line surfaces WHERE the P&L came from -- when the

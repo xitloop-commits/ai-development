@@ -44,7 +44,7 @@ beforeEach(() => initAiConfig()); // reset to defaults between tests
 describe("manual trades follow the AI menu's My Trades block", () => {
   it("uses the manual block's strategy, not sprint", () => {
     updateAiConfig("manual", only("runway"));
-    expect(resolveExitStrategy("my-live", "USER", false)).toBe("runway");
+    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
   });
 
   it("follows the manual block on the PAPER channel too", () => {
@@ -59,17 +59,17 @@ describe("manual trades follow the AI menu's My Trades block", () => {
     updateAiConfig("paper", only("sprint"));
     updateAiConfig("live", only("sprint"));
     expect(resolveExitStrategy("paper", "USER", false)).toBe("anchor");
-    expect(resolveExitStrategy("my-live", "USER", false)).toBe("anchor");
+    expect(resolveExitStrategy("live", "USER", false)).toBe("anchor");
   });
 
   it("takes the FIRST enabled pill — manual is one strategy, not a race", () => {
     updateAiConfig("manual", { strategies: { sprint: false, runway: true, anchor: true } });
-    expect(resolveExitStrategy("my-live", "USER", false)).toBe("runway");
+    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
   });
 
   it("falls back to sprint when nothing is enabled", () => {
     updateAiConfig("manual", { strategies: { sprint: false, runway: false, anchor: false } });
-    expect(resolveExitStrategy("my-live", "USER", false)).toBe("sprint");
+    expect(resolveExitStrategy("live", "USER", false)).toBe("sprint");
   });
 });
 
@@ -80,15 +80,15 @@ describe("AI trades follow the channel's block", () => {
     expect(resolveExitStrategy("paper", "AI", false)).toBe("anchor");
   });
 
-  it("ai-live channel reads the live block", () => {
+  it("live channel reads the live block", () => {
     updateAiConfig("live", only("runway"));
     updateAiConfig("paper", only("anchor"));
-    expect(resolveExitStrategy("ai-live", "AI", false)).toBe("runway");
+    expect(resolveExitStrategy("live", "AI", false)).toBe("runway");
   });
 
   it("RCA is routed the same way as AI", () => {
     updateAiConfig("live", only("anchor"));
-    expect(resolveExitStrategy("ai-live", "RCA", false)).toBe("anchor");
+    expect(resolveExitStrategy("live", "RCA", false)).toBe("anchor");
   });
 });
 
@@ -102,7 +102,7 @@ describe("equity is pinned to sprint", () => {
    */
   it("ignores the manual block for a stock", () => {
     updateAiConfig("manual", only("runway"));
-    expect(resolveExitStrategy("my-live", "USER", true)).toBe("sprint");
+    expect(resolveExitStrategy("live", "USER", true)).toBe("sprint");
   });
 
   it("ignores the channel block for an AI stock trade", () => {
@@ -114,8 +114,8 @@ describe("equity is pinned to sprint", () => {
     // Guards against over-broad pinning: the equity rule must not leak into
     // option trades placed on the same book.
     updateAiConfig("manual", only("runway"));
-    expect(resolveExitStrategy("my-live", "USER", false)).toBe("runway");
-    expect(resolveExitStrategy("my-live", "USER", true)).toBe("sprint");
+    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
+    expect(resolveExitStrategy("live", "USER", true)).toBe("sprint");
   });
 });
 
@@ -174,13 +174,13 @@ describe("sprintOpeningLevels", () => {
 describe("glide is MA-Signal only", () => {
   it("is used when the cohort is ma_signal", () => {
     updateAiConfig("manual", only("glide"));
-    expect(resolveExitStrategy("my-live", "USER", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("live", "USER", false, "ma_signal")).toBe("glide");
   });
 
   it("is SKIPPED for any other cohort", () => {
     updateAiConfig("manual", only("glide"));
     for (const cohort of ["scalp", "trend", "swing", null, undefined]) {
-      expect(resolveExitStrategy("my-live", "USER", false, cohort)).toBe("sprint");
+      expect(resolveExitStrategy("live", "USER", false, cohort)).toBe("sprint");
     }
   });
 
@@ -189,13 +189,13 @@ describe("glide is MA-Signal only", () => {
     // Glide wins for MA-Signal even though it ranks last in the pill order —
     // it is the cohort-specific choice, so it must not be outranked.
     updateAiConfig("manual", { strategies: { sprint: false, runway: true, anchor: false, glide: true } });
-    expect(resolveExitStrategy("my-live", "USER", false, "ma_signal")).toBe("glide");
-    expect(resolveExitStrategy("my-live", "USER", false, "scalp")).toBe("runway");
+    expect(resolveExitStrategy("live", "USER", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("live", "USER", false, "scalp")).toBe("runway");
   });
 
   it("never applies to equity, whatever the cohort", () => {
     updateAiConfig("manual", only("glide"));
-    expect(resolveExitStrategy("my-live", "USER", true, "ma_signal")).toBe("sprint");
+    expect(resolveExitStrategy("live", "USER", true, "ma_signal")).toBe("sprint");
   });
 
   it("works for AI trades on the paper/live blocks too", () => {

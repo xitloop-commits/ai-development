@@ -448,7 +448,7 @@ export function AiControl() {
                 <span className="text-[0.5625rem] text-muted-foreground">
                   {aiOnForMode
                     ? mode === "live"
-                      ? "signals placed on the REAL ai-live account"
+                      ? "signals placed on the REAL live account"
                       : "signals placed on the paper book"
                     : "signals still logged — nothing placed on this book"}
                 </span>
@@ -469,7 +469,7 @@ export function AiControl() {
                           [
                             "Turn ON AI trades for LIVE?",
                             "",
-                            "SEA signals will place REAL orders on the ai-live Dhan account.",
+                            "SEA signals will place REAL orders on the live Dhan account.",
                           ].join("\n"),
                         )) return;
                     // Master stays on; the per-book flags are what route now. It

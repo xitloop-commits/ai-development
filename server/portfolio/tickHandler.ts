@@ -83,7 +83,7 @@ export interface BrokerTpRatchetEvent {
 }
 
 /** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
-const TICK_CHANNELS: Channel[] = ["paper", "ai-live", "my-live"];
+const TICK_CHANNELS: Channel[] = ["paper", "live"];
 
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 
@@ -343,7 +343,7 @@ class TickHandler extends EventEmitter {
     //
     // T97 — while a replay run is open, `paper` is substituted for the run and
     // the LIVE books are skipped entirely. These ticks are recorded prices from
-    // another day: marking a real ai-live / my-live position to them would show
+    // another day: marking a real live / live position to them would show
     // fictional P&L and, worse, could trip its SL/TP and fire a REAL exit order
     // at a price that never existed today.
     const replaying = getActiveRunId() != null;
@@ -454,7 +454,7 @@ class TickHandler extends EventEmitter {
         // Dhan-managed (toggle off): the broker Super Order enforces SL/TP; we
         // only drive the dynamic layer (arm gated TSL, ratchet TP via leg
         // modify) and skip our own detection.
-        if ((channel === "my-live" || channel === "ai-live") && !getExitConfig().lubasManagedExit) {
+        if (channel === "live" && !getExitConfig().lubasManagedExit) {
           if (trailingStopEnabled && trade.superOrderId) {
             const lBuy = trade.type.includes("BUY");
             const breakeven = trade.breakevenPrice ?? trade.entryPrice;

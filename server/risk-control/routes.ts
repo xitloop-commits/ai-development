@@ -24,9 +24,7 @@ const log = createLogger("RCA", "REST");
 // ─── Schemas (strict) ───────────────────────────────────────────
 
 const channelSchema = z.enum([
-  "paper",
-  "ai-live",
-  "my-live",
+  "paper", "live",
 ]);
 
 const evaluateSchema = z

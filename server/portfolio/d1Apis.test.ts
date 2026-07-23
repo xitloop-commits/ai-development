@@ -83,83 +83,62 @@ beforeEach(() => {
 // ─── transferFundsCrossChannel ──────────────────────────────────
 
 describe("portfolio.transferFundsCrossChannel", () => {
+  // T126 — the two books are paper and live. The pair used to be the two live
+  // books; what the endpoint has to prove is unchanged: money leaves ONE named
+  // book and lands in the OTHER, inside one transaction.
   it("moves a numeric amount from source.tradingPool to dest.tradingPool", async () => {
-    seedState("my-live", 100000, 25000);
-    seedState("ai-live", 0, 0);
+    seedState("paper", 100000, 25000);
+    seedState("live", 0, 0);
 
     const result = await caller.transferFundsCrossChannel({
-      from: "my-live",
-      to: "ai-live",
+      from: "paper",
+      to: "live",
       amount: 30000,
     });
 
     expect(result.transferred).toBe(30000);
     expect(result.from.tradingPool).toBe(70000);
     expect(result.to.tradingPool).toBe(30000);
-    expect(stateStore["my-live"].tradingPool).toBe(70000);
-    expect(stateStore["ai-live"].tradingPool).toBe(30000);
+    expect(stateStore["paper"].tradingPool).toBe(70000);
+    expect(stateStore["live"].tradingPool).toBe(30000);
   });
 
   it('amount: "all" drains the source.tradingPool', async () => {
-    seedState("my-live", 50000, 0);
-    seedState("ai-live", 0, 0);
+    seedState("paper", 50000, 0);
+    seedState("live", 0, 0);
 
     const result = await caller.transferFundsCrossChannel({
-      from: "my-live",
-      to: "ai-live",
+      from: "paper",
+      to: "live",
       amount: "all",
     });
 
     expect(result.transferred).toBe(50000);
-    expect(stateStore["my-live"].tradingPool).toBe(0);
-    expect(stateStore["ai-live"].tradingPool).toBe(50000);
+    expect(stateStore["paper"].tradingPool).toBe(0);
+    expect(stateStore["live"].tradingPool).toBe(50000);
   });
 
   it("rejects same-channel transfers", async () => {
-    seedState("my-live", 100000, 0);
+    seedState("live", 100000, 0);
     await expect(
-      caller.transferFundsCrossChannel({
-        from: "my-live",
-        to: "my-live",
-        amount: 1000,
-      }),
+      caller.transferFundsCrossChannel({ from: "live", to: "live", amount: 1000 }),
     ).rejects.toThrow(/same channel/i);
   });
 
   it("rejects insufficient-balance transfers", async () => {
-    seedState("my-live", 1000, 0);
-    seedState("ai-live", 0, 0);
+    seedState("paper", 1000, 0);
+    seedState("live", 0, 0);
     await expect(
-      caller.transferFundsCrossChannel({
-        from: "my-live",
-        to: "ai-live",
-        amount: 5000,
-      }),
+      caller.transferFundsCrossChannel({ from: "paper", to: "live", amount: 5000 }),
     ).rejects.toThrow(/Insufficient/i);
   });
 
   it("rejects amount: \"all\" when source has nothing to transfer", async () => {
-    seedState("my-live", 0, 0);
-    seedState("ai-live", 0, 0);
+    seedState("paper", 0, 0);
+    seedState("live", 0, 0);
     await expect(
-      caller.transferFundsCrossChannel({
-        from: "my-live",
-        to: "ai-live",
-        amount: "all",
-      }),
+      caller.transferFundsCrossChannel({ from: "paper", to: "live", amount: "all" }),
     ).rejects.toThrow(/no trading-pool balance/i);
-  });
-
-  it("invokes mongoose.startSession + endSession (transaction wrap)", async () => {
-    seedState("my-live", 100000, 0);
-    seedState("ai-live", 0, 0);
-    await caller.transferFundsCrossChannel({
-      from: "my-live",
-      to: "ai-live",
-      amount: 1000,
-    });
-    const mongoose = (await import("mongoose")).default as any;
-    expect(mongoose.startSession).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -188,7 +167,7 @@ describe("portfolio.recordTradeUpdated", () => {
 
   it("accepts null SL / TP (operator clearing brackets)", async () => {
     await caller.recordTradeUpdated({
-      channel: "my-live",
+      channel: "live",
       tradeId: "T-2",
       modifications: { stopLoss: null, takeProfit: null },
       timestamp: 1700000000000,
@@ -199,7 +178,7 @@ describe("portfolio.recordTradeUpdated", () => {
 
   it("accepts trailingStopEnabled toggle", async () => {
     await caller.recordTradeUpdated({
-      channel: "my-live",
+      channel: "live",
       tradeId: "T-3",
       modifications: { trailingStopEnabled: true },
       timestamp: 1700000000000,

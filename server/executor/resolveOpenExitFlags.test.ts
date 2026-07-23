@@ -19,12 +19,12 @@ describe("resolveOpenExitFlags (T85 — strategy always governs)", () => {
     }
   });
 
-  it("MA-Signal no longer rides on ANY channel (paper, ai-live, my-live)", () => {
+  it("MA-Signal no longer rides on ANY channel (paper, live, live)", () => {
     for (const [channel, source] of [
       ["paper", "ai"],
-      ["ai-live", "ai"],
+      ["live", "ai"],
       ["paper", "my"],
-      ["my-live", "my"],
+      ["live", "my"],
     ] as const) {
       const f = resolveOpenExitFlags(channel, "ma_signal", false, source);
       expect(f.manualExitOnly).toBe(false);
@@ -34,10 +34,10 @@ describe("resolveOpenExitFlags (T85 — strategy always governs)", () => {
   });
 
   it("tslMode seeds from the shared Sprint trailing switch", () => {
-    expect(resolveOpenExitFlags("my-live", "scalp", true, "my").tslMode).toBe("auto");
-    expect(resolveOpenExitFlags("my-live", "scalp", false, "my").tslMode).toBe("manual");
+    expect(resolveOpenExitFlags("live", "scalp", true, "my").tslMode).toBe("auto");
+    expect(resolveOpenExitFlags("live", "scalp", false, "my").tslMode).toBe("manual");
     // ...including for MA-Signal, which used to be forced to "manual".
-    expect(resolveOpenExitFlags("ai-live", "ma_signal", true, "ai").tslMode).toBe("auto");
+    expect(resolveOpenExitFlags("live", "ma_signal", true, "ai").tslMode).toBe("auto");
   });
 });
 
@@ -64,14 +64,14 @@ describe("resolveOpenExitFlags — glide", () => {
 
   it("ignores the global trailing switch — Glide never trails", () => {
     for (const trailing of [true, false]) {
-      expect(resolveOpenExitFlags("my-live", "ma_signal", trailing, "my", "glide").tslMode)
+      expect(resolveOpenExitFlags("live", "ma_signal", trailing, "my", "glide").tslMode)
         .toBe("manual");
     }
   });
 
   it("suppresses on every channel and source", () => {
     for (const [channel, source] of [
-      ["paper", "ai"], ["ai-live", "ai"], ["paper", "my"], ["my-live", "my"],
+      ["paper", "ai"], ["live", "ai"], ["paper", "my"], ["live", "my"],
     ] as const) {
       expect(resolveOpenExitFlags(channel, "ma_signal", true, source, "glide").manualExitOnly)
         .toBe(true);

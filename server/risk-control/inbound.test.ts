@@ -163,13 +163,13 @@ describe("rcaMonitor.disciplineRequest", () => {
   it("scope=ALL exits every open position on the requested channels", async () => {
     (portfolioAgent.getPositions as any).mockImplementation(async (channel: string) => {
       if (channel === "paper") return [openTrade("T1", channel, "NIFTY_50")];
-      if (channel === "my-live") return [openTrade("T2", channel, "BANKNIFTY")];
+      if (channel === "live") return [openTrade("T2", channel, "BANKNIFTY")];
       return [];
     });
 
     const result = await rcaMonitor.disciplineRequest({
       reason: "DISCIPLINE_EXIT",
-      channels: ["paper", "my-live"],
+      channels: ["paper", "live"],
       scope: { kind: "ALL" },
     });
 

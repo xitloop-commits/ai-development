@@ -188,7 +188,7 @@ export function DisciplineRulesDialog({ open, onClose }: { open: boolean; onClos
                 Master switches. OFF means every rule below is skipped for that book.
               </p>
               {([
-                ['liveEnforcement', 'Live', 'my-live · ai-live', liveOn],
+                ['liveEnforcement', 'Live', 'live · live', liveOn],
                 ['simulationEnforcement', 'Paper', 'paper', simOn],
               ] as const).map(([key, label, sub, on]) => (
                 <div key={key} className="flex items-center justify-between gap-2">

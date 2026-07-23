@@ -2,12 +2,12 @@
  * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
  * Manages named adapter slots, each serving specific trading channels:
- *   dhanLive    → my-live               (brokerId: "dhan-primary-ac")
- *   dhanAiData  → ai-live + TFA data feed (brokerId: "dhan-secondary-ac")
+ *   dhanLive    → live               (brokerId: "dhan-primary-ac")
+ *   dhanAiData  → live + TFA data feed (brokerId: "dhan-secondary-ac")
  *   mockPaper   → paper (shared AI + My) (brokerId: "mock-paper")
  *
- * ai-live's account is CONFIGURABLE (T118) -- see `brokerIdForChannel`. With a
- * single whitelisted IP at home, ai-live can be pointed at the primary account
+ * live's account is CONFIGURABLE (T118) -- see `brokerIdForChannel`. With a
+ * single whitelisted IP at home, live can be pointed at the primary account
  * so it can actually place orders; dhanAiData then serves the TFA data feed
  * only. TFA's WebSocket is untouched either way.
  *
@@ -45,8 +45,7 @@ export interface AdapterMeta {
 
 export type Channel =
   | "paper"
-  | "ai-live"
-  | "my-live";
+  | "live";
 
 /** Per-trade attribution / kill-switch grouping. */
 export type Workspace = "ai" | "my";
@@ -54,8 +53,8 @@ export type Workspace = "ai" | "my";
 // ─── Singleton State ────────────────────────────────────────────
 
 interface BSAAdapters {
-  dhanLive: DhanAdapter | null;       // my-live (options + equity)  (user's primary Dhan account)
-  dhanAiData: DhanAdapter | null;     // TFA data feed, + ai-live unless AI_LIVE_BROKER_ID moves it (spouse's Dhan account)
+  dhanLive: DhanAdapter | null;       // live (options + equity)  (user's primary Dhan account)
+  dhanAiData: DhanAdapter | null;     // TFA data feed, + live unless AI_LIVE_BROKER_ID moves it (spouse's Dhan account)
   mockPaper: MockAdapter | null;      // paper (shared AI + My book; options + equity)
 }
 
@@ -84,7 +83,7 @@ const adapterMeta = new Map<string, AdapterMeta>();
 //
 // Hardcoded rename of the two Dhan brokerIds:
 //   "dhan"         → "dhan-primary-ac"   (primary, Partha's account)
-//   "dhan-ai-data" → "dhan-secondary-ac"     (spouse Ahila's account, TFA + ai-live)
+//   "dhan-ai-data" → "dhan-secondary-ac"     (spouse Ahila's account, TFA + live)
 //
 // Runs once at startup before seedBrokerConfigs. Idempotent — if a doc
 // already exists under the new brokerId (i.e. migration already happened
@@ -195,39 +194,20 @@ async function migrateEnvCredentialsToMongo(): Promise<void> {
 // ─── Channel Routing ────────────────────────────────────────────
 
 /**
- * T118 — which real Dhan account backs each live book.
+ * T126 — the real Dhan account behind each book.
  *
- * `my-live` is always the primary account. `ai-live` defaults to the secondary
- * (spouse's) account, but Dhan whitelists an API key against ONE IP and refuses
- * to reuse an IP already registered on another account. With a single static
- * IP at home, only one of the two accounts can place orders — so `ai-live` can
- * be pointed at the primary account with:
+ * One live book, one account. This used to be configurable per book
+ * (`AI_LIVE_BROKER_ID`) because ai-live and my-live were separate books that
+ * could sit on separate accounts; with a single static IP only one account
+ * could ever be whitelisted, so they were pointed at the same one and then
+ * merged. The env var, the shared-account flag and the seeding guard that
+ * existed to manage that overlap are all gone with it.
  *
- *     AI_LIVE_BROKER_ID=dhan-primary-ac
- *
- * Deliberately an env var, not a UI toggle: swapping accounts while positions
- * are open would strand them at a broker the app is no longer talking to, so
- * the change should cost a restart.
- *
- * ⚠️ When both books share one account they share one pot of money. Auto-seeding
- * is disabled for `ai-live` in that case (see `SEED_BROKER_FOR` in
- * portfolio/state.ts) — otherwise both books read the same balance and the net
- * worth doubles. Fund it by hand instead.
- *
- * This is the ONE place the mapping lives; capital seeding and reconciliation
- * both read it rather than repeating the ternary.
+ * `dhanAiData` (the secondary account) stays connected for the TFA data feed
+ * only — it no longer executes anything.
  */
 export function brokerIdForChannel(channel: Channel): string | null {
-  switch (channel) {
-    case "my-live": return "dhan-primary-ac";
-    case "ai-live": return process.env.AI_LIVE_BROKER_ID?.trim() || "dhan-secondary-ac";
-    default: return null; // paper — no real account behind it
-  }
-}
-
-/** True when the two live books are funded by the SAME real Dhan account. */
-export function liveBooksShareAccount(): boolean {
-  return brokerIdForChannel("ai-live") === brokerIdForChannel("my-live");
+  return channel === "live" ? "dhan-primary-ac" : null; // paper has no account
 }
 
 /**
@@ -235,18 +215,8 @@ export function liveBooksShareAccount(): boolean {
  */
 export function getAdapter(channel: Channel): BrokerAdapter {
   switch (channel) {
-    case "ai-live": {
-      // Honour the configured account first (see brokerIdForChannel). Falls back
-      // to the primary adapter when the secondary hasn't been configured yet
-      // (first-run before credentials are entered into Settings).
-      const wanted = _getAdapterByBrokerId(brokerIdForChannel("ai-live")!);
-      if (wanted) return wanted;
-      if (adapters.dhanAiData) return adapters.dhanAiData;
-      if (adapters.dhanLive) return adapters.dhanLive;
-      throw new Error("Neither DhanAdapter (ai-data) nor (live) is initialised");
-    }
-    case "my-live":
-      // my-live routes options AND equity to the primary account.
+    case "live":
+      // Options AND equity, AI and manual — one book, one account.
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
       return adapters.dhanLive;
     case "paper":
@@ -280,8 +250,8 @@ export function _getAdapterByBrokerId(brokerId: string): BrokerAdapter | null {
  */
 export function isChannelKillSwitchActive(channel: Channel): boolean {
   switch (channel) {
-    case "ai-live":     return killSwitch.ai;
-    case "my-live":     return killSwitch.my;
+    case "live":     return killSwitch.ai;
+    case "live":     return killSwitch.my;
     default:            return false; // paper never blocked
   }
 }
@@ -307,9 +277,9 @@ export async function toggleWorkspaceKillSwitch(
 
   // If activating, call killSwitch on the live channel adapter
   if (active) {
-    const channelMap: Record<Workspace, "ai-live" | "my-live"> = {
-      ai: "ai-live",
-      my: "my-live",
+    const channelMap: Record<Workspace, "live"> = {
+      ai: "live",
+      my: "live",
     };
     try {
       const adapter = getAdapter(channelMap[workspace]);
@@ -429,7 +399,7 @@ export async function initBrokerService(): Promise<void> {
   // Pre-check the TOTP refresh INPUTS (auth.{clientId, pin, totpSecret}) rather
   // than the access token (which is the output — empty until the first refresh).
   // If connect() throws (auth credentials wrong, network down, etc.) we leave
-  // adapters.dhanAiData null so getAdapter("ai-live") falls back to the primary.
+  // adapters.dhanAiData null so getAdapter("live") falls back to the primary.
   try {
     const aiDataConfig = await getBrokerConfig("dhan-secondary-ac");
     const auth = (aiDataConfig as any)?.auth ?? {};

@@ -202,7 +202,7 @@ const brokerSettingsSchema = z.object({
 });
 
 const channelSchema = z.enum([
-  "paper", "ai-live", "my-live",
+  "paper", "live",
 ]);
 
 const workspaceSchema = z.enum(["ai", "my"]);

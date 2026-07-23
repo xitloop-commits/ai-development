@@ -22,7 +22,7 @@ describe("isOptionTrade", () => {
 
 describe("liveOptionConfirm", () => {
   it("confirms an option order on a LIVE channel", () => {
-    const c = liveOptionConfirm("my-live", buy);
+    const c = liveOptionConfirm("live", buy);
     expect(c).not.toBeNull();
     expect(c!.title).toMatch(/LIVE/);
     expect(c!.message).toContain("BUY");
@@ -32,8 +32,8 @@ describe("liveOptionConfirm", () => {
     expect(c!.message).toContain("REAL order");
   });
 
-  it("confirms on ai-live too, not just my-live", () => {
-    expect(liveOptionConfirm("ai-live", buy)).not.toBeNull();
+  it("confirms on live too, not just live", () => {
+    expect(liveOptionConfirm("live", buy)).not.toBeNull();
   });
 
   it("does NOT confirm on paper — simulated money places immediately", () => {
@@ -41,18 +41,18 @@ describe("liveOptionConfirm", () => {
   });
 
   it("does NOT confirm equity orders (they have their own staged-buy dialog)", () => {
-    expect(liveOptionConfirm("my-live", { ...buy, type: "BUY" })).toBeNull();
+    expect(liveOptionConfirm("live", { ...buy, type: "BUY" })).toBeNull();
   });
 
   it("labels a PUT as PE and a sell as SELL", () => {
-    const c = liveOptionConfirm("my-live", { ...buy, type: "PUT_SELL" });
+    const c = liveOptionConfirm("live", { ...buy, type: "PUT_SELL" });
     expect(c!.message).toContain("PE");
     expect(c!.message).toContain("SELL");
   });
 
   it("quotes the total premium at risk, not the per-unit price", () => {
     // 120.5 × 75 = 9037.5 → 9038
-    const c = liveOptionConfirm("my-live", buy);
+    const c = liveOptionConfirm("live", buy);
     expect(c!.message).toContain("9,038");
   });
 });
@@ -61,7 +61,7 @@ describe("liveStockConfirm", () => {
   const order = { symbol: "ICICIBANK", qty: 50, productType: "INTRADAY" as const };
 
   it("confirms a LIVE stock order with share count and total value", () => {
-    const c = liveStockConfirm("my-live", order, 1234.5);
+    const c = liveStockConfirm("live", order, 1234.5);
     expect(c).not.toBeNull();
     expect(c!.message).toContain("BUY 50 ICICIBANK");
     expect(c!.message).toContain("Intraday / MIS");
@@ -70,7 +70,7 @@ describe("liveStockConfirm", () => {
   });
 
   it("names CNC as Delivery", () => {
-    const c = liveStockConfirm("my-live", { ...order, productType: "CNC" }, 100);
+    const c = liveStockConfirm("live", { ...order, productType: "CNC" }, 100);
     expect(c!.message).toContain("Delivery / CNC");
   });
 

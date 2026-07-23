@@ -72,7 +72,7 @@ function NetWorthPopover({
   } = useCapital() as any;
 
   // Every funding action lands on the channel being VIEWED. Naming it on the
-  // button is the guard: these were all hardcoded to 'my-live', so funding while
+  // button is the guard: these were all hardcoded to 'live', so funding while
   // looking at Paper silently moved money in the real book with nothing on
   // screen to say so.
   const book = String(channel);
@@ -350,19 +350,19 @@ export default function MainFooter() {
   const { capital, channel, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
 
   // Net worth follows the mode (T87 point 18): PAPER shows the one shared paper
-  // pool; LIVE shows ai-live + my-live combined (two separate real accounts, but
-  // one total figure). In live mode `capital` is my-live (the active channel), so
-  // we fetch ai-live and add it. Paper mode needs no extra fetch.
+  // pool; LIVE shows live + live combined (two separate real accounts, but
+  // one total figure). In live mode `capital` is live (the active channel), so
+  // we fetch live and add it. Paper mode needs no extra fetch.
   const isLive = channel !== 'paper';
   // BOTH live books are fetched explicitly rather than "the current one plus
-  // ai-live". `isLive` is true for ai-live too, so the old form added ai-live to
+  // live". `isLive` is true for live too, so the old form added live to
   // ITSELF whenever that workspace was open — the footer showed double.
   const myLiveQuery = trpc.portfolio.state.useQuery(
-    { channel: 'my-live' },
+    { channel: 'live' },
     { enabled: isLive, refetchInterval: 5000 },
   );
   const aiLiveQuery = trpc.portfolio.state.useQuery(
-    { channel: 'ai-live' },
+    { channel: 'live' },
     { enabled: isLive, refetchInterval: 5000 },
   );
   const myLive = myLiveQuery.data as any;

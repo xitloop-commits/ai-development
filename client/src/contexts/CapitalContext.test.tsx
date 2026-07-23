@@ -86,7 +86,7 @@ describe("useCapital — provider boundary", () => {
 
 describe("StaticCapitalProvider — provider/consumer wiring", () => {
   it("makes the supplied value visible to children via useCapital()", () => {
-    const value = makeStaticValue({ channel: "my-live" });
+    const value = makeStaticValue({ channel: "live" });
     function Child() {
       const ctx = useCapital();
       return <div data-testid="ch">{ctx.channel}</div>;
@@ -96,7 +96,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
         <Child />
       </StaticCapitalProvider>,
     );
-    expect(screen.getByTestId("ch")).toHaveTextContent("my-live");
+    expect(screen.getByTestId("ch")).toHaveTextContent("live");
   });
 
   it("exposes the capital tradingPool to children", () => {
@@ -121,7 +121,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
     function Child() {
       const ctx = useCapital();
       return (
-        <button onClick={() => ctx.setChannel("ai-live")} data-testid="btn">
+        <button onClick={() => ctx.setChannel("live")} data-testid="btn">
           go-live
         </button>
       );
@@ -134,7 +134,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
     act(() => {
       screen.getByTestId("btn").click();
     });
-    expect(setChannel).toHaveBeenCalledWith("ai-live");
+    expect(setChannel).toHaveBeenCalledWith("live");
   });
 
   it("re-renders children when the parent advances the value", () => {
@@ -147,7 +147,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
         return (
           <button
             data-testid="cycle"
-            onClick={() => setValue(makeStaticValue({ channel: "my-live" }))}
+            onClick={() => setValue(makeStaticValue({ channel: "live" }))}
           >
             {ctx.channel}
           </button>
@@ -164,7 +164,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
     act(() => {
       screen.getByTestId("cycle").click();
     });
-    expect(screen.getByTestId("cycle")).toHaveTextContent("my-live");
+    expect(screen.getByTestId("cycle")).toHaveTextContent("live");
   });
 
   it("propagates pending flags so consumers can disable mutating UI", () => {

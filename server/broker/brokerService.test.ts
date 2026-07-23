@@ -409,13 +409,13 @@ describe("Broker Service", () => {
     expect(activateResult.status).toBe("activated");
     expect(activateResult.workspace).toBe("ai");
     expect(activateResult.active).toBe(true);
-    expect(isChannelKillSwitchActive("ai-live")).toBe(true);
+    expect(isChannelKillSwitchActive("live")).toBe(true);
     // Paper channels are never affected
     expect(isChannelKillSwitchActive("paper")).toBe(false);
 
     const deactivateResult = await toggleWorkspaceKillSwitch("ai", "DEACTIVATE");
     expect(deactivateResult.status).toBe("deactivated");
-    expect(isChannelKillSwitchActive("ai-live")).toBe(false);
+    expect(isChannelKillSwitchActive("live")).toBe(false);
   }, 15000);
 
   it("kill switches are independent per workspace", async () => {
@@ -428,8 +428,8 @@ describe("Broker Service", () => {
     expect(state.ai).toBe(true);
     expect(state.my).toBe(true);
 
-    expect(isChannelKillSwitchActive("ai-live")).toBe(true);
-    expect(isChannelKillSwitchActive("my-live")).toBe(true);
+    expect(isChannelKillSwitchActive("live")).toBe(true);
+    expect(isChannelKillSwitchActive("live")).toBe(true);
   }, 15000);
 
   it("toggleKillSwitch (legacy) activates all workspaces", async () => {

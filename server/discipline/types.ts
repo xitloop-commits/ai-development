@@ -109,8 +109,8 @@ export interface StreakState {
 
 export interface DisciplineState {
   userId: string;
-  /** Per-channel partition key (e.g. "ai-paper", "my-live"). Defaults
-   *  to "my-live" for legacy callers; storage layer enforces uniqueness
+  /** Per-channel partition key (e.g. "ai-paper", "live"). Defaults
+   *  to "live" for legacy callers; storage layer enforces uniqueness
    *  on (userId, channel, date). */
   channel?: string;
   date: string;                     // "2026-04-01" IST
@@ -339,7 +339,7 @@ export interface DisciplineAgentSettings {
   simulationEnforcement: { enabled: boolean };
 
   // Live-channel enforcement master switch (mirrors simulationEnforcement for
-  // real-exchange channels: my-live, ai-live, testing-live). When `enabled` is
+  // real-exchange channels: live, live, testing-live). When `enabled` is
   // false, ALL discipline activity is bypassed for live channels too.
   // ⚠️ Default true — turning it off lets real-money orders skip every limit.
   liveEnforcement: { enabled: boolean };

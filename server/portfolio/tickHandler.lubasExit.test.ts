@@ -71,7 +71,7 @@ import type { TickData } from "../broker/types";
 const tick = (ltp: number): TickData =>
   ({ exchange: "NSE", securityId: "111", ltp, timestamp: Date.now() }) as TickData;
 
-/** A live BUY on my-live, with a Sprint stop just below entry. */
+/** A live BUY on live, with a Sprint stop just below entry. */
 const liveTrade = (overrides: Partial<any> = {}): any => ({
   id: "T-LIVE", instrument: "NIFTY_50", type: "BUY", strike: null, expiry: null,
   contractSecurityId: "111", entryPrice: 100, exitPrice: null, ltp: 100, qty: 65,
@@ -80,11 +80,11 @@ const liveTrade = (overrides: Partial<any> = {}): any => ({
   ...overrides,
 });
 
-/** Drive one tick with the trade sitting on `my-live` (other channels empty). */
+/** Drive one tick with the trade sitting on `live` (other channels empty). */
 async function processLive(trade: any, ltp: number): Promise<void> {
   getDayRecordMock.mockImplementation((channel: string) =>
     Promise.resolve(
-      channel === "my-live"
+      channel === "live"
         ? { dayIndex: 1, date: "2024-11-14", trades: [trade], totalPnl: 0 }
         : { dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 },
     ),
@@ -103,7 +103,7 @@ describe("Lubas-managed live exits", () => {
     (tickHandler as any).exitingTrades.clear();
     lubasManagedExit = true;
     getCapitalStateMock.mockResolvedValue({
-      channel: "my-live", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
+      channel: "live", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
       currentDayIndex: 1, targetPercent: 1, profitHistory: [], cumulativePnl: 0,
       cumulativeCharges: 0, sessionTradeCount: 0,
     });
@@ -117,7 +117,7 @@ describe("Lubas-managed live exits", () => {
     // Price falls below the 95 stop.
     await processLive(liveTrade(), 94);
     expect(exitEvent).not.toBeNull();
-    expect(exitEvent.channel).toBe("my-live");
+    expect(exitEvent.channel).toBe("live");
     expect(exitEvent.reason).toBe("SL_HIT");
   });
 

@@ -367,7 +367,7 @@ function DisciplineIndicator() {
             {/* Master toggles */}
             <div className="space-y-2 border-y border-border py-2">
               <EnforcementToggle
-                label="Live" sub="my-live · ai-live" on={liveOn}
+                label="Live" sub="live · live" on={liveOn}
                 onToggle={() => liveOn ? setConfirmLiveOff(true) : setLive(true)}
                 danger
               />
@@ -419,7 +419,7 @@ function DisciplineIndicator() {
         <ConfirmDialog
           open
           title="Turn OFF live discipline?"
-          message="Real-money orders on my-live and ai-live will skip EVERY limit — daily loss cap, R:R gate, position caps, cooldowns. Nothing will stop a bad trade. Turn it back on the moment you are done."
+          message="Real-money orders on live and live will skip EVERY limit — daily loss cap, R:R gate, position caps, cooldowns. Nothing will stop a bad trade. Turn it back on the moment you are done."
           onConfirm={() => { setLive(false); setConfirmLiveOff(false); }}
           onCancel={() => setConfirmLiveOff(false)}
         />

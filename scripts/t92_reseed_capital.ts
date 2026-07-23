@@ -7,7 +7,7 @@
  * is correct — it's simulated money — it just needs to be the right size.
  *
  * What this does:
- *   ai-live / my-live — DELETE portfolio_state + day_records so both re-seed from
+ *   live / live — DELETE portfolio_state + day_records so both re-seed from
  *     their own Dhan account on the next read. Their day-1 rows carry
  *     tradeCapital = 100000; leaving them would feed the phantom figure straight
  *     back into the new day's target. Verified safe: 0 trades, 0 profit history,
@@ -28,7 +28,7 @@ import mongoose from "mongoose";
 import { connectMongo, disconnectMongo } from "../server/mongo";
 
 const PAPER_FLOAT = 1_000_000;
-const LIVE_CHANNELS = ["ai-live", "my-live"] as const;
+const LIVE_CHANNELS = ["live"] as const;
 const APPLY = process.argv.includes("--apply");
 const r2 = (x: number) => Math.round(x * 100) / 100;
 

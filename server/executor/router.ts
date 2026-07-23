@@ -34,9 +34,7 @@ import { getActiveBroker } from "../broker/brokerService";
 import { portfolioAgent } from "../portfolio";
 
 const channelSchema = z.enum([
-  "paper",
-  "ai-live",
-  "my-live",
+  "paper", "live",
 ]);
 
 const trailingStopSchema = z.object({

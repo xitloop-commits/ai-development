@@ -60,7 +60,7 @@ const meta = {
     onExitAll: () => console.log("exit all"),
     onPlaceTrade: async (t: unknown) => console.log("place", t),
     getLiveLtp: () => undefined,
-    channel: "my-live" as const,
+    channel: "live" as const,
     allDays: [baseDay],
   },
 } satisfies Meta<typeof Harness>;

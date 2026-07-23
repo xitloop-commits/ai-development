@@ -18,7 +18,7 @@ const { listOpenTradesMock, exitTradeMock, getSettingsMock, isTodayHolidayMock, 
     eodSquareoffMcxTime: "23:25",
   })),
   isTodayHolidayMock: vi.fn((_ex: string) => ({ isHoliday: false })),
-  // Per-mode square-off: AI channels (paper/ai-live) read this; my-live uses
+  // Per-mode square-off: AI channels (paper/live) read this; live uses
   // the executor settings above.
   aiSquareoffMock: vi.fn(() => ({ enabled: true, nseTime: "15:25", mcxTime: "23:25" })),
 }));
@@ -33,7 +33,7 @@ vi.mock("./settings", () => ({
   getExecutorSettings: getSettingsMock,
 }));
 vi.mock("../portfolio/aiModeConfig", () => ({
-  aiModeForChannel: (ch: string) => (ch === "paper" ? "paper" : ch === "ai-live" ? "live" : null),
+  aiModeForChannel: (ch: string) => (ch === "paper" ? "paper" : ch === "live" ? "live" : null),
   getAiConfig: () => ({ squareoff: aiSquareoffMock() }),
 }));
 vi.mock("../holidays", () => ({
@@ -97,8 +97,8 @@ describe("runEodSquareoff", () => {
         trade({ id: "T2", instrument: "CRUDEOIL" }),                // MCX → skip on NSE run
         trade({ id: "T3", instrument: "ICICIBANK", productType: "CNC" }), // delivery → held
       ],
-      "ai-live": [trade({ id: "T4", instrument: "NIFTY_50" })],     // NSE → flatten
-      "my-live": [],
+      // T126 — two books now, so the "across all channels" claim is paper + live.
+      live: [trade({ id: "T4", instrument: "NIFTY_50" })],           // NSE → flatten
     });
 
     const res = await runEodSquareoff("NSE", "2026-07-20");
@@ -127,8 +127,8 @@ describe("runEodSquareoff", () => {
         trade({ id: "T1", instrument: "BANKNIFTY" }),  // NSE → skip on MCX run
         trade({ id: "T2", instrument: "CRUDEOIL" }),   // MCX → flatten
       ],
-      "ai-live": [],
-      "my-live": [],
+      "live": [],
+      "live": [],
     });
 
     const res = await runEodSquareoff("MCX", "2026-07-20");

@@ -724,8 +724,8 @@ describe("checkCombinedDayCompletion (shared live staircase)", () => {
   });
 
   it("completes when the two books' COMBINED P&L clears the COMBINED target", () => {
-    // ai-live +3000 / target 5000, my-live +4000 / target 5000 → combined 7000 ≥ 10000? No.
-    // Bump my-live to +8000 → combined 11000 ≥ 10000 → complete.
+    // live +3000 / target 5000, live +4000 / target 5000 → combined 7000 ≥ 10000? No.
+    // Bump live to +8000 → combined 11000 ≥ 10000 → complete.
     const r = checkCombinedDayCompletion([book(3000, 5000), book(8000, 5000)]);
     expect(r.status).toBe("complete");
     expect(r.combinedPnl).toBe(11000);
@@ -733,7 +733,7 @@ describe("checkCombinedDayCompletion (shared live staircase)", () => {
   });
 
   it("does NOT complete when one book beats its own target but the COMBINED falls short", () => {
-    // ai-live +6000 (beats its 5000) but my-live -3000 → combined 3000 < 10000 → none.
+    // live +6000 (beats its 5000) but live -3000 → combined 3000 < 10000 → none.
     const r = checkCombinedDayCompletion([book(6000, 5000), book(-3000, 5000)]);
     expect(r.status).toBe("none");
     expect(r.combinedPnl).toBe(3000);
@@ -745,7 +745,7 @@ describe("checkCombinedDayCompletion (shared live staircase)", () => {
   });
 
   it("claws back when the COMBINED result is a loss ≥ the COMBINED target", () => {
-    // ai-live -7000, my-live -4000 → combined -11000, |−11000| ≥ 10000 → clawback.
+    // live -7000, live -4000 → combined -11000, |−11000| ≥ 10000 → clawback.
     const r = checkCombinedDayCompletion([book(-7000, 5000), book(-4000, 5000)]);
     expect(r.status).toBe("clawback");
     expect(r.combinedPnl).toBe(-11000);

@@ -2,7 +2,7 @@
  * capitalLedger — the book of records for a channel's capital.
  *
  * WHY THIS EXISTS
- * On 2026-07-21 a ₹9,00,000 injection meant for `paper` landed on `my-live`
+ * On 2026-07-21 a ₹9,00,000 injection meant for `paper` landed on `live`
  * (the client hardcoded the channel). It sat there for over an hour reading as
  * ₹8.95L of profit, and was only caught because the operator thought the number
  * looked wrong. Reconstructing it needed arithmetic on a stale
@@ -362,29 +362,20 @@ export async function reconcile(
     };
   }
 
-  const { _getAdapterByBrokerId, brokerIdForChannel, liveBooksShareAccount } =
+  const { _getAdapterByBrokerId, brokerIdForChannel } =
     await import("../broker/brokerService");
   const brokerId = brokerIdForChannel(channel)!;
 
-  // T118 — when both live books are funded by ONE Dhan account, neither book on
-  // its own can match that account's balance: the account holds the sum of the
-  // two. Compare the sum, or every reconcile would report permanent drift.
-  const shared = liveBooksShareAccount();
-  let bookLabel = "This book";
-  let compareBalance = bookBalance;
-  if (shared) {
-    const other: Channel = channel === "my-live" ? "ai-live" : "my-live";
-    const { getCapitalState } = await import("./state");
-    const o = await getCapitalState(other);
-    compareBalance = round2(bookBalance + o.tradingPool + o.reservePool);
-    bookLabel = "Both live books together";
-  }
+  // T126 — one live book, one account, so the book's own balance IS the thing to
+  // compare. The compare-the-sum branch that lived here existed only because two
+  // books were drawing on one account; it went with the merge.
+  const compareBalance = bookBalance;
 
   let brokerBalance: number | null = null;
   try {
     const adapter = _getAdapterByBrokerId(brokerId);
     // Strict lookup: getAdapter() falls back to the PRIMARY account when the
-    // secondary is not up, which would reconcile ai-live against my-live's money.
+    // secondary is not up, which would reconcile live against live's money.
     if (adapter) {
       const margin = await adapter.getMargin();
       // `available` = Dhan's availabelBalance, the cash actually in the account.
@@ -406,23 +397,20 @@ export async function reconcile(
   }
 
   const difference = round2(compareBalance - brokerBalance);
-  const sharedNote = shared
-    ? ` ai-live and my-live share ${brokerId}, so this compares both books added together.`
-    : "";
   if (Math.abs(difference) <= DRIFT_TOLERANCE) {
     return {
       channel, brokerBalance, bookBalance, difference,
       status: "MATCHED",
-      message: `${bookLabel} agrees with ${brokerId}.${sharedNote}`,
+      message: `Book agrees with ${brokerId}.`,
     };
   }
   return {
     channel, brokerBalance, bookBalance, difference,
     status: "DRIFT",
     message:
-      `${bookLabel} is ${difference > 0 ? "AHEAD OF" : "BEHIND"} ${brokerId} by ` +
+      `Book is ${difference > 0 ? "AHEAD OF" : "BEHIND"} ${brokerId} by ` +
       `₹${Math.abs(difference).toLocaleString("en-IN")}. Open positions, a deposit made ` +
-      `directly at Dhan, or funds added to the wrong book will all show up here.${sharedNote}`,
+      `directly at Dhan, or funds added to the wrong book will all show up here.`,
   };
 }
 

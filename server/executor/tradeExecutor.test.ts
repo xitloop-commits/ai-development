@@ -546,7 +546,7 @@ describe("B4 — BROKER_DESYNC handling", () => {
     const resp = await tradeExecutor.exitTrade({
       executionId: "exit-fail-1",
       positionId: "POS-1234",
-      channel: "my-live",
+      channel: "live",
       exitType: "MARKET",
       reason: "MANUAL",
       triggeredBy: "USER",
@@ -594,7 +594,7 @@ describe("B4 — BROKER_DESYNC handling", () => {
     const resp = await tradeExecutor.exitTrade({
       executionId: "exit-nocsid-1",
       positionId: "POS-1234",
-      channel: "my-live",
+      channel: "live",
       exitType: "MARKET",
       reason: "MANUAL",
       triggeredBy: "USER",
@@ -627,7 +627,7 @@ describe("B4 — BROKER_DESYNC handling", () => {
     const resp = await tradeExecutor.modifyOrder({
       executionId: "mod-fail-1",
       positionId: "POS-1234",
-      channel: "my-live",
+      channel: "live",
       modifications: { stopLossPrice: 92, targetPrice: 130 },
       reason: "USER",
       timestamp: Date.now(),
@@ -672,7 +672,7 @@ describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
     // not the per-channel order adapter (getAdapter).
     vi.mocked(getActiveBroker).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
     vi.mocked(portfolioAgent.listOpenTrades).mockImplementation(async (ch: any) =>
-      ch === "my-live"
+      ch === "live"
         ? ([
             { id: "T1", instrument: "NIFTY 50", status: "OPEN", contractSecurityId: "55123" },
             { id: "T2", instrument: "NATURAL GAS", status: "OPEN", contractSecurityId: "99001" },
@@ -708,7 +708,7 @@ describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
  * closed them LOCALLY: the app marked the trade CLOSED at its computed stop
  * while the real position stayed OPEN at Dhan, unmanaged.
  *
- * Observed 2026-07-23 on my-live — two trades booked at entry x 0.98 with no
+ * Observed 2026-07-23 on live — two trades booked at entry x 0.98 with no
  * exit order, positions kept running, and they had to be flattened by hand at
  * -3,525 and -9,613 against a booked -282 and -777.
  *
@@ -724,7 +724,7 @@ describe("recordAutoExit — live vs paper", () => {
 
   it("LIVE: places a real broker exit order", async () => {
     await tradeExecutor.recordAutoExit({
-      channel: "my-live",
+      channel: "live",
       tradeId: "T1234",
       reason: "SL_HIT",
       exitPrice: 95,
@@ -756,7 +756,7 @@ describe("recordAutoExit — live vs paper", () => {
       placeOrder: vi.fn(async () => { throw new Error("Dhan timeout"); }),
     });
     await tradeExecutor.recordAutoExit({
-      channel: "my-live",
+      channel: "live",
       tradeId: "T1234",
       reason: "SL_HIT",
       exitPrice: 95,

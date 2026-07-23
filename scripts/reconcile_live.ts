@@ -20,7 +20,7 @@ import { connectMongo, disconnectMongo } from "../server/mongo";
 import { portfolioAgent } from "../server/portfolio";
 
 const APPLY = process.argv.includes("--apply");
-const CHANNELS = ["my-live", "ai-live"] as const;
+const CHANNELS = ["live"] as const;
 const istDay = (ts: number) => new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const inr = (n: number) => `${n < 0 ? "-" : ""}Rs ${Math.abs(r2(n)).toLocaleString("en-IN")}`;

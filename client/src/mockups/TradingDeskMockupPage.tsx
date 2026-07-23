@@ -527,15 +527,17 @@ function buildWorkspaceData(): Record<Channel, WorkspaceData> {
     trades: day.trades.map((trade) => ({ ...trade })),
   }));
 
+  // T126 — two books. The mockup used to carry three (ai-live, my-live, paper);
+  // the paper entry keeps the manual fixture, which is the busier of the two and
+  // therefore the more useful thing to look at in a layout mockup.
   return {
-    'my-live':         { capital: liveCapital, allDays: liveDays },
-    'ai-live':         { capital: paperCapital, allDays: paperDays },
-    'paper':           { capital: paperManualCapital, allDays: paperManualDays },
+    'live':  { capital: liveCapital, allDays: liveDays },
+    'paper': { capital: paperManualCapital, allDays: paperManualDays },
   };
 }
 
 export default function TradingDeskMockupPage() {
-  const [channel, setChannel] = useState<Channel>('my-live');
+  const [channel, setChannel] = useState<Channel>('live');
   const workspaceData = useMemo(() => buildWorkspaceData(), []);
   const active = workspaceData[channel];
 

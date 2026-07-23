@@ -2,7 +2,7 @@
  * Withdraw — taking funds back out of a book.
  *
  * Context for the rules below: funding actions apply to the channel the
- * operator is VIEWING. They used to be hardcoded to 'my-live' on the client, so
+ * operator is VIEWING. They used to be hardcoded to 'live' on the client, so
  * adding or transferring funds while looking at Paper silently moved money in
  * the real-money book and the paper figure never budged. The channel is now
  * required input on every one of them.

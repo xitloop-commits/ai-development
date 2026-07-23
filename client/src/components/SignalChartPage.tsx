@@ -142,7 +142,7 @@ export default function SignalChartPage() {
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
     {
       channel: (target?.channel ?? "paper") as
-        | "paper" | "ai-live" | "my-live",
+        | "paper" | "live",
       instrument: target?.instrumentKey ?? "",
       strike: target?.strike ?? 0,
       side: (target?.side ?? "CE") as "CE" | "PE",

@@ -4,7 +4,7 @@
  * Was an either/or `aiTradesMode`: one signal, one book. Switching it to live
  * silently stopped paper receiving anything, which is exactly what happened on
  * 2026-07-23 — an MA `LONG_PE` fired and the operator asked why no paper trade
- * appeared. It had gone to ai-live (and been rejected there by Dhan).
+ * appeared. It had gone to live (and been rejected there by Dhan).
  *
  * Now two INDEPENDENT switches, so both books can run the same signal — paper as
  * a live control against the real account.
@@ -26,13 +26,13 @@ interface TradingMode {
 function aiChannelsFor(tm: TradingMode | undefined): string[] {
   const paperOn = tm?.aiPaperEnabled ?? (tm?.aiTradesMode ?? "paper") === "paper";
   const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
-  return [...(paperOn ? ["paper"] : []), ...(liveOn ? ["ai-live"] : [])];
+  return [...(paperOn ? ["paper"] : []), ...(liveOn ? ["live"] : [])];
 }
 
 describe("independent paper / live routing", () => {
   it("both ON places on BOTH books", () => {
     expect(aiChannelsFor({ aiPaperEnabled: true, aiLiveEnabled: true }))
-      .toEqual(["paper", "ai-live"]);
+      .toEqual(["paper", "live"]);
   });
 
   it("paper only", () => {
@@ -40,7 +40,7 @@ describe("independent paper / live routing", () => {
   });
 
   it("live only — paper gets nothing", () => {
-    expect(aiChannelsFor({ aiPaperEnabled: false, aiLiveEnabled: true })).toEqual(["ai-live"]);
+    expect(aiChannelsFor({ aiPaperEnabled: false, aiLiveEnabled: true })).toEqual(["live"]);
   });
 
   it("both OFF routes nowhere — the signal must not be placed at all", () => {
@@ -59,7 +59,7 @@ describe("independent paper / live routing", () => {
       {},
       undefined,
     ]) {
-      expect(aiChannelsFor(tm)).not.toContain("ai-live");
+      expect(aiChannelsFor(tm)).not.toContain("live");
     }
   });
 });
@@ -70,7 +70,7 @@ describe("migration from the old either/or aiTradesMode", () => {
   });
 
   it("...and live", () => {
-    expect(aiChannelsFor({ aiTradesMode: "live" })).toEqual(["ai-live"]);
+    expect(aiChannelsFor({ aiTradesMode: "live" })).toEqual(["live"]);
   });
 
   it("the explicit flags win over the legacy mode once present", () => {

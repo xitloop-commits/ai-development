@@ -261,9 +261,7 @@ export const disciplineRouter = router({
     .input(
       z.object({
         channel: z.enum([
-          "paper",
-          "ai-live",
-          "my-live",
+          "paper", "live",
         ]),
         tradeId: z.string().min(1),
         realizedPnl: z.number(),

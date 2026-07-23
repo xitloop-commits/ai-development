@@ -34,7 +34,7 @@ function round(n: number): number {
 
 function makeState(overrides?: Partial<CapitalState>): CapitalState {
   return {
-    channel: "my-live",
+    channel: "live",
     tradingPool: 75000,
     reservePool: 25000,
     initialFunding: 100000,
@@ -222,17 +222,17 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     if (!mongoConnected) return;
 
     // Get state before inject
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
+    const stateBefore = await caller.portfolio.state({ channel: "live" });
     const poolBefore = stateBefore.tradingPool;
     const reserveBefore = stateBefore.reservePool;
     const fundingBefore = stateBefore.initialFunding;
 
     // Inject 10000
     const injectAmount = 10000;
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
+    await caller.portfolio.inject({ channel: "live", amount: injectAmount });
 
     // Get state after inject
-    const stateAfter = await caller.portfolio.state({ channel: "my-live" });
+    const stateAfter = await caller.portfolio.state({ channel: "live" });
 
     expect(stateAfter.tradingPool).toBe(round(poolBefore + injectAmount));
     expect(stateAfter.reservePool).toBe(reserveBefore);
@@ -250,13 +250,13 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("currentDay should have updated tradeCapital after inject", async () => {
     if (!mongoConnected) return;
 
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
-    const dayBefore = await caller.portfolio.currentDay({ channel: "my-live" });
+    const stateBefore = await caller.portfolio.state({ channel: "live" });
+    const dayBefore = await caller.portfolio.currentDay({ channel: "live" });
 
     const injectAmount = 5000;
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
+    await caller.portfolio.inject({ channel: "live", amount: injectAmount });
 
-    const dayAfter = await caller.portfolio.currentDay({ channel: "my-live" });
+    const dayAfter = await caller.portfolio.currentDay({ channel: "live" });
     const expectedTradingPool = round(stateBefore.tradingPool + injectAmount);
 
     expect(dayAfter.tradeCapital).toBe(expectedTradingPool);
@@ -276,11 +276,11 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     if (!mongoConnected) return;
 
     const injectAmount = 3000;
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
+    const stateBefore = await caller.portfolio.state({ channel: "live" });
 
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
+    await caller.portfolio.inject({ channel: "live", amount: injectAmount });
 
-    const allDays = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
+    const allDays = await caller.portfolio.allDays({ channel: "live", futureCount: 5 });
 
     // allDays returns a structured response, not a flat array
     expect(allDays.currentDay).toBeDefined();
@@ -294,12 +294,12 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("future days should project from updated actualCapital", async () => {
     if (!mongoConnected) return;
 
-    const allDaysBefore = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
+    const allDaysBefore = await caller.portfolio.allDays({ channel: "live", futureCount: 5 });
 
     const injectAmount = 20000;
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
+    await caller.portfolio.inject({ channel: "live", amount: injectAmount });
 
-    const allDaysAfter = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
+    const allDaysAfter = await caller.portfolio.allDays({ channel: "live", futureCount: 5 });
 
     // futureDays are FUTURE by construction (router.ts:438 — projectFutureDays
     // emits the slice starting at currentDayIndex + 1).
@@ -315,13 +315,13 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("quarterly projections should use updated initialFunding after inject", async () => {
     if (!mongoConnected) return;
 
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
+    const stateBefore = await caller.portfolio.state({ channel: "live" });
     const projBefore = stateBefore.allQuarterlyProjections;
 
     const injectAmount = 50000;
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
+    await caller.portfolio.inject({ channel: "live", amount: injectAmount });
 
-    const stateAfter = await caller.portfolio.state({ channel: "my-live" });
+    const stateAfter = await caller.portfolio.state({ channel: "live" });
     const projAfter = stateAfter.allQuarterlyProjections;
 
     // initialFunding should have increased
@@ -341,8 +341,8 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     }
   });
 
-  // (T87: the my-live → paper capital mirror was removed — paper is now an
-  //  independent book, so inject on my-live no longer syncs paper. The former
+  // (T87: the live → paper capital mirror was removed — paper is now an
+  //  independent book, so inject on live no longer syncs paper. The former
   //  "paper workspace should also sync after inject" test was dropped.)
 
   // ── Test 7: Past days are NOT modified ─────────────────────────
@@ -350,15 +350,15 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("past completed days should NOT be modified after inject", async () => {
     if (!mongoConnected) return;
 
-    const state = await caller.portfolio.state({ channel: "my-live" });
+    const state = await caller.portfolio.state({ channel: "live" });
 
     // Only test if there are past days
     if (state.currentDayIndex > 1) {
-      const pastDaysBefore = await caller.portfolio.pastDays({ channel: "my-live", limit: 10 });
+      const pastDaysBefore = await caller.portfolio.pastDays({ channel: "live", limit: 10 });
 
-      await caller.portfolio.inject({ channel: "my-live", amount: 5000 });
+      await caller.portfolio.inject({ channel: "live", amount: 5000 });
 
-      const pastDaysAfter = await caller.portfolio.pastDays({ channel: "my-live", limit: 10 });
+      const pastDaysAfter = await caller.portfolio.pastDays({ channel: "live", limit: 10 });
 
       // Each past day should be identical
       for (let i = 0; i < pastDaysBefore.length; i++) {
@@ -375,9 +375,9 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("netWorth should equal tradingPool + reservePool after inject", async () => {
     if (!mongoConnected) return;
 
-    await caller.portfolio.inject({ channel: "my-live", amount: 15000 });
+    await caller.portfolio.inject({ channel: "live", amount: 15000 });
 
-    const state = await caller.portfolio.state({ channel: "my-live" });
+    const state = await caller.portfolio.state({ channel: "live" });
     expect(state.netWorth).toBe(round(state.tradingPool + state.reservePool));
   });
 
@@ -386,9 +386,9 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("todayTarget should reflect updated tradeCapital after inject", async () => {
     if (!mongoConnected) return;
 
-    await caller.portfolio.inject({ channel: "my-live", amount: 10000 });
+    await caller.portfolio.inject({ channel: "live", amount: 10000 });
 
-    const state = await caller.portfolio.state({ channel: "my-live" });
+    const state = await caller.portfolio.state({ channel: "live" });
     const expectedTarget = round(state.tradingPool * state.targetPercent / 100);
 
     expect(state.todayTarget).toBe(expectedTarget);
@@ -399,13 +399,13 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
   it("multiple sequential injects should accumulate correctly", async () => {
     if (!mongoConnected) return;
 
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
+    const stateBefore = await caller.portfolio.state({ channel: "live" });
 
-    await caller.portfolio.inject({ channel: "my-live", amount: 1000 });
-    await caller.portfolio.inject({ channel: "my-live", amount: 2000 });
-    await caller.portfolio.inject({ channel: "my-live", amount: 3000 });
+    await caller.portfolio.inject({ channel: "live", amount: 1000 });
+    await caller.portfolio.inject({ channel: "live", amount: 2000 });
+    await caller.portfolio.inject({ channel: "live", amount: 3000 });
 
-    const stateAfter = await caller.portfolio.state({ channel: "my-live" });
+    const stateAfter = await caller.portfolio.state({ channel: "live" });
     const totalInjected = 6000;
 
     expect(stateAfter.tradingPool).toBe(

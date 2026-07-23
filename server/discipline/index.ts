@@ -142,7 +142,7 @@ class DisciplineAgent {
       const { rcaMonitor } = await import("../risk-control");
       const { classifyIv } = await import("../risk-control/ivClassifier");
       // Channels we monitor for carry-forward — same as RCA's set.
-      const channels = ["my-live", "ai-live", "paper"] as const;
+      const channels = ["live", "paper"] as const;
       for (const channel of channels) {
         // Master bypass: skip carry-forward for simulation channels when
         // discipline is turned off for them.
@@ -191,10 +191,10 @@ class DisciplineAgent {
 
     const result = runCarryForwardEvaluation(positions, settings);
 
-    // Persist the eval record on the (userId, channel="my-live", date)
+    // Persist the eval record on the (userId, channel="live", date)
     // discipline_state doc — separate records per channel are a Phase D
     // concern (single per-user dashboard view today).
-    const stateChannel = "my-live";
+    const stateChannel = "live";
     const state = await getDisciplineState(userId, date, stateChannel);
     state.carryForwardEvals = state.carryForwardEvals ?? {};
     if (exchange === "NSE") state.carryForwardEvals.nse = result.evalRecord;
@@ -241,7 +241,7 @@ class DisciplineAgent {
     request: TradeValidationRequest,
     currentCapital: number,
     currentExposure: number,
-    channel: string = "my-live",
+    channel: string = "live",
   ): Promise<TradeValidationResult> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);
@@ -325,7 +325,7 @@ class DisciplineAgent {
 
     // 6. Time Window — skipped for simulation channels (sandbox / paper) so
     //    the system can be tested outside market hours. Real-exchange channels
-    //    (my-live, ai-live, testing-live) keep the market-hours guard.
+    //    (live, live, testing-live) keep the market-hours guard.
     const twResult = isSimulationChannel(channel)
       ? { passed: true, exchange: request.exchange }
       : checkTimeWindow(request.exchange, settings);
@@ -414,7 +414,7 @@ class DisciplineAgent {
    * Called when a new trade is placed (after validation passes).
    * Increments counters for the (userId, channel).
    */
-  async onTradePlaced(userId: string, channel: string = "my-live"): Promise<void> {
+  async onTradePlaced(userId: string, channel: string = "live"): Promise<void> {
     const date = getISTDateString();
     const state = await getDisciplineState(userId, date, channel);
     await updateDisciplineState(userId, date, {
@@ -433,7 +433,7 @@ class DisciplineAgent {
     pnl: number,
     openCapital: number,
     tradeId?: string,
-    channel: string = "my-live",
+    channel: string = "live",
   ): Promise<{ cooldownStarted: boolean; circuitBreakerTriggered: boolean }> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);

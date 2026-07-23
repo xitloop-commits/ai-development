@@ -173,7 +173,7 @@ export function checkDayCompletion(
 
 /**
  * Shared LIVE journey (T87) — combined completion/clawback decision across the
- * two live books (ai-live + my-live). PURE: takes each book's current-day P&L,
+ * two live books (live + live). PURE: takes each book's current-day P&L,
  * target, and whether it has an open trade; decides whether the SHARED day
  * completes, claws back, or nothing. Per-account capital is applied by the
  * caller (each book runs completeDayIndex / processClawback on its OWN state).

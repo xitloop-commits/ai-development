@@ -68,7 +68,7 @@ import type {
 const log = createLogger("TEA", "Executor");
 
 const PAPER_CHANNELS: Channel[] = ["paper"];
-const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live"];
+const LIVE_CHANNELS: Channel[] = ["live"];
 
 function _isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
@@ -162,7 +162,7 @@ class TradeExecutorAgent {
    */
   async resubscribeOpenTradeLtps(): Promise<void> {
     const ALL_CHANNELS: Channel[] = [
-      "paper", "ai-live", "my-live",
+      "paper", "live",
     ];
     let count = 0;
     for (const channel of ALL_CHANNELS) {
@@ -180,7 +180,7 @@ class TradeExecutorAgent {
       const feedAdapter = (() => {
         // T87 Phase 1: ALL channels read live ticks from the primary market
         // feed (market data is account-independent; orders still route per
-        // channel via getAdapter). ai-live no longer pulls ticks from the
+        // channel via getAdapter). live no longer pulls ticks from the
         // secondary — one shared tick feed on the primary.
         try {
           return getActiveBroker();
@@ -471,7 +471,7 @@ class TradeExecutorAgent {
    *
    *   - Cost of false reject: one missed signal entry, no capital impact.
    *   - Cost of false accept: a trade that should have been blocked
-   *     gets placed (potential capital loss, especially on ai-live).
+   *     gets placed (potential capital loss, especially on live).
    *
    * Always prefer the false-reject failure mode.
    */
@@ -879,7 +879,7 @@ class TradeExecutorAgent {
     // Lubas-managed live exits changed that — the engine now detects SL/TSL/TP
     // on live channels too, and those exits arrive here. Closing locally marked
     // the trade CLOSED at the app's COMPUTED stop while the real position stayed
-    // OPEN at Dhan, unmanaged. Observed 2026-07-23: two my-live trades booked at
+    // OPEN at Dhan, unmanaged. Observed 2026-07-23: two live trades booked at
     // entry x 0.98 with no exit order, the positions kept running, and the
     // operator had to flatten them by hand at far worse prices (-3,525 and
     // -9,613 against a booked -282 and -777).
@@ -1468,7 +1468,7 @@ function mapBrokerStatusToSubmitStatus(
  * ticks flow into tickBus.
  *
  * - Live channels: subscribe on the channel's own adapter (dhanLive for
- *   my-live/testing-live, dhanAiData for ai-live).
+ *   live/testing-live, dhanAiData for live).
  * - Paper channels (my-paper, ai-paper): subscribe via
  *   the primary Dhan adapter (dhanLive) so paper trades read the SAME
  *   live LTP the UI already sees. The channel's mock adapter otherwise

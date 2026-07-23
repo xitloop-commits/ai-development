@@ -85,7 +85,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("emits a synthetic OrderUpdate when the broker reports FILLED", async () => {
-    pendingFor("my-live", [makePosition()]);
+    pendingFor("live", [makePosition()]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "FILLED", filledQuantity: 75, averagePrice: 102.5 }),
     );
@@ -105,7 +105,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("emits REJECTED with the broker reason carried through", async () => {
-    pendingFor("ai-live", [makePosition({ brokerOrderId: "ORD-REJ" })]);
+    pendingFor("live", [makePosition({ brokerOrderId: "ORD-REJ" })]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "REJECTED", filledQuantity: 0, averagePrice: 0, reason: "Insufficient funds" }),
     );
@@ -121,7 +121,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
     for (const status of ["CANCELLED", "EXPIRED"] as const) {
       vi.clearAllMocks();
       recoveryEngine.stop();
-      pendingFor("my-live", [makePosition({ brokerOrderId: `ORD-${status}` })]);
+      pendingFor("live", [makePosition({ brokerOrderId: `ORD-${status}` })]);
       getAdapterMock.mockReturnValue(makeAdapter({ status, filledQuantity: 0, averagePrice: 0 }));
 
       await recoveryEngine.reconcileNow("dhan-primary-ac");
@@ -131,7 +131,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("does NOT emit when broker still reports PENDING (let WS deliver the fill)", async () => {
-    pendingFor("my-live", [makePosition()]);
+    pendingFor("live", [makePosition()]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "PENDING", filledQuantity: 0, averagePrice: 0 }),
     );
@@ -142,7 +142,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("skips channels served by a different broker", async () => {
-    pendingFor("my-live", [makePosition()]);
+    pendingFor("live", [makePosition()]);
     getAdapterMock.mockReturnValue(makeAdapter({ status: "FILLED" }, "dhan-primary-ac"));
 
     // Reconcile for the secondary broker — primary's channels must be skipped.
@@ -153,7 +153,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("skips positions without a brokerOrderId", async () => {
-    pendingFor("my-live", [makePosition({ brokerOrderId: undefined })]);
+    pendingFor("live", [makePosition({ brokerOrderId: undefined })]);
     getAdapterMock.mockReturnValue(makeAdapter({ status: "FILLED" }));
 
     await recoveryEngine.reconcileNow("dhan-primary-ac");
@@ -162,7 +162,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("does not re-poll the same orderId inside the throttle window", async () => {
-    pendingFor("my-live", [makePosition()]);
+    pendingFor("live", [makePosition()]);
     const adapter = makeAdapter({ status: "PENDING", filledQuantity: 0, averagePrice: 0 });
     getAdapterMock.mockReturnValue(adapter);
 
@@ -173,7 +173,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("survives broker errors without throwing (best-effort backstop)", async () => {
-    pendingFor("my-live", [makePosition()]);
+    pendingFor("live", [makePosition()]);
     getAdapterMock.mockReturnValue({
       brokerId: "dhan-primary-ac",
       getOrderStatus: vi.fn(async () => {

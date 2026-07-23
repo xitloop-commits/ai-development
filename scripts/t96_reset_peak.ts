@@ -17,7 +17,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 import { connectMongo, disconnectMongo } from "../server/mongo";
 
-const CH = process.argv.find((a) => !a.startsWith("--") && ["paper", "ai-live", "my-live"].includes(a)) ?? "paper";
+const CH = process.argv.find((a) => !a.startsWith("--") && ["paper", "live"].includes(a)) ?? "paper";
 const APPLY = process.argv.includes("--apply");
 const r2 = (n: number) => Math.round(n * 100) / 100;
 

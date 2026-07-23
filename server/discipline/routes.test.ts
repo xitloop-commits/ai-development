@@ -146,15 +146,15 @@ beforeEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────
 
 describe("POST /api/discipline/validateTrade — AI channel routing (T87)", () => {
-  it("origin=AI routes to ai-live when aiTradesMode is live (overrides posted channel)", async () => {
+  it("origin=AI routes to live when aiTradesMode is live (overrides posted channel)", async () => {
     (getUserSettings as any).mockResolvedValueOnce({ tradingMode: { aiTradesMode: "live" } });
     const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const { res } = makeRes();
-    // validBody posts channel:"paper" — the server must override it to ai-live.
+    // validBody posts channel:"paper" — the server must override it to live.
     await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
     expect(rcaMonitor.evaluateTrade).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "ai-live", origin: "AI" }),
+      expect.objectContaining({ channel: "live", origin: "AI" }),
     );
   });
 
@@ -176,11 +176,11 @@ describe("POST /api/discipline/validateTrade — AI channel routing (T87)", () =
     const { res } = makeRes();
     await runPipeline(
       pipelineFor("post", "/api/discipline/validateTrade"),
-      makeReq({ ...validBody, origin: "USER", channel: "my-live" }),
+      makeReq({ ...validBody, origin: "USER", channel: "live" }),
       res,
     );
     expect(rcaMonitor.evaluateTrade).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "my-live", origin: "USER" }),
+      expect.objectContaining({ channel: "live", origin: "USER" }),
     );
   });
 });
@@ -433,7 +433,7 @@ describe("aiTradesEnabled — master switch, both modes", () => {
     // getUserSettings is never called and a queued Once value would leak into the
     // NEXT test.
     const { res } = makeRes();
-    await run(makeReq({ ...validBody, origin: "USER", channel: "my-live" }), res);
+    await run(makeReq({ ...validBody, origin: "USER", channel: "live" }), res);
     expect(rcaMonitor.evaluateTrade).toHaveBeenCalled();
   });
 

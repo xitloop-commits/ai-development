@@ -133,7 +133,7 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
   }, [currentDay]);
   const activeSeqs = activeSignalSeqs ?? openSeqs;
   const selectedSeq = useSelectedSignalSeq();
-  const canTrade = channel !== 'ai-live' && channel !== 'ai-paper';
+  const canTrade = channel !== 'live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
     const action = signal.action ?? signal.direction?.replace('GO_', '') ?? '';
