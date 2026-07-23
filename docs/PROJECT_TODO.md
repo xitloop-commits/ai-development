@@ -1627,6 +1627,35 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T119 [UI] 🔴 — expanded past-day trades misaligned + off-style ✅ FIXED 2026-07-23
+Reported: "when day collapse the inside trades have a different look, not the
+same as today's trades." True — and underneath it, a real misalignment.
+
+**The bug:** `PastTradeRow` emitted **17 cells into the desk's 16-column grid**,
+with **Charges and Points transposed**. Every number after Invested sat under
+the wrong heading and the rating badge fell past the last column. jsdom does no
+layout, so no content-only test could ever have caught it — the column
+ARITHMETIC had to be asserted.
+
+**The look:** the row was a separate design — flat `bg-muted/10`,
+`text-muted-foreground` on everything (which flattened the P&L colours, the one
+thing you scan a past day for), and no entry time, signal #, Long/Short pill,
+cohort pill, strategy pill, instrument tint or TradeBar.
+
+- [PastTradeRow.tsx](../client/src/components/PastTradeRow.tsx) rewritten as a
+  mirror of `TodayTradeRow`'s closed state: same `colSpan={5}` identity block
+  (time · #signal · instrument · strike · Long/Short · cohort · strategy), same
+  instrument tint + workspace border, `opacity-60` (exactly how today renders a
+  closed trade), frozen TradeBar, same 16 cells in header order.
+- Read-only by design: strategy renders as a span not a button (rolling a
+  settled trade's strategy is meaningless), no exit, no live tick subscription.
+  A test asserts zero buttons in the row.
+- `channel` + `tradeNo` threaded through `PastRow` (channel was already in its
+  props, just never destructured).
+
+Tests: 8 in [PastTradeRow.test.tsx](../client/src/components/PastTradeRow.test.tsx).
+Mutation-verified — restoring the 17-cell/swapped layout fails 2.
+
 ### T118 [Execution] — ai-live moved onto the primary Dhan account ✅ DONE 2026-07-23
 Dhan binds an API key to ONE whitelisted IP and refuses an IP already registered
 on another account. This house has a single static IP (115.96.67.32, Hathway),

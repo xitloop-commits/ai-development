@@ -30,7 +30,7 @@ export interface PastRowProps {
   onToggleExpand?: (dayIndex: number) => void;
 }
 
-function _PastRow({ day, showNet, highlighted = false, expanded = false, onToggleExpand }: PastRowProps) {
+function _PastRow({ day, showNet, channel, highlighted = false, expanded = false, onToggleExpand }: PastRowProps) {
   const hasTrades = (day.trades?.length ?? 0) > 0;
   const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
@@ -123,7 +123,15 @@ function _PastRow({ day, showNet, highlighted = false, expanded = false, onToggl
       </td>
     </tr>
     {expanded
-      ? (day.trades ?? []).map((t) => <PastTradeRow key={t.id} trade={t} showNet={showNet} />)
+      ? (day.trades ?? []).map((t, i) => (
+          <PastTradeRow
+            key={t.id}
+            trade={t}
+            showNet={showNet}
+            channel={channel}
+            tradeNo={i + 1}
+          />
+        ))
       : null}
     </>
   );
