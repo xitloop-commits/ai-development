@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, strategiesForCohort, getAiConfig, globalExitsForChannel, bookForChannel, originKind } from "../portfolio/aiModeConfig";
+import { getActiveStrategies, strategiesForCohort, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -403,7 +403,7 @@ class RcaMonitor {
     // strategy toggles in the AI menu). Each twin needs a DISTINCT executionId —
     // idempotency is keyed on it, else twins collapse to one. Zero active = the
     // mode is paused: the signal fired but no trade is placed.
-    const book = bookForChannel(input.channel);
+    const book = resolveBook(input.channel);
     const kind = originKind(input.origin);
     // Glide is MA-Signal ONLY — see strategiesForCohort. Without this a
     // Scalp/Trend signal would spawn a Glide twin that rides forever (no

@@ -140,7 +140,7 @@ export const appRouter = router({
     aiConfig: publicProcedure.query(() => getAllAiConfig()),
     updateAiConfig: publicProcedure
       .input(z.object({
-        book: z.enum(["paper", "live"]),
+        book: z.enum(["paper", "live", "replay"]),
         kind: z.enum(["ai", "manual"]),
         patch: z.any(),
       }))
@@ -164,7 +164,7 @@ export const appRouter = router({
 
     // SHARED Sprint / Runway / Anchor exit config — common to every mode.
     updateExitConfig: publicProcedure
-      .input(z.object({ book: z.enum(["paper", "live"]), patch: z.any() }))
+      .input(z.object({ book: z.enum(["paper", "live", "replay"]), patch: z.any() }))
       .mutation(({ input }) => {
         updateExitConfig(input.book, input.patch);
         const all = getAllAiConfig();

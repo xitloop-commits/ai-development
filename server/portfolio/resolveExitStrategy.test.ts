@@ -30,6 +30,7 @@ import {
   getCommonConfig,
   updateCommonConfig,
   initAiConfig,
+  _setReplayPredicate,
 } from "./aiModeConfig";
 
 const only = (s: "sprint" | "runway" | "anchor" | "glide") => ({
@@ -289,5 +290,35 @@ describe("lubasManagedExit (common block)", () => {
     expect(getCommonConfig().squareoff).toBeDefined();
     updateCommonConfig({ lubasManagedExit: true });
     expect(getCommonConfig().lubasManagedExit).toBe(true);
+  });
+});
+
+/**
+ * T137 — while a replay run is open, every resolver uses the `replay` config
+ * block instead of the channel's book, so a replay can race a different
+ * strategy / size / exit set than paper or live.
+ */
+describe("replay overrides the config while a run is open", () => {
+  it("resolveExitStrategy uses the replay block, not the channel's book", () => {
+    updateAiConfig("paper", "ai", only("sprint"));
+    updateAiConfig("replay", "ai", only("anchor"));
+    let active = false;
+    _setReplayPredicate(() => active);
+    // No run → paper's block.
+    expect(resolveExitStrategy("paper", "AI", false)).toBe("sprint");
+    // Run open → replay's block, whatever channel the trade names.
+    active = true;
+    expect(resolveExitStrategy("paper", "AI", false)).toBe("anchor");
+    expect(resolveExitStrategy("live", "AI", false)).toBe("anchor");
+    _setReplayPredicate(() => false);
+  });
+
+  it("getExitConfig returns the replay exits during a run", () => {
+    updateExitConfig("live", { sprint: { defaultSL: 7 } });
+    updateExitConfig("replay", { sprint: { defaultSL: 21 } });
+    _setReplayPredicate(() => true);
+    expect(getExitConfig("live").sprint.defaultSL).toBe(21);
+    _setReplayPredicate(() => false);
+    expect(getExitConfig("live").sprint.defaultSL).toBe(7);
   });
 });

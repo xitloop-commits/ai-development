@@ -24,6 +24,7 @@ import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { ReplayControl } from '@/components/ReplayControl';
+import { AiControl } from '@/components/AiControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
@@ -559,8 +560,11 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
           </div>
         </div>
 
-        {/* Tick-replay live-simulation control (date + speed + Replay/Stop) */}
+        {/* Tick-replay live-simulation control (date + speed + Replay/Stop) +
+            its own settings (cohorts/strategies/sizing/exits used only during a
+            replay run — T137). */}
         <ReplayControl />
+        <AiControl replay />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 

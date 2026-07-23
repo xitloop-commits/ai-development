@@ -18,7 +18,7 @@
  * Settings menu (T129); manual sizing lives in My Trades.
  */
 import { useState, useEffect, useMemo, useRef } from "react";
-import { BrainCircuit, Check, RotateCcw } from "lucide-react";
+import { BrainCircuit, Settings, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { InfoDot } from "./InfoDot";
 import { useSeaStatus } from "@/stores/seaStatusStore";
@@ -60,7 +60,7 @@ interface CommonCfg {
 }
 /** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
 type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };
-type AllCfg = { common: CommonCfg; paper: BookCfg; live: BookCfg };
+type AllCfg = { common: CommonCfg; paper: BookCfg; live: BookCfg; replay: BookCfg };
 type Mode = "paper" | "live";
 
 // ── Small building blocks ────────────────────────────────────────────────────
@@ -292,13 +292,16 @@ const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide"; label: string
 
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
 
-export function AiControl() {
+export function AiControl({ replay = false }: { replay?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   // T131 — the menu follows the app-bar Paper/Live tab; it has no toggle of its
   // own. Editing "on the paper tab" whose config you're changing was ambiguous,
   // and the desk tab already says which book you're in.
   const { channel } = useChannel();
   const mode: Mode = channel === "paper" ? "paper" : "live";
+  // T137 — a replay-settings instance edits the `replay` block; the normal AI
+  // menu edits the current tab's book. `book` is the config address either way.
+  const book: "paper" | "live" | "replay" = replay ? "replay" : mode;
   const [draft, setDraft] = useState<ModeCfg | null>(null);
   const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
   const sea = useSeaStatus();
@@ -338,18 +341,18 @@ export function AiControl() {
   // other two (each Apply refreshes `all`).
   const hasCfg = !!all;
   useEffect(() => {
-    if (all) setDraft(structuredClone(all[mode].ai));
+    if (all) setDraft(structuredClone(all[book].ai));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, open, hasCfg]);
+  }, [book, open, hasCfg]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, hasCfg]);
 
   useEffect(() => {
-    if (all) setExitsDraft(structuredClone(all[mode].exits));
+    if (all) setExitsDraft(structuredClone(all[book].exits));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, open, hasCfg]);
+  }, [book, open, hasCfg]);
 
   // Another panel applied a change → refetch so `dirty` compares against the
   // current server state. Drafts are left alone so your edits are never lost.
@@ -364,8 +367,8 @@ export function AiControl() {
   });
 
   const blockDirty = useMemo(
-    () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all[mode].ai)),
-    [draft, all, mode],
+    () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all[book].ai)),
+    [draft, all, book],
   );
 
   const ref = useRef<HTMLDivElement>(null);
@@ -394,8 +397,8 @@ export function AiControl() {
     onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
   });
   const exitsDirty = useMemo(
-    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all[mode].exits)),
-    [exitsDraft, all, mode],
+    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all[book].exits)),
+    [exitsDraft, all, book],
   );
   const editExits = (fn: (e: ExitsCfg) => void) =>
     setExitsDraft((prev) => {
@@ -412,13 +415,13 @@ export function AiControl() {
   const dirty = blockDirty || exitsDirty;
   const applying = applyMut.isPending || applyExitsMut.isPending;
   const apply = async () => {
-    if (blockDirty && draft) await applyMut.mutateAsync({ book: mode, kind: "ai", patch: draft });
-    if (exitsDirty && exitsDraft) await applyExitsMut.mutateAsync({ book: mode, patch: exitsDraft });
+    if (blockDirty && draft) await applyMut.mutateAsync({ book, kind: "ai", patch: draft });
+    if (exitsDirty && exitsDraft) await applyExitsMut.mutateAsync({ book, patch: exitsDraft });
   };
   const reset = () => {
     if (!all) return;
-    setDraft(structuredClone(all[mode].ai));
-    setExitsDraft(structuredClone(all[mode].exits));
+    setDraft(structuredClone(all[book].ai));
+    setExitsDraft(structuredClone(all[book].exits));
   };
 
   // T130 — the LABEL colour is the liveness indicator; no separate dot.
@@ -431,9 +434,13 @@ export function AiControl() {
       <button
         onClick={() => setOpen((o) => !o)}
         className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
-        title="AI trades — cohorts, strategies, sizing, exits for the current book"
+        title={replay
+          ? "Replay settings — cohorts, strategies, sizing, exits used ONLY during a replay run"
+          : "AI trades — cohorts, strategies, sizing, exits for the current book"}
       >
-        <BrainCircuit className={`h-4 w-4 ${aliveTone}`} />
+        {replay
+          ? <Settings className="h-4 w-4 text-primary" />
+          : <BrainCircuit className={`h-4 w-4 ${aliveTone}`} />}
       </button>
 
       {open && (
@@ -441,17 +448,16 @@ export function AiControl() {
           <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
             {/* Panel title — the book comes from the app-bar tab. */}
             <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5">
-              <BrainCircuit className="h-3.5 w-3.5 text-info-cyan" />
-              <span className="font-display text-[0.6875rem] font-bold tracking-wider text-foreground">AI Autopilot</span>
-              <span className={`ml-auto text-[0.5625rem] font-bold tracking-wider ${mode === "live" ? "text-bullish" : "text-warning-amber"}`}>
-                {mode === "live" ? "LIVE" : "PAPER"}
+              {replay ? <Settings className="h-3.5 w-3.5 text-primary" /> : <BrainCircuit className="h-3.5 w-3.5 text-info-cyan" />}
+              <span className="font-display text-[0.6875rem] font-bold tracking-wider text-foreground">{replay ? "Replay settings" : "AI Autopilot"}</span>
+              <span className={`ml-auto text-[0.5625rem] font-bold tracking-wider ${replay ? "text-primary" : mode === "live" ? "text-bullish" : "text-warning-amber"}`}>
+                {replay ? "REPLAY" : mode === "live" ? "LIVE" : "PAPER"}
               </span>
             </div>
 
-            {/* ① AI trades — PER BOOK. Paper and live each have their own switch,
-                so turning one off leaves the other running. Both on = one signal
-                is placed on BOTH books. Applies immediately (no Apply): it is a
-                safety control and must never sit in a draft. */}
+            {/* ① AI trades switch — normal AI menu only. A replay never places on
+                a real book (trades redirect to the run), so it has no such switch. */}
+            {!replay && (
             <div className="p-3 border-b border-border flex items-center justify-between">
               <div className="flex flex-col">
                 <SectionLabel>AI trades</SectionLabel>
@@ -489,6 +495,7 @@ export function AiControl() {
                 />
               </div>
             </div>
+            )}
 
             {!d ? (
               <div className="p-6 text-center text-[0.625rem] text-muted-foreground">Loading…</div>
@@ -517,7 +524,9 @@ export function AiControl() {
                 {/* ②b Model — which trained version the RUNNING SEA scores with.
                     Applies immediately (hot-swap, no restart) and is NOT part of
                     the paper/live draft: there is one SEA process, so the model
-                    is global, not per-mode. */}
+                    is global, not per-mode. Hidden in Replay settings — a replay
+                    picks its model per run in the Replay control. */}
+                {!replay && (
                 <Group title="Model" help={HELP.model}>
                   {MODEL_INSTRUMENTS.map((inst) => {
                     const list = modelsQuery.data?.[inst] ?? [];
@@ -546,6 +555,7 @@ export function AiControl() {
                     <p className="text-[0.5625rem] text-destructive">{setModel.error.message}</p>
                   )}
                 </Group>
+                )}
 
                 {/* ③ Strategies */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
@@ -600,7 +610,7 @@ export function AiControl() {
                 <div className="border-t-2 border-warning-amber/30 pt-2 mt-1 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
-                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · {mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
+                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · {replay ? "REPLAY" : mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
                       <InfoDot text="Per book — paper and live each have their own exit tuning, so you can test on paper without changing live. Both hand-placed and AI trades on this book use these." />
                     </span>
                     {exitsDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
@@ -663,7 +673,7 @@ export function AiControl() {
                     disabled={!dirty || applying}
                     className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30 disabled:opacity-40 transition-colors"
                   >
-                    <Check className="h-3 w-3" /> Apply {mode === "live" ? "LIVE" : "PAPER"}
+                    <Check className="h-3 w-3" /> Apply {replay ? "REPLAY" : mode === "live" ? "LIVE" : "PAPER"}
                   </button>
                   <button
                     type="button"

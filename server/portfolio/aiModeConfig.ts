@@ -175,6 +175,11 @@ export interface AllAiConfig {
   common: CommonConfig;
   paper: BookConfig;
   live: BookConfig;
+  /** T137 — config used ONLY while a replay run is open. Same shape as a book,
+   *  but its `manual` stream is unused (replay trades are all SEA-driven). Every
+   *  resolver switches to this automatically when a run is active, so a replay
+   *  can race a different strategy / size / exit set than paper or live. */
+  replay: BookConfig;
 }
 
 // ─── Defaults (preserve current behaviour) ──────────────────────────────────
@@ -255,15 +260,36 @@ function defaultAll(): AllAiConfig {
   const paperAi = baseMode();
   const liveAi = baseMode();
   liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false };
+  // Replay defaults to a copy of paper's AI setup (races all four, 1 lot elsewhere
+  // — but whatever paper ships with), so a fresh install replays like paper until
+  // the operator diverges it.
+  const replayAi = baseMode();
   return {
     common: baseCommon(),
     paper: { exits: baseExits(), ai: paperAi, manual: baseManual() },
     live: { exits: baseExits(), ai: liveAi, manual: baseManual() },
+    replay: { exits: baseExits(), ai: replayAi, manual: baseManual() },
   };
 }
 
+// ─── Replay-aware book resolution (T137) ────────────────────────────────────
+
+/** Registered at bootstrap so this module needn't import the replay stack (which
+ *  imports back into it). True while a replay run is open. */
+let replayActive: () => boolean = () => false;
+export function _setReplayPredicate(fn: () => boolean): void {
+  replayActive = fn;
+}
+
+export type EffBook = Book | "replay";
+/** The config book a channel's trades resolve to: `replay` while a run is open
+ *  (all trades are redirected to the run then), else the channel's own book. */
+export function resolveBook(channel: Channel): EffBook {
+  return replayActive() ? "replay" : bookForChannel(channel);
+}
+
 /** A book+origin block, addressed by the pair rather than a flat mode string. */
-export function getAiConfig(book: Book, kind: OriginKind): AiModeConfig {
+export function getAiConfig(book: EffBook, kind: OriginKind): AiModeConfig {
   return state[book][kind];
 }
 
@@ -447,7 +473,7 @@ export function sprintOpeningLevels(
   entry: number,
   isLong: boolean,
 ): { stopLoss: number; takeProfit: number } {
-  const { defaultSL, defaultTP } = state[bookForChannel(channel)].exits.sprint;
+  const { defaultSL, defaultTP } = state[resolveBook(channel)].exits.sprint;
   const round2 = (x: number) => Math.round(x * 100) / 100;
   const move = (pct: number, favourable: boolean) =>
     round2(entry * (1 + (isLong === favourable ? pct : -pct) / 100));
@@ -455,9 +481,9 @@ export function sprintOpeningLevels(
 }
 
 /** The Sprint / Runway / Anchor / Glide config for a channel's book (T134 —
- *  per book now, so paper and live can be tuned independently). */
+ *  per book), or the replay block while a run is open (T137). */
 export function getExitConfig(channel: Channel): SharedExitConfig {
-  return state[bookForChannel(channel)].exits;
+  return state[resolveBook(channel)].exits;
 }
 
 /** Everything — for the UI. */
@@ -466,7 +492,7 @@ export function getAllAiConfig(): AllAiConfig {
 }
 
 /** The active strategies for a book+origin block, in a stable order. */
-export function getActiveStrategies(book: Book, kind: OriginKind): StrategyName[] {
+export function getActiveStrategies(book: EffBook, kind: OriginKind): StrategyName[] {
   const s = state[book][kind].strategies;
   return (["sprint", "runway", "anchor", "glide"] as StrategyName[]).filter((k) => s[k]);
 }
@@ -523,7 +549,7 @@ export function resolveExitStrategy(
   cohort?: string | null,
 ): StrategyName {
   if (isEquity) return "sprint";
-  const active = getActiveStrategies(bookForChannel(channel), originKind(origin));
+  const active = getActiveStrategies(resolveBook(channel), originKind(origin));
   // Glide is MA-Signal ONLY, and for an MA-Signal trade it WINS.
   //
   // It is the cohort-specific choice, so it takes priority over the general
@@ -538,7 +564,7 @@ export function resolveExitStrategy(
 }
 
 /** Deep-merge a patch into one BOOK's exit config; clamp, persist, return it. */
-export function updateExitConfig(book: Book, patch: unknown): SharedExitConfig {
+export function updateExitConfig(book: EffBook, patch: unknown): SharedExitConfig {
   deepMerge(state[book].exits, patch);
   sanitizeExits(state[book].exits);
   persist();
@@ -546,7 +572,7 @@ export function updateExitConfig(book: Book, patch: unknown): SharedExitConfig {
 }
 
 /** Deep-merge a patch into one book+origin block; clamp, persist, return it. */
-export function updateAiConfig(book: Book, kind: OriginKind, patch: unknown): AiModeConfig {
+export function updateAiConfig(book: EffBook, kind: OriginKind, patch: unknown): AiModeConfig {
   deepMerge(state[book][kind], patch);
   sanitizeMode(state[book][kind]);
   persist();
@@ -556,7 +582,7 @@ export function updateAiConfig(book: Book, kind: OriginKind, patch: unknown): Ai
 /** Run every clamp: common, and each book's exits + two blocks. */
 function sanitizeAll(): void {
   sanitizeCommon(state.common);
-  for (const book of ["paper", "live"] as const) {
+  for (const book of ["paper", "live", "replay"] as const) {
     sanitizeExits(state[book].exits);
     for (const kind of ["ai", "manual"] as const) sanitizeMode(state[book][kind]);
   }
@@ -592,6 +618,9 @@ export function initAiConfig(): void {
     if (isNested) {
       if (j.paper) deepMerge(state.paper, j.paper);
       if (j.live) deepMerge(state.live, j.live);
+      // T137 — `replay` is new; an older nested file has no replay block, so it
+      // keeps the default (a copy of paper's AI setup) until edited.
+      if (j.replay) deepMerge(state.replay, j.replay);
     } else {
       if (j?.paper) deepMerge(state.paper.ai, j.paper);
       if (j?.live) deepMerge(state.live.ai, j.live);

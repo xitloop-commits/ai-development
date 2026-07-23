@@ -262,8 +262,16 @@ async function startServer() {
       }
 
   // T85 AI menu: hydrate the per-mode (paper/live) AI config store.
-  const { initAiConfig } = await import("../portfolio/aiModeConfig");
+  const { initAiConfig, _setReplayPredicate } = await import("../portfolio/aiModeConfig");
   initAiConfig();
+  // T137 — while a replay run is open, the config resolvers use the `replay`
+  // block. Registered here rather than imported so aiModeConfig needn't pull in
+  // the replay stack (which imports back into it). Same signal that redirects
+  // trades to the run (portfolioAgent.appendTrade).
+  {
+    const { getActiveRunId } = await import("../replay/replayRuns");
+    _setReplayPredicate(() => getActiveRunId() != null);
+  }
 
   // ...then make the menu authoritative for cohorts: push the ACTIVE mode's
   // cohort config into SEA. initSeaControl() above re-hydrates from

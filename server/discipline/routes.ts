@@ -198,13 +198,13 @@ export function registerDisciplineRoutes(app: Express): void {
         // nothing downstream checked the book's cohort config. Manual/USER trades
         // are not cohort-gated: you asked for that specific trade by hand.
         if (body.origin === "AI" && body.cohort) {
-          const { getAiConfig, bookForChannel } = await import("../portfolio/aiModeConfig");
+          const { getAiConfig, resolveBook } = await import("../portfolio/aiModeConfig");
           const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing" } as const)[
             body.cohort as "ma_signal" | "scalp" | "trend" | "swing"
           ];
           if (cohortKey) {
             targetChannels = targetChannels.filter((ch) => {
-              const on = getAiConfig(bookForChannel(ch), "ai").cohorts[cohortKey];
+              const on = getAiConfig(resolveBook(ch), "ai").cohorts[cohortKey];
               if (!on) {
                 log.info(`AI ${body.cohort} signal skipped on ${ch} — cohort not enabled for that book`);
               }
@@ -315,8 +315,8 @@ export function registerDisciplineRoutes(app: Express): void {
           // Sizing per (book, origin): a hand-placed trade uses the book's
           // manual block, an AI one the book's ai block. Falls back to the
           // SEA-sent lots only if unset.
-          const { getAiConfig, bookForChannel, originKind } = await import("../portfolio/aiModeConfig");
-          const block = getAiConfig(bookForChannel(targetChannel), originKind(body.origin));
+          const { getAiConfig, resolveBook, originKind } = await import("../portfolio/aiModeConfig");
+          const block = getAiConfig(resolveBook(targetChannel), originKind(body.origin));
           const sizing = block.sizing.perInstrument[body.instrument.toLowerCase()];
           const lots = sizing
             ? sizedLots(sizing, cap.tradingPool, entryPrice, lotSize)
