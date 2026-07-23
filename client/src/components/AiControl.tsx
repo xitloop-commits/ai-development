@@ -20,6 +20,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { BrainCircuit, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { InfoDot } from "./InfoDot";
 import { useSeaStatus } from "@/stores/seaStatusStore";
 import { useChannel } from "@/contexts/CapitalContext";
 import { useSignalEpoch } from "@/stores/liveSignals";
@@ -578,12 +579,12 @@ export function AiControl() {
                 {ed && (
                 <div className="border-t-2 border-warning-amber/30 pt-2 mt-1 space-y-3">
                   <div className="flex items-center justify-between">
-                    <SectionLabel><span className="text-warning-amber">Strategy exits</span> · shared</SectionLabel>
+                    <span className="flex items-center gap-1.5">
+                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · shared</SectionLabel>
+                      <InfoDot text="Common to Paper, Live and My Trades — a strategy exits the same way in every book." />
+                    </span>
                     {exitsDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
                   </div>
-                  <p className="text-[0.5625rem] text-muted-foreground -mt-1.5 leading-snug">
-                    Common to Paper, Live and My Trades — a strategy exits the same way in every book.
-                  </p>
 
                   <Group title="Sprint" help={HELP.sprint} collapsible>
                     <Num help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />

@@ -15,6 +15,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Hand, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { InfoDot } from "./InfoDot";
 import { useChannel } from "@/contexts/CapitalContext";
 
 interface ModeCfg {
@@ -56,10 +57,13 @@ function Pill({ label, on, onClick }: { label: string; on: boolean; onClick: () 
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
   return (
     <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-      <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        {info && <InfoDot text={info} />}
+      </span>
       {children}
     </div>
   );
@@ -118,13 +122,12 @@ export function MyTradesControl() {
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
           <div className="p-3 border-b border-border">
-            <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-warning-amber">
-              My Trades · {book === "live" ? "LIVE" : "PAPER"}
+            <span className="flex items-center gap-1.5">
+              <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-warning-amber">
+                My Trades · {book === "live" ? "LIVE" : "PAPER"}
+              </span>
+              <InfoDot text="Applies to trades you place yourself. Order type, EOD square-off and safety exits come from your Settings." />
             </span>
-            <p className="text-[0.5625rem] text-muted-foreground leading-snug mt-0.5">
-              Applies to trades you place yourself. Order type, EOD square-off and safety
-              exits come from your Settings.
-            </p>
           </div>
 
           {!d ? (
@@ -132,39 +135,24 @@ export function MyTradesControl() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
-                <Group title="Cohort · tags the trade">
+                <Group title="Cohort · tags the trade" info="First selected wins · defaults to MA-Signal.">
                   <div className="flex gap-1.5 flex-wrap">
                     {MANUAL_COHORTS.map((c) => (
                       <Pill key={c.key} label={c.label} on={!!d.cohorts[c.key]}
                         onClick={() => edit((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })} />
                     ))}
                   </div>
-                  <span className="text-[0.5625rem] text-muted-foreground">
-                    First selected wins · defaults to MA-Signal
-                  </span>
                 </Group>
 
-                <Group title="Strategy · one per trade">
+                <Group title="Strategy · one per trade" info="One strategy per hand-placed trade; the first enabled pill wins. Glide has no SL / TP / trailing — you close it yourself, and it needs the MA-Signal cohort (otherwise the next enabled strategy is used). Nothing closes a manual Glide trade automatically; SEA only closes trades it opened itself.">
                   <div className="flex gap-1.5 flex-wrap">
                     {STRATEGIES.map((s) => (
                       <Pill key={s.key} label={s.label} on={!!d.strategies[s.key]}
                         onClick={() => edit((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
                     ))}
                   </div>
-                  <span className="text-[0.5625rem] text-muted-foreground">
-                    {STRATEGIES.filter((s) => d.strategies[s.key]).length} available to choose
-                  </span>
-                  {/* Glide has no stop, target or trailing, and NOTHING closes a
-                      manual one automatically — SEA only closes trades it opened
-                      itself. Saying so is the difference between a deliberate
-                      choice and an expensive surprise. */}
-                  {d.strategies.glide && (
-                    <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                      Glide: no SL / TP / trailing. You close it yourself — MA-Signal only
-                      closes trades it opened. Needs the MA-Signal cohort; otherwise the
-                      next enabled strategy is used.
-                    </span>
-                  )}
+                  {/* KEPT inline (conditional): a live misconfiguration the
+                      operator needs to see without hovering. */}
                   {d.strategies.glide && !d.cohorts.ma && (
                     <span className="text-[0.5625rem] text-bearish font-bold leading-snug">
                       Cohort is not MA-Signal — Glide will be skipped for these trades.

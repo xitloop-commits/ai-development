@@ -18,6 +18,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { InfoDot } from "./InfoDot";
 
 interface CommonCfg {
   revPct: number;
@@ -26,10 +27,13 @@ interface CommonCfg {
   lubasManagedExit: boolean;
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
   return (
     <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-      <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        {info && <InfoDot text={info} />}
+      </span>
       {children}
     </div>
   );
@@ -100,12 +104,12 @@ export function SettingsMenu() {
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
           <div className="p-3 border-b border-border">
-            <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
-              Settings · common
+            <span className="flex items-center gap-1.5">
+              <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                Settings · common
+              </span>
+              <InfoDot text="One value for the whole platform — paper and live both use these." />
             </span>
-            <p className="text-[0.5625rem] text-muted-foreground leading-snug mt-0.5">
-              One value for the whole platform — paper and live both use these.
-            </p>
           </div>
 
           {!d ? (
@@ -113,15 +117,12 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
-                <Group title="MA-Signal detector">
+                <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
-                  <span className="text-[0.5625rem] text-muted-foreground leading-snug">
-                    0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.
-                  </span>
                 </Group>
 
-                <Group title="Global exits · RCA safety nets">
+                <Group title="Global exits · RCA safety nets" info="RCA auto-closes an open trade after this age, after this long with no tick, or when predicted volatility exceeds the threshold.">
                   <NumRow label="Age exit" value={Math.round(d.globalExits.rcaMaxAgeMs / 60000)} step={1} min={1} max={360} unit="min"
                     onChange={(v) => edit((x) => { x.globalExits.rcaMaxAgeMs = v * 60000; })} />
                   <NumRow label="Stale tick" value={Math.round(d.globalExits.rcaStaleTickMs / 60000)} step={1} min={1} max={60} unit="min"
@@ -130,7 +131,7 @@ export function SettingsMenu() {
                     onChange={(v) => edit((x) => { x.globalExits.rcaVolThreshold = v; })} />
                 </Group>
 
-                <Group title="EOD square-off">
+                <Group title="EOD square-off" info="End-of-day auto-flatten. Every open intraday position is closed at these IST times (NSE for cash/F&O, MCX for commodities).">
                   <div className="flex items-center justify-between">
                     <span className="text-[0.625rem] text-muted-foreground">Enabled</span>
                     <button type="button"
@@ -154,7 +155,7 @@ export function SettingsMenu() {
                   </div>
                 </Group>
 
-                <Group title="Lubas exit · live">
+                <Group title="Lubas exit · live" info="Lubas: the app watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live, but there is no stop at the exchange if the app is down. Dhan: the broker holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run.">
                   <div className="flex items-center justify-between">
                     <span className="text-[0.625rem] text-muted-foreground">Manages live exits</span>
                     <button type="button"
@@ -166,11 +167,6 @@ export function SettingsMenu() {
                       {d.lubasManagedExit ? "Lubas" : "Dhan"}
                     </button>
                   </div>
-                  <p className="text-[0.5625rem] text-muted-foreground leading-snug">
-                    {d.lubasManagedExit
-                      ? "App watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live. No stop at the exchange if the app is down."
-                      : "Dhan holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run."}
-                  </p>
                 </Group>
               </div>
 
