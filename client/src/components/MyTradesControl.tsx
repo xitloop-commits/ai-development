@@ -111,8 +111,7 @@ export function MyTradesControl() {
         className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
         title="My Trades — cohort, strategy and size for trades you place by hand"
       >
-        <Hand className="h-3.5 w-3.5 text-warning-amber" />
-        <span className="font-display text-[0.625rem] font-bold tracking-wider text-warning-amber">MY</span>
+        <Hand className="h-4 w-4 text-warning-amber" />
         {dirty && <span className="h-1.5 w-1.5 rounded-full bg-warning-amber" />}
       </button>
 

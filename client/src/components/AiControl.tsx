@@ -419,8 +419,7 @@ export function AiControl() {
         className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
         title="AI trades — cohorts, strategies, sizing, exits for the current book"
       >
-        <BrainCircuit className={`h-3.5 w-3.5 ${aliveTone}`} />
-        <span className={`font-display text-[0.625rem] font-bold tracking-wider ${aliveTone}`}>AI</span>
+        <BrainCircuit className={`h-4 w-4 ${aliveTone}`} />
       </button>
 
       {open && (
