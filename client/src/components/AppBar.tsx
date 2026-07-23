@@ -408,28 +408,55 @@ function ChannelModeToggle() {
  * "3:04" unambiguous on a bar that also shows a trading day; 24-hour needed a
  * mental conversion against every other clock in the room.
  */
+// NSE closes at 15:30 IST; the "wrap up" alert fires over the last 15 minutes.
+const NSE_CLOSE_MIN = 15 * 60 + 30; // 930
+const CLOSE_ALERT_WINDOW_MIN = 15;
+
 function IstClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+  const { isOpen } = useMarketOpen();
 
   const opts = { timeZone: 'Asia/Kolkata' } as const;
   const date = now.toLocaleDateString('en-IN', { ...opts, day: '2-digit', month: 'short' });
   const time = now.toLocaleTimeString('en-IN', { ...opts, hour12: true });
 
+  // Minutes-to-NSE-close, in IST. Only alert while NSE is actually open (skips
+  // weekends/holidays), and only inside the final window — the rest of the day
+  // the clock stays calm so the alert genuinely stands out.
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const istMin = ist.getHours() * 60 + ist.getMinutes();
+  const minsToClose = NSE_CLOSE_MIN - istMin;
+  const nseOpen = isOpen('NIFTY 50') || isOpen('BANK NIFTY');
+  const closingSoon = nseOpen && minsToClose > 0 && minsToClose <= CLOSE_ALERT_WINDOW_MIN;
+
+  if (closingSoon) {
+    // Loud on purpose: red, pulsing, with a minutes-left countdown. This is the
+    // "square off / stop opening new positions" cue.
+    return (
+      <div
+        className="px-2.5 flex items-center gap-1.5 shrink-0 cursor-default select-none rounded bg-destructive/20 border border-destructive/50 animate-pulse"
+        title={`NSE closes in ${minsToClose} min (${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', timeStyle: 'medium' })} IST)`}
+      >
+        <span className="text-[0.625rem] font-bold uppercase tracking-wider text-destructive">NSE closes</span>
+        <span className="text-sm font-black tabular-nums text-destructive">{minsToClose}m</span>
+        <span className="text-xs font-bold tabular-nums text-destructive/80">{time}</span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="px-2.5 flex items-baseline gap-1.5 shrink-0 cursor-default select-none animate-pulse"
+      className="px-2.5 flex items-baseline gap-1.5 shrink-0 cursor-default select-none"
       title={now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'medium' })}
     >
-      {/* Whole clock breathes (animate-pulse on the row); each part keeps its
-          own colour so it stays multi-colour while it pulses. */}
       <span className="text-[0.625rem] font-bold uppercase tracking-wide text-info-cyan">{date}</span>
       {/* tabular-nums so the seconds digit doesn't shuffle the layout each tick */}
       <span className="text-xs font-bold tabular-nums text-warning-amber">{time}</span>
-      <span className="text-[0.5rem] font-bold text-bullish">IST</span>
+      <span className="text-[0.5rem] font-bold text-muted-foreground">IST</span>
     </div>
   );
 }
