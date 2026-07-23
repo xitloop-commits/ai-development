@@ -22,8 +22,10 @@ vi.mock("fs", () => ({
 vi.mock("./broker/tickBus", () => ({ tickBus: { emitSeaControl: vi.fn() } }));
 
 const cohortsByBook: Record<string, any> = {};
+const common: { revPct: number } = { revPct: 0.18 };
 vi.mock("./portfolio/aiModeConfig", () => ({
   getAiConfig: (book: string, _kind: string) => ({ cohorts: cohortsByBook[book] }),
+  getCommonConfig: () => common,
 }));
 
 const tradingMode: { aiPaperEnabled?: boolean; aiLiveEnabled?: boolean } = {};
@@ -35,8 +37,9 @@ import { syncCohortsFromAiConfig, getCohortState, setCohort } from "./seaControl
 
 beforeEach(() => {
   // paper races Scalp + MA; live takes MA only — the 2026-07-23 race split.
-  cohortsByBook.paper = { scalp: true, trend: false, ma: true, swing: false, revPct: 0.18 };
-  cohortsByBook.live = { scalp: false, trend: false, ma: true, swing: false, revPct: 0 };
+  cohortsByBook.paper = { scalp: true, trend: false, ma: true, swing: false };
+  cohortsByBook.live = { scalp: false, trend: false, ma: true, swing: false };
+  common.revPct = 0.18;
   tradingMode.aiPaperEnabled = true;
   tradingMode.aiLiveEnabled = true;
   // Reset the module's cohort flags to a known state.
@@ -74,16 +77,11 @@ describe("syncCohortsFromAiConfig — union of enabled books", () => {
     expect(s.trend).toBe(false);
   });
 
-  it("takes revPct from LIVE when live is on — the book trading real money wins", async () => {
-    cohortsByBook.live.revPct = 0.25;
+  it("pushes revPct from the COMMON block — one value, no per-book ambiguity", async () => {
+    // T129 — revPct is a single detector parameter; it no longer matters which
+    // book is on. Whatever Settings holds is what SEA gets.
+    common.revPct = 0.25;
     await syncCohortsFromAiConfig();
     expect(getCohortState().revPct).toBe(0.25);
-  });
-
-  it("falls back to paper's revPct when only paper is on", async () => {
-    tradingMode.aiLiveEnabled = false;
-    cohortsByBook.paper.revPct = 0.3;
-    await syncCohortsFromAiConfig();
-    expect(getCohortState().revPct).toBe(0.3);
   });
 });

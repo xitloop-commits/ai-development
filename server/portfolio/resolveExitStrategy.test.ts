@@ -27,6 +27,8 @@ import {
   updateAiConfig,
   updateExitConfig,
   getExitConfig,
+  getCommonConfig,
+  updateCommonConfig,
   initAiConfig,
 } from "./aiModeConfig";
 
@@ -265,29 +267,27 @@ describe("strategiesForCohort", () => {
 /**
  * lubasManagedExit — who manages LIVE exits. Default ON (Lubas): the tick engine
  * places a real market exit, which is the only way the staged strategies + Glide
- * run on live. OFF hands SL/TP back to Dhan Super Order legs.
+ * run on live. OFF hands SL/TP back to Dhan Super Order legs. T129 — it lives in
+ * the COMMON block now (one live book, one owner), not per-book exits.
  */
-describe("lubasManagedExit", () => {
+describe("lubasManagedExit (common block)", () => {
   it("defaults to true", () => {
     initAiConfig();
-    expect(getExitConfig().lubasManagedExit).toBe(true);
+    expect(getCommonConfig().lubasManagedExit).toBe(true);
   });
 
   it("survives a config that predates the key (deep-merge back-fill)", () => {
-    // initAiConfig loads defaults (fs mocked → existsSync false), so an old
-    // persisted file missing the key falls back to the default rather than
-    // undefined — which would read as Dhan-managed and silently change behaviour.
     initAiConfig();
-    expect(getExitConfig().lubasManagedExit).toBe(true);
+    expect(getCommonConfig().lubasManagedExit).toBe(true);
   });
 
   it("toggles and persists via a partial patch", () => {
     initAiConfig();
-    updateExitConfig({ lubasManagedExit: false });
-    expect(getExitConfig().lubasManagedExit).toBe(false);
-    // A partial patch must not disturb the other exit knobs.
-    expect(getExitConfig().sprint).toBeDefined();
-    updateExitConfig({ lubasManagedExit: true });
-    expect(getExitConfig().lubasManagedExit).toBe(true);
+    updateCommonConfig({ lubasManagedExit: false });
+    expect(getCommonConfig().lubasManagedExit).toBe(false);
+    // A partial patch must not disturb the other common knobs.
+    expect(getCommonConfig().squareoff).toBeDefined();
+    updateCommonConfig({ lubasManagedExit: true });
+    expect(getCommonConfig().lubasManagedExit).toBe(true);
   });
 });

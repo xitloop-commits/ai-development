@@ -20,7 +20,7 @@ import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion } from "./seaControl";
 import { listModelVersions } from "./modelVersions";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
-import { getAllAiConfig, updateAiConfig, updateExitConfig } from "./portfolio/aiModeConfig";
+import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
@@ -167,6 +167,21 @@ export const appRouter = router({
       .input(z.object({ patch: z.any() }))
       .mutation(({ input }) => {
         updateExitConfig(input.patch);
+        const all = getAllAiConfig();
+        tickBus.emitAiConfig(all);
+        return all;
+      }),
+
+    // T129 — system-wide common block (detector revPct, RCA global exits, EOD
+    // square-off, Lubas-exit owner). A cohort-detector change (revPct) must
+    // re-sync SEA; the others are read on demand by their consumers.
+    updateCommonConfig: publicProcedure
+      .input(z.object({ patch: z.any() }))
+      .mutation(async ({ input }) => {
+        updateCommonConfig(input.patch);
+        if ((input.patch as { revPct?: unknown })?.revPct !== undefined) {
+          await syncCohortsFromAiConfig();
+        }
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
         return all;

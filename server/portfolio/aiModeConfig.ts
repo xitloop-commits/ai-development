@@ -1,24 +1,24 @@
 /**
- * aiModeConfig.ts — trading configuration for the AI menu.
+ * aiModeConfig.ts — the trading configuration store.
  *
- * Two layers:
- *   1. `exits` — the Sprint / Runway / Anchor strategy configs. **COMMON to
- *      every mode** (paper, live, manual): a strategy's exit behaviour is
- *      intrinsic to the strategy, not to which book it runs in.
- *   2. per-mode blocks (`paper`, `live`, `manual`) — what DOES differ by book:
- *      which strategies run, sizing, cohorts, order type, global exits,
- *      square-off.
+ * Four layers:
+ *   1. `exits` — Sprint / Runway / Anchor / Glide tunables. Shared across books
+ *      for now (a per-book split is a separate change).
+ *   2. `common` (T129) — system-wide knobs that are ONE value for the whole
+ *      platform: MA-detector reversal size, RCA global exits, EOD square-off,
+ *      and who owns live exits (Lubas vs Dhan). Behind their own Settings menu.
+ *   3/4. `paper` / `live`, each split into an `ai` and a `manual` stream (T127).
+ *      Per (book, origin): cohorts, strategies, sizing, order type.
  *
  * Reads by apply-path:
- *   - tickHandler (exit engine)  → getExitConfig()          [shared]
- *   - risk-control (placement)   → getActiveStrategies(mode), order [per-mode]
- *   - validateTrade (sizing)     → getAiConfig(mode).sizing [per-mode]
- *   - RcaMonitor / square-off    → per-mode for AI channels; live keeps the
- *     executor-settings defaults (see aiModeForChannel).
+ *   - tickHandler (exit engine)  → getExitConfig() [shared] · getCommonConfig()
+ *   - risk-control (placement)   → getActiveStrategies(book, kind), order
+ *   - validateTrade (sizing)     → getAiConfig(book, kind).sizing
+ *   - RcaMonitor / square-off    → globalExitsForChannel / squareoffForChannel
  *
  * Persisted to config/ai_mode_config.json, hydrated at boot, deep-merged over
- * defaults so knobs added later fall through. Defaults preserve today's
- * behaviour: paper races all three strategies, live is Sprint-only.
+ * defaults so knobs added later fall through. initAiConfig migrates older
+ * shapes (three-block, and pre-common) forward and re-persists the result.
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -45,8 +45,9 @@ export interface CohortsConfig {
   trend: boolean;
   ma: boolean;
   swing: boolean; // shown in the UI but has no gate — always false for now
-  /** MA-Signal reversal size (%). 0.02–0.6. */
-  revPct: number;
+  // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
+  // (one SEA process), so two books cannot hold different values. It lived here
+  // per-block and the union sync had to arbitrarily pick one; now it is common.
 }
 
 export interface SizingConfig {
@@ -126,31 +127,34 @@ export interface SharedExitConfig {
   runway: ExitStrategyConfig;
   anchor: ExitStrategyConfig;
   glide: GlideConfig;
-  /**
-   * Who manages LIVE exits (both live + live).
-   *
-   * `true` (default) — LUBAS manages: the tick engine watches ticks and places a
-   * real market exit when the strategy fires. This is the ONLY way Runway /
-   * Anchor / Glide / tick-driven trailing work on live, since Dhan can hold only
-   * a fixed SL + fixed TP. The entry is placed as a plain order (no super-order).
-   *
-   * `false` — DHAN manages: the entry is a Super Order and the broker fires the
-   * SL/TP legs at the exchange (survives an app crash, but only fixed SL/TP).
-   *
-   * ⚠️ Lubas-managed exits do NOT survive an app/laptop/feed outage — a live
-   * position then has no stop at the exchange until recovery or EOD square-off.
-   */
-  lubasManagedExit: boolean;
+  // T129 — `lubasManagedExit` moved to CommonConfig (one live book, one owner).
 }
 
-/** Per-mode (per-book) config. */
+/** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
+ *  differ by book and stream; the system-wide knobs live in CommonConfig. */
 export interface AiModeConfig {
   cohorts: CohortsConfig;
   strategies: Record<StrategyName, boolean>;
   sizing: SizingConfig;
   order: OrderConfig;
+}
+
+/**
+ * T129 — settings that are ONE value for the whole system, not per book.
+ *
+ * These sit behind their own Settings menu, not the AI menu, because editing
+ * them "on the paper tab" changing live was a genuine foot-gun.
+ *
+ *  - `revPct` — a single SEA detector parameter (one process).
+ *  - `globalExits` — RCA safety nets (age / stale / volatility).
+ *  - `squareoff` — EOD flatten times; an exchange fact, not a book preference.
+ *  - `lubasManagedExit` — who owns LIVE exits (app vs Dhan legs); one live book.
+ */
+export interface CommonConfig {
+  revPct: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
+  lubasManagedExit: boolean;
 }
 
 /** One book's two streams: AI-placed and hand-placed. */
@@ -160,8 +164,11 @@ export interface BookConfig {
 }
 
 export interface AllAiConfig {
-  /** Common Sprint / Runway / Anchor configs — same for every mode. */
+  /** Sprint / Runway / Anchor / Glide exit tunables. Shared across books for
+   *  now — a per-book split is a separate change. */
   exits: SharedExitConfig;
+  /** System-wide knobs (detector, RCA, square-off, live-exit owner). */
+  common: CommonConfig;
   paper: BookConfig;
   live: BookConfig;
 }
@@ -182,17 +189,29 @@ function baseExits(): SharedExitConfig {
       tpTrailPercent: 1.5,
     },
     glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50 },
-    // Lubas owns live exits by default — the staged strategies + Glide only work
-    // this way. Flip to false in the AI menu to hand SL/TP back to Dhan legs.
-    lubasManagedExit: true,
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
   };
 }
 
+function baseCommon(): CommonConfig {
+  return {
+    revPct: 0.18,
+    globalExits: {
+      rcaMaxAgeMs: 30 * 60 * 1000,
+      rcaStaleTickMs: 5 * 60 * 1000,
+      rcaVolThreshold: 0.7,
+    },
+    squareoff: { enabled: true, nseTime: "15:25", mcxTime: "23:25" },
+    // Lubas owns live exits by default — the staged strategies + Glide only work
+    // this way. Flip to false in Settings to hand SL/TP back to Dhan legs.
+    lubasManagedExit: true,
+  };
+}
+
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, swing: false, revPct: 0.18 },
+    cohorts: { scalp: true, trend: false, ma: true, swing: false },
     // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
     // so it must be chosen deliberately, never inherited from a default.
     strategies: { sprint: true, runway: true, anchor: true, glide: false },
@@ -205,12 +224,6 @@ function baseMode(): AiModeConfig {
       },
     },
     order: { orderType: "MARKET", productType: "INTRADAY" },
-    globalExits: {
-      rcaMaxAgeMs: 30 * 60 * 1000,
-      rcaStaleTickMs: 5 * 60 * 1000,
-      rcaVolThreshold: 0.7,
-    },
-    squareoff: { enabled: true, nseTime: "15:25", mcxTime: "23:25" },
   };
 }
 
@@ -237,6 +250,7 @@ function defaultAll(): AllAiConfig {
   liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false };
   return {
     exits: baseExits(),
+    common: baseCommon(),
     paper: { ai: paperAi, manual: baseManual() },
     live: { ai: liveAi, manual: baseManual() },
   };
@@ -314,19 +328,27 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   return e;
 }
 
-/** Clamp one mode's config to safe ranges. */
-function sanitizeMode(c: AiModeConfig): AiModeConfig {
+/** Clamp the system-wide common block. */
+function sanitizeCommon(c: CommonConfig): CommonConfig {
   // revPct picks the MA-Signal detector MODE, it is not just a size:
-  //   0        → 20-EMA SLOPE segmentation (ema_period / slope_lookback /
-  //              thr_hi / thr_lo) — the same computation the chart's green/red
-  //              MA line draws, so colour flips ARE the entry/exit signals.
+  //   0        → 20-EMA SLOPE segmentation (the same computation the chart's
+  //              green/red MA line draws, so colour flips ARE the signals).
   //   0.02–0.6 → raw price peak/trough reversal of that % (no averaging).
-  //
   // The old floor of 0.02 made 0 unreachable, so the EMA path could never be
-  // selected from the AI menu — the detector short-circuits to reversal on
-  // `rev_pct > 0`. That left the chart showing an EMA-slope line while SEA
-  // signalled off price swings: the line turned red with no EXIT firing.
-  c.cohorts.revPct = c.cohorts.revPct === 0 ? 0 : clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
+  // selected — the detector short-circuits to reversal on `rev_pct > 0`.
+  c.revPct = c.revPct === 0 ? 0 : clampNum(c.revPct, 0.02, 0.6, 0.18);
+  c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
+  c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
+  c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);
+  c.squareoff.enabled = !!c.squareoff.enabled;
+  if (!isHHmm(c.squareoff.nseTime)) c.squareoff.nseTime = "15:25";
+  if (!isHHmm(c.squareoff.mcxTime)) c.squareoff.mcxTime = "23:25";
+  c.lubasManagedExit = !!c.lubasManagedExit;
+  return c;
+}
+
+/** Clamp one block's config to safe ranges. */
+function sanitizeMode(c: AiModeConfig): AiModeConfig {
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor", "glide"] as const) c.strategies[s] = !!c.strategies[s];
   for (const inst of Object.keys(c.sizing.perInstrument)) {
@@ -336,12 +358,6 @@ function sanitizeMode(c: AiModeConfig): AiModeConfig {
   }
   c.order.orderType = c.order.orderType === "LIMIT" ? "LIMIT" : "MARKET";
   c.order.productType = c.order.productType === "CNC" ? "CNC" : "INTRADAY";
-  c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
-  c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
-  c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);
-  c.squareoff.enabled = !!c.squareoff.enabled;
-  if (!isHHmm(c.squareoff.nseTime)) c.squareoff.nseTime = "15:25";
-  if (!isHHmm(c.squareoff.mcxTime)) c.squareoff.mcxTime = "23:25";
   return c;
 }
 
@@ -355,16 +371,28 @@ function persist(): void {
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-/** Squareoff for a channel's book. Origin-independent, so read from the AI
- *  stream. (Step 5 will lift this to a common block.) */
-export function squareoffForChannel(channel: Channel): SquareoffConfig {
-  return state[bookForChannel(channel)].ai.squareoff;
+/** The system-wide common block (detector, RCA, square-off, live-exit owner). */
+export function getCommonConfig(): CommonConfig {
+  return state.common;
 }
 
-/** Global exits (age / stale / volatility) for a channel's book. Same for both
- *  streams; read from the AI one. */
-export function globalExitsForChannel(channel: Channel): GlobalExitsConfig {
-  return state[bookForChannel(channel)].ai.globalExits;
+/** Deep-merge a patch into the common block; clamp, persist, return it. */
+export function updateCommonConfig(patch: unknown): CommonConfig {
+  deepMerge(state.common, patch);
+  sanitizeCommon(state.common);
+  persist();
+  return state.common;
+}
+
+/** Square-off times — one set for the whole system (T129). `channel` is kept in
+ *  the signature so callers read unchanged; it no longer varies by book. */
+export function squareoffForChannel(_channel: Channel): SquareoffConfig {
+  return state.common.squareoff;
+}
+
+/** Global exits (age / stale / volatility) — system-wide (T129). */
+export function globalExitsForChannel(_channel: Channel): GlobalExitsConfig {
+  return state.common.globalExits;
 }
 
 /**
@@ -514,9 +542,10 @@ export function updateAiConfig(book: Book, kind: OriginKind, patch: unknown): Ai
   return state[book][kind];
 }
 
-/** Run the per-block clamp over all four blocks. */
+/** Run every clamp: exits, common, and all four blocks. */
 function sanitizeAll(): void {
   sanitizeExits(state.exits);
+  sanitizeCommon(state.common);
   for (const book of ["paper", "live"] as const)
     for (const kind of ["ai", "manual"] as const) sanitizeMode(state[book][kind]);
 }
@@ -529,14 +558,18 @@ export function initAiConfig(): void {
     if (!existsSync(p)) return;
     const j = JSON.parse(readFileSync(p, "utf8"));
     if (j?.exits) deepMerge(state.exits, j.exits);
+    if (j?.common) deepMerge(state.common, j.common);
 
-    // T127 migration — the file may be in the OLD three-block shape
-    // (`paper`/`live`/`manual`, each an AiModeConfig) or the new nested one
-    // (`paper`/`live`, each `{ai, manual}`). Detect by whether `paper.ai`
-    // exists. Old → new: paper→paper.ai, live→live.ai, manual→BOTH manuals
-    // (so hand-placed sizing is identical on day one, then diverges as edited).
-    const isNew = j?.paper && typeof j.paper === "object" && "ai" in j.paper;
-    if (isNew) {
+    // Shape migration. The file may be:
+    //   - OLDEST (three blocks): `paper`/`live`/`manual`, each an AiModeConfig
+    //     carrying its own cohorts.revPct / globalExits / squareoff, plus
+    //     `exits.lubasManagedExit`.
+    //   - T127 (four blocks): `paper`/`live`, each `{ai, manual}`, same fields.
+    //   - T129 (this shape): the above PLUS a `common` block; per-block fields
+    //     gone.
+    // Detect the four-block shape by `paper.ai`.
+    const isNested = j?.paper && typeof j.paper === "object" && "ai" in j.paper;
+    if (isNested) {
       if (j.paper) deepMerge(state.paper, j.paper);
       if (j.live) deepMerge(state.live, j.live);
     } else {
@@ -547,9 +580,34 @@ export function initAiConfig(): void {
         deepMerge(state.live.manual, j.manual);
       }
     }
+
+    // T129 — if the file predates `common`, lift the system-wide values out of
+    // wherever they used to live so nothing resets to default on upgrade.
+    if (!j?.common) {
+      const src = isNested ? j?.paper?.ai : j?.paper; // the AI paper block, old or new
+      if (typeof src?.cohorts?.revPct === "number") state.common.revPct = src.cohorts.revPct;
+      if (src?.globalExits) deepMerge(state.common.globalExits, src.globalExits);
+      if (src?.squareoff) deepMerge(state.common.squareoff, src.squareoff);
+      if (typeof j?.exits?.lubasManagedExit === "boolean")
+        state.common.lubasManagedExit = j.exits.lubasManagedExit;
+    }
+
+    // Strip legacy keys deepMerge copied in from an old file — the new types
+    // don't carry them and nothing reads them, but leaving them in the persisted
+    // file is confusing. Their values were already lifted into `common` above.
+    delete (state.exits as unknown as Record<string, unknown>).lubasManagedExit;
+    for (const book of ["paper", "live"] as const)
+      for (const kind of ["ai", "manual"] as const) {
+        const b = state[book][kind] as unknown as Record<string, unknown>;
+        delete b.globalExits;
+        delete b.squareoff;
+        delete (b.cohorts as Record<string, unknown>).revPct;
+      }
+
     sanitizeAll();
-    // Re-persist in the new shape so the on-disk file matches the running one.
-    if (!isNew) persist();
+    // Re-persist in the current shape so the on-disk file matches the running
+    // one (drops the old per-block fields, writes `common`).
+    persist();
   } catch {
     /* corrupt/absent file → run on defaults */
   }

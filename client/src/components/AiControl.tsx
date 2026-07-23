@@ -37,19 +37,24 @@ interface SprintCfg {
 /** SHARED across paper / live / manual. */
 /** Glide has no trading levels — only the disaster stop. See GlideConfig. */
 interface GlideCfg { disasterSlPct: number; giveBackArmPct: number; giveBackPct: number }
-interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; lubasManagedExit: boolean }
+interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
-  cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
+  cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean };
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
+}
+/** T129 — system-wide settings; edited in the Settings menu, not here. */
+interface CommonCfg {
+  revPct: number;
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
+  lubasManagedExit: boolean;
 }
 /** T127 — four blocks: each book carries an AI stream and a manual stream. */
 type BookCfg = { ai: ModeCfg; manual: ModeCfg };
-type AllCfg = { exits: ExitsCfg; paper: BookCfg; live: BookCfg };
+type AllCfg = { exits: ExitsCfg; common: CommonCfg; paper: BookCfg; live: BookCfg };
 type Mode = "paper" | "live";
 
 // ── Small building blocks ────────────────────────────────────────────────────
@@ -509,8 +514,6 @@ export function AiControl() {
                       ))}
                     </div>
                   </div>
-                  <Num label="MA reversal size" value={d.cohorts.revPct} step={0.02} min={0.02} max={0.6} unit="%"
-                    onChange={(v) => edit((x) => { x.cohorts.revPct = v; })} />
                 </div>
 
                 {/* ②b Model — which trained version the RUNNING SEA scores with.
@@ -559,30 +562,6 @@ export function AiControl() {
                     </div>
                   </div>
                 </div>
-
-                {/* Live-only: who manages the exit. Stored in the SHARED exits
-                    config (governs both live books), so it applies IMMEDIATELY on
-                    click via a partial patch — the server deep-merges — rather than
-                    riding this mode's Apply. */}
-                {mode === 'live' && all && (
-                  <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <SectionLabel>Lubas exit</SectionLabel>
-                      <Pill
-                        label={all.exits.lubasManagedExit ? 'Lubas' : 'Dhan'}
-                        on={all.exits.lubasManagedExit}
-                        onClick={() =>
-                          applyExitsMut.mutate({ patch: { lubasManagedExit: !all.exits.lubasManagedExit } })
-                        }
-                      />
-                    </div>
-                    <p className="text-[0.5625rem] text-muted-foreground -mt-1 leading-snug">
-                      {all.exits.lubasManagedExit
-                        ? 'App watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live. No stop at the exchange if the app is down.'
-                        : 'Dhan holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run.'}
-                    </p>
-                  </div>
-                )}
 
                 {/* Sizing */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
@@ -683,33 +662,6 @@ export function AiControl() {
                   </div>
                 </div>
                 )}
-
-                {/* Global exits */}
-                <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                  <SectionLabel>Global exits</SectionLabel>
-                  <Num label="Age exit" value={Math.round(d.globalExits.rcaMaxAgeMs / 60000)} step={1} min={1} max={360} unit="min" onChange={(v) => edit((x) => { x.globalExits.rcaMaxAgeMs = v * 60000; })} />
-                  <Num label="Stale tick" value={Math.round(d.globalExits.rcaStaleTickMs / 60000)} step={1} min={1} max={60} unit="min" onChange={(v) => edit((x) => { x.globalExits.rcaStaleTickMs = v * 60000; })} />
-                  <Num label="Volatility" value={d.globalExits.rcaVolThreshold} step={0.1} min={0} max={10} onChange={(v) => edit((x) => { x.globalExits.rcaVolThreshold = v; })} />
-                </div>
-
-                {/* Square-off */}
-                <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <SectionLabel>EOD square-off</SectionLabel>
-                    <Pill label={d.squareoff.enabled ? "ON" : "OFF"} on={d.squareoff.enabled}
-                      onClick={() => edit((x) => { x.squareoff.enabled = !x.squareoff.enabled; })} />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">NSE</span>
-                    <input type="time" value={d.squareoff.nseTime} onChange={(e) => edit((x) => { x.squareoff.nseTime = e.target.value; })}
-                      className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">MCX</span>
-                    <input type="time" value={d.squareoff.mcxTime} onChange={(e) => edit((x) => { x.squareoff.mcxTime = e.target.value; })}
-                      className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                  </div>
-                </div>
 
                 </div>
 

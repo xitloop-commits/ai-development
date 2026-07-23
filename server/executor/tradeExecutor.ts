@@ -50,6 +50,7 @@ import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
 import {
   getExitConfig,
+  getCommonConfig,
   resolveExitStrategy,
   resolveManualCohort,
   sprintOpeningLevels,
@@ -324,7 +325,7 @@ class TradeExecutorAgent {
         // must be a PLAIN order — the tick engine owns SL/TP/trailing and places
         // a real market exit. A Super Order here would let Dhan fire its own
         // fixed legs underneath Lubas, so the two would fight over one position.
-        !getExitConfig().lubasManagedExit &&
+        !getCommonConfig().lubasManagedExit &&
         (activeCfg?.settings?.useSuperOrderForLive ?? false) &&
         typeof adapter.placeSuperOrder === "function" &&
         !!(orderParams.stopLoss && orderParams.stopLoss > 0) &&

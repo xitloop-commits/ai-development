@@ -25,6 +25,7 @@ import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { AiControl } from '@/components/AiControl';
 import { MyTradesControl } from '@/components/MyTradesControl';
+import { SettingsMenu } from '@/components/SettingsMenu';
 import { ReplayControl } from '@/components/ReplayControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
@@ -574,6 +575,7 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         {/* SEA cohort control — scalp / trend / MA on-off, live over ws */}
         <AiControl />
         <MyTradesControl />
+        <SettingsMenu />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 

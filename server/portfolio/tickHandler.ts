@@ -25,7 +25,7 @@ import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
-import { getExitConfig } from "./aiModeConfig";
+import { getExitConfig, getCommonConfig } from "./aiModeConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -454,7 +454,7 @@ class TickHandler extends EventEmitter {
         // Dhan-managed (toggle off): the broker Super Order enforces SL/TP; we
         // only drive the dynamic layer (arm gated TSL, ratchet TP via leg
         // modify) and skip our own detection.
-        if (channel === "live" && !getExitConfig().lubasManagedExit) {
+        if (channel === "live" && !getCommonConfig().lubasManagedExit) {
           if (trailingStopEnabled && trade.superOrderId) {
             const lBuy = trade.type.includes("BUY");
             const breakeven = trade.breakevenPrice ?? trade.entryPrice;

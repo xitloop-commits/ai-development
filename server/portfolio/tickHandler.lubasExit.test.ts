@@ -43,15 +43,16 @@ vi.mock("../broker/brokerConfig", () => ({
 }));
 
 vi.mock("../portfolio/aiModeConfig", () => ({
-  aiModeForChannel: () => null,
-  modeForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
+  bookForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
+  originKind: () => "ai",
   getExitConfig: () => ({
     sprint: aiSprint,
     runway: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
     anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
     glide: { disasterSlPct: 50 },
-    lubasManagedExit,
   }),
+  // T129 — lubasManagedExit moved to the common block.
+  getCommonConfig: () => ({ lubasManagedExit }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
 }));
 

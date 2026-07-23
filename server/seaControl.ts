@@ -22,7 +22,7 @@ import type { Duplex } from "stream";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { tickBus } from "./broker/tickBus";
-import { getAiConfig } from "./portfolio/aiModeConfig";
+import { getAiConfig, getCommonConfig } from "./portfolio/aiModeConfig";
 import { listModelVersions } from "./modelVersions";
 
 export type Cohort = "scalp" | "trend" | "ma";
@@ -222,9 +222,8 @@ export function setModelVersion(instrument: string, version: string): CohortStat
  * aiLiveEnabled). If neither is on, nothing would be placed anyway, so the
  * union is empty and SEA goes quiet.
  *
- * `revPct` is a single detector parameter — the two books cannot hold different
- * values in one process. The live book wins when its AI is on, else paper. (T129
- * lifts revPct into a common block so the ambiguity disappears.)
+ * `revPct` is a single detector parameter (CommonConfig, T129) — one value for
+ * the whole system, so there is no per-book ambiguity to resolve.
  */
 export async function syncCohortsFromAiConfig(): Promise<void> {
   const { getUserSettings } = await import("./userSettings");
@@ -243,13 +242,9 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setCohort("trend", anyWants("trend"));
   setCohort("ma", anyWants("ma"));
 
-  // revPct — live's value if live is on, else paper's, else leave as configured.
-  const rev = liveOn
-    ? getAiConfig("live", "ai").cohorts.revPct
-    : paperOn
-      ? getAiConfig("paper", "ai").cohorts.revPct
-      : null;
-  if (rev != null) setRevPct(rev);
+  // revPct is a single detector parameter and now lives in the common block —
+  // no per-book ambiguity to resolve (T129).
+  setRevPct(getCommonConfig().revPct);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
