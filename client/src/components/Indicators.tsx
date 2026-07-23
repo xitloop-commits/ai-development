@@ -13,10 +13,11 @@
  * level any more.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Wifi, Shield, FlaskConical, AlertTriangle } from 'lucide-react';
+import { Wifi, Shield, FlaskConical, AlertTriangle, SlidersHorizontal } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DisciplineRulesDialog } from './DisciplineRulesDialog';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
@@ -336,6 +337,7 @@ function DisciplineIndicator() {
   const liveOn = settings.data?.liveEnforcement?.enabled ?? true;
   const simOn = settings.data?.simulationEnforcement?.enabled ?? true;
   const [confirmLiveOff, setConfirmLiveOff] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   const setLive = (enabled: boolean) => update.mutate({ liveEnforcement: { enabled } });
   const setSim = (enabled: boolean) => update.mutate({ simulationEnforcement: { enabled } });
@@ -382,6 +384,15 @@ function DisciplineIndicator() {
               </div>
             )}
 
+            {/* Every individual rule + its thresholds. */}
+            <button
+              type="button"
+              onClick={() => setRulesOpen(true)}
+              className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded text-[0.625rem] font-bold border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            >
+              <SlidersHorizontal className="h-3 w-3" /> Customize rules
+            </button>
+
             {/* Score breakdown */}
             <div className="text-[0.625rem] space-y-0.5 font-mono">
               {breakdown ? (
@@ -401,6 +412,8 @@ function DisciplineIndicator() {
           </div>
         </PopoverContent>
       </Popover>
+
+      <DisciplineRulesDialog open={rulesOpen} onClose={() => setRulesOpen(false)} />
 
       {confirmLiveOff && (
         <ConfirmDialog

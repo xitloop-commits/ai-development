@@ -1627,6 +1627,27 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T109 [UI] — all discipline rules editable from the app-bar shield ✅ DONE 2026-07-23
+The shield menu only exposed the two enforcement master switches. Added
+`DisciplineRulesDialog` behind a "Customize rules" button: every gating rule with
+an ON/OFF pill and its thresholds, grouped by module — circuit breaker, trade
+limits, time windows, pre-trade gate (incl. min R:R), position sizing, journal
+and streaks.
+
+- Changes save IMMEDIATELY. A rule left staged behind an Apply button is a rule
+  still permitting (or blocking) real orders.
+- Each patch merges into the CURRENT sub-object: `updateSettings` validates each
+  module as a whole object, so a partial like `{maxTradesPerDay:{enabled}}` is
+  rejected for the missing `limit`.
+- Turning LIVE enforcement off still confirms first; thresholds stay visible but
+  greyed when a rule is off, so you can see what it WOULD do before enabling.
+- Carry-forward internals and the IV-classifier tunables deliberately left in
+  Settings — interdependent config, not on/off policy.
+
+Context: live enforcement was found OFF today while AI live was ON, i.e. real
+orders running with no loss cap, position cap or R:R gate. Making the rules
+visible and one click away is the guard against that recurring.
+
 ### T108 [Execution] — live exit re-booked at the broker's real fill ✅ DONE 2026-07-23
 First live trade of the day: Dhan filled the exit at **145.95**, the app recorded
 **146.45** (its own LTP) — P&L booked 194.16 vs a real 161.66, **overstated
