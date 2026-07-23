@@ -1627,6 +1627,24 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T121 [UI] — the contract pill IS the chart link ✅ DONE 2026-07-23
+A separate chart icon sat beside the Long(CE)/Short(PE) pill doing the same job
+for the same contract — a second target to aim at, and a column of width on
+every row.
+
+- Clicking the pill opens the strike chart; the icon is gone
+  ([TodayTradeRow](../client/src/components/TodayTradeRow.tsx)).
+- Past-day rows gained the same pill-link ([PastTradeRow](../client/src/components/PastTradeRow.tsx)),
+  which they never had. It loads the trade's OWN day, so a trade from three
+  weeks ago shows that day's candles. It is the one action a settled trade still
+  supports — no exit, no strategy roll.
+- **Falls back to a plain span** when `chartTarget` is null (non-option, or no
+  `contractSecurityId`). A button that opens nothing is worse than no button —
+  and a test that only counted buttons would have passed on a fixture that never
+  had a securityId, so the fixture now carries one.
+
+Tests: 2 added (exactly one action, and the inert fallback).
+
 ### T120 [UI] — trade number leads the row; clock centred, 12-hour ✅ DONE 2026-07-23
 - **Number first, everywhere.** The `#signal` / `#tradeNo` badge now leads the
   identity block in BOTH [TodayTradeRow](../client/src/components/TodayTradeRow.tsx)

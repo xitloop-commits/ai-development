@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, LineChart } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { estimateSingleLegCharges, DEFAULT_CHARGES, chargeRatesForTrade } from '@shared/chargesEngine';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
@@ -287,26 +287,33 @@ function _TodayTradeRow({
                   to misread as bullish when a bought put is a bearish position.
                   Colour follows the DIRECTION (bought vs sold), not the option
                   type. */}
-              <span
-                className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap ${isOpen ? 'font-bold' : 'font-semibold'} ${
-                  isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
-                }`}
-                title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel}`}
-              >
-                {isBuy ? 'Long' : 'Short'}({contractLabel})
-              </span>
-              {(contractLabel === 'CE' || contractLabel === 'PE') &&
-                trade.contractSecurityId &&
-                trade.strike != null && (
-                  <button
-                    type="button"
-                    onClick={() => setChartOpen(true)}
-                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Open this strike's chart popup — candles + your entry/exit + SL/TP, live 5s"
-                  >
-                    <LineChart className="h-3 w-3" />
-                  </button>
-                )}
+              {/* The pill IS the chart link (Partha, 2026-07-23). A separate
+                  chart icon sat next to it doing the same job for the same
+                  contract, costing a column of width on every row and a second
+                  target to aim at. `chartTarget` is null for a non-option or a
+                  trade with no contract id, and then this stays a plain span —
+                  a button that opens nothing is worse than no button. */}
+              {chartTarget ? (
+                <button
+                  type="button"
+                  onClick={() => setChartOpen(true)}
+                  className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap cursor-pointer hover:brightness-125 transition-[filter] ${isOpen ? 'font-bold' : 'font-semibold'} ${
+                    isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
+                  }`}
+                  title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel} — click for this strike's chart (candles + your entry/exit + SL/TP, live 5s)`}
+                >
+                  {isBuy ? 'Long' : 'Short'}({contractLabel})
+                </button>
+              ) : (
+                <span
+                  className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap ${isOpen ? 'font-bold' : 'font-semibold'} ${
+                    isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
+                  }`}
+                  title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel}`}
+                >
+                  {isBuy ? 'Long' : 'Short'}({contractLabel})
+                </span>
+              )}
 
               {/* ── Provenance / management ──────────────────────────
                   WHERE the trade came from (cohort) and HOW it is being managed

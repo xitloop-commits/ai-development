@@ -37,7 +37,7 @@ function trade(overrides: Partial<TradeRecord> = {}): TradeRecord {
     pnl: 12_000, charges: 260, chargesBreakdown: [], status: "CLOSED",
     exitReason: "AI_EXIT", openedAt: 1_784_799_245_682, closedAt: 1_784_800_542_673,
     stopLossPrice: null, targetPrice: null, cohort: "ma_signal", exitStrategy: "glide",
-    signalSeq: 7,
+    signalSeq: 7, contractSecurityId: "63933",
     ...overrides,
   } as unknown as TradeRecord;
 }
@@ -117,7 +117,20 @@ describe("PastTradeRow look and feel", () => {
     expect(loss.innerHTML).toContain("text-destructive");
   });
 
-  it("does NOT offer actions — a settled trade cannot be exited or re-strategised", () => {
-    expect(renderRow().querySelectorAll("button").length).toBe(0);
+  it("offers exactly ONE action — the contract pill, which opens the chart", () => {
+    // A settled trade cannot be exited or re-strategised, so those controls stay
+    // absent; looking at what happened is the one thing still worth doing.
+    const buttons = Array.from(renderRow().querySelectorAll("button"));
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.textContent).toBe("Long(CE)");
+    expect(buttons[0]!.getAttribute("title")).toContain("chart");
+  });
+
+  it("leaves the pill inert when the contract cannot be charted", () => {
+    // No securityId → nothing to load. A button that opens nothing is worse
+    // than no button, so it must fall back to a plain label.
+    const row = renderRow(trade({ contractSecurityId: null } as Partial<TradeRecord>));
+    expect(row.querySelectorAll("button")).toHaveLength(0);
+    expect(row.querySelector("td")!.textContent).toContain("Long(CE)");
   });
 });

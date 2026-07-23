@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { Channel, TradeRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace } from '@/lib/tradeTypes';
+import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -24,6 +24,8 @@ import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { TradeBar } from './TradeBar';
+import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
+import { istDateString } from '@/lib/signalChart';
 
 export interface PastTradeRowProps {
   trade: TradeRecord;
@@ -66,10 +68,29 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
   const isBuy = trade.type.includes('BUY');
   const contractLabel = getTradeContractLabel(trade.type);
   const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
+
+  // Same popup chart today's rows open — it takes the trade's OWN day, so a
+  // trade from three weeks ago loads that day's candles, not today's.
+  const [chartOpen, setChartOpen] = useState(false);
+  const chartTarget: OptionChartTargetLite | null =
+    (contractLabel === 'CE' || contractLabel === 'PE') && trade.contractSecurityId && trade.strike != null
+      ? {
+          instrumentKey: trade.instrument,
+          displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
+          securityId: trade.contractSecurityId,
+          exchangeSegment: optionExchangeFor(trade.instrument),
+          strike: trade.strike,
+          side: contractLabel,
+          channel,
+          date: istDateString(new Date(trade.openedAt)),
+          expiry: trade.expiry,
+        }
+      : null;
   const pnlBright = pnl > 0 ? 'text-bullish' : pnl < 0 ? 'text-destructive' : 'text-foreground';
   const cell = 'px-2 py-1.5 text-right tabular-nums border-r border-border';
 
   return (
+    <>
     <tr
       // `opacity-60` is how TodayTradeRow renders a CLOSED trade — every trade in
       // a past day is closed, so the whole block carries it. That is the dimming
@@ -115,14 +136,29 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
               {trade.strike}
             </span>
           )}
-          <span
-            className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap font-semibold ${
-              isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
-            }`}
-            title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel}`}
-          >
-            {isBuy ? 'Long' : 'Short'}({contractLabel})
-          </span>
+          {/* The pill is the chart link, same as today's row. This is the ONE
+              action a settled trade still supports — looking at what happened. */}
+          {chartTarget ? (
+            <button
+              type="button"
+              onClick={() => setChartOpen(true)}
+              className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap font-semibold cursor-pointer hover:brightness-125 transition-[filter] ${
+                isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
+              }`}
+              title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel} — click for this strike's chart on ${new Date(trade.openedAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })}`}
+            >
+              {isBuy ? 'Long' : 'Short'}({contractLabel})
+            </button>
+          ) : (
+            <span
+              className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap font-semibold ${
+                isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
+              }`}
+              title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel}`}
+            >
+              {isBuy ? 'Long' : 'Short'}({contractLabel})
+            </span>
+          )}
           {trade.cohort && (
             <span
               className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
@@ -230,6 +266,8 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
         <StatusBadge status={trade.status} exitReason={trade.exitReason} reason={trade.rejectReason} />
       </td>
     </tr>
+    <OptionChartDialog open={chartOpen} onOpenChange={setChartOpen} target={chartTarget} />
+    </>
   );
 }
 
