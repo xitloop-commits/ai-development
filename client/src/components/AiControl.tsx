@@ -273,6 +273,16 @@ export function AiControl() {
   // Master switch for AI-sourced trades in BOTH modes. Defaults ON so a settings
   // doc predating the field doesn't silently stop AI trading.
   const aiTradesEnabled: boolean = settingsQuery.data?.tradingMode?.aiTradesEnabled ?? true;
+  // Per-book routing. Falls back to the legacy either/or field so a settings doc
+  // that predates the split still shows the right state.
+  const tmode = settingsQuery.data?.tradingMode as
+    | { aiPaperEnabled?: boolean; aiLiveEnabled?: boolean; aiTradesMode?: Mode }
+    | undefined;
+  const aiPaperOn: boolean = tmode?.aiPaperEnabled ?? (tmode?.aiTradesMode ?? "paper") === "paper";
+  const aiLiveOn: boolean = tmode?.aiLiveEnabled ?? (tmode?.aiTradesMode ?? "paper") === "live";
+  // The switch shown reflects the mode being viewed. The global master is ANDed
+  // in so a legacy "everything off" state still reads as OFF rather than lying.
+  const aiOnForMode: boolean = aiTradesEnabled && (mode === "live" ? aiLiveOn : aiPaperOn);
 
   // Trained model versions on disk. Static between retrains, so no polling —
   // refetched after a switch so the new pick shows as active.
@@ -350,6 +360,10 @@ export function AiControl() {
   const switchMode = (m: Mode) => {
     if (m === mode) return;
     setMode(m);
+    // Switching the view no longer ROUTES trades — that is the per-book AI-trades
+    // switch. `aiTradesMode` is still synced because it decides whose cohorts get
+    // pushed to SEA (one process, one cohort set), so the cohorts you see edited
+    // are the ones actually firing.
     if (m !== activeMode) setAiMode.mutate({ aiTradesMode: m });
   };
 
@@ -409,38 +423,14 @@ export function AiControl() {
       {open && (
         <>
           <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
-            {/* ⓪ AI trades master switch — sits ABOVE the mode toggle because it
-                governs BOTH modes. Applies immediately (no Apply button): it's a
-                safety control, so it must not sit in a draft. */}
+            {/* ① Mode — FIRST, because it selects which book everything below
+                belongs to. It no longer routes trades: routing is the per-mode
+                AI-trades switch underneath (aiPaperEnabled / aiLiveEnabled), so
+                paper and live are genuinely independent. */}
             <div className="p-3 border-b border-border flex items-center justify-between">
               <div className="flex flex-col">
-                <SectionLabel>AI trades</SectionLabel>
-                <span className="text-[0.5625rem] text-muted-foreground">
-                  {aiTradesEnabled
-                    ? "signals are placed as trades"
-                    : "signals still logged — nothing placed"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {!aiTradesEnabled && (
-                  <span className="text-[0.5rem] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
-                    Off
-                  </span>
-                )}
-                <Pill
-                  label={aiTradesEnabled ? "ON" : "OFF"}
-                  on={aiTradesEnabled}
-                  disabled={setAiMode.isPending}
-                  onClick={() => setAiMode.mutate({ aiTradesEnabled: !aiTradesEnabled })}
-                />
-              </div>
-            </div>
-
-            {/* ① Mode toggle — fixed header */}
-            <div className={`p-3 border-b border-border flex items-center justify-between ${aiTradesEnabled ? "" : "opacity-50"}`}>
-              <div className="flex flex-col">
                 <SectionLabel>Mode</SectionLabel>
-                <span className="text-[0.5625rem] text-muted-foreground">config + where AI trades go</span>
+                <span className="text-[0.5625rem] text-muted-foreground">which book you are editing</span>
               </div>
               <div className="flex rounded-md border border-border overflow-hidden">
                 {(["paper", "live"] as const).map((m) => {
@@ -456,6 +446,53 @@ export function AiControl() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ② AI trades — PER MODE. Paper and live each have their own switch,
+                so turning one off leaves the other running. Both on = one signal
+                is placed on BOTH books. Applies immediately (no Apply): it is a
+                safety control and must never sit in a draft. */}
+            <div className="p-3 border-b border-border flex items-center justify-between">
+              <div className="flex flex-col">
+                <SectionLabel>AI trades · {mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
+                <span className="text-[0.5625rem] text-muted-foreground">
+                  {aiOnForMode
+                    ? mode === "live"
+                      ? "signals placed on the REAL ai-live account"
+                      : "signals placed on the paper book"
+                    : "signals still logged — nothing placed on this book"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {!aiOnForMode && (
+                  <span className="text-[0.5rem] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                    Off
+                  </span>
+                )}
+                <Pill
+                  label={aiOnForMode ? "ON" : "OFF"}
+                  on={aiOnForMode}
+                  disabled={setAiMode.isPending}
+                  onClick={() => {
+                    if (mode === "live" && !aiOnForMode &&
+                        !window.confirm(
+                          [
+                            "Turn ON AI trades for LIVE?",
+                            "",
+                            "SEA signals will place REAL orders on the ai-live Dhan account.",
+                          ].join("\n"),
+                        )) return;
+                    // Master stays on; the per-book flags are what route now. It
+                    // is sent alongside so an install where it was switched off
+                    // can't leave both books silently dead.
+                    setAiMode.mutate(
+                      mode === "live"
+                        ? { aiTradesEnabled: true, aiLiveEnabled: !aiOnForMode }
+                        : { aiTradesEnabled: true, aiPaperEnabled: !aiOnForMode },
+                    );
+                  }}
+                />
               </div>
             </div>
 
