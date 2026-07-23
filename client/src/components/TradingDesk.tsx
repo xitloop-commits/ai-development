@@ -13,6 +13,9 @@ import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
 import { TodayPnlBar } from './TodayPnlBar';
 import { TradeFilterBar, EMPTY_TRADE_FILTER, type TradeFilter } from './TradeFilterBar';
+import { AiControl } from './AiControl';
+import { MyTradesControl } from './MyTradesControl';
+import { SettingsMenu } from './SettingsMenu';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import type { ResolvedInstrument } from '@/lib/tradeTypes';
 import { channelToWorkspace } from '@/lib/tradeTypes';
@@ -213,6 +216,14 @@ export default function TradingDesk({
           strategies={todayStrategies}
           exitReasons={todayExitReasons}
         />
+        {/* T130 — the config menus live beside the filter, on the table they
+            govern, rather than up in the app-bar chrome. Pushed to the right so
+            they sit at the trailing edge of the header row. */}
+        <div className="ml-auto flex items-stretch divide-x divide-border">
+          <AiControl />
+          <MyTradesControl />
+          <SettingsMenu />
+        </div>
       </div>
 
       {/* No `content-visibility: auto` here. It applies containment (size

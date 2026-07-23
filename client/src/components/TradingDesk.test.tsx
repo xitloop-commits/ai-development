@@ -76,6 +76,13 @@ vi.mock("@/lib/trpc", () => ({
 // Mock the two custom hooks BEFORE importing the component. These hooks
 // otherwise reach into tRPC + feed subscriptions, which we don't need
 // for branch-level rendering tests.
+// The config menus now render in the desk header (T130). They are heavy
+// (their own tRPC queries + stores) and incidental to these branch-render
+// tests, so stub them to nothing.
+vi.mock("./AiControl", () => ({ AiControl: () => null }));
+vi.mock("./MyTradesControl", () => ({ MyTradesControl: () => null }));
+vi.mock("./SettingsMenu", () => ({ SettingsMenu: () => null }));
+
 vi.mock("@/hooks/useTradingDeskData", () => ({
   useTradingDeskData: () => ({
     getLiveLtp: vi.fn(() => 0),

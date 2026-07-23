@@ -23,9 +23,6 @@ import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
-import { AiControl } from '@/components/AiControl';
-import { MyTradesControl } from '@/components/MyTradesControl';
-import { SettingsMenu } from '@/components/SettingsMenu';
 import { ReplayControl } from '@/components/ReplayControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
@@ -548,12 +545,8 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         {/* Right-side status cluster: 📶 FEED · 🧪 AI · 🛡 Score */}
         <Indicators />
 
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* SEA cohort control — scalp / trend / MA on-off, live over ws */}
-        <AiControl />
-        <MyTradesControl />
-        <SettingsMenu />
+        {/* AI / My Trades / Settings menus moved onto the desk, beside the trade
+            filter they govern (T130). */}
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
