@@ -65,8 +65,10 @@ vi.mock("../executor/settings", () => ({
 
 // The monitor tests exercise the safety-exit path; globalExitsForChannel feeds
 // the thresholds. The other exports are used by the placement path (not here).
+// T133 — the per-exit enable flags are mutable so a test can switch one off.
+const geFlags = { ageEnabled: true, staleEnabled: true, volEnabled: true };
 vi.mock("../portfolio/aiModeConfig", () => ({
-  globalExitsForChannel: () => ({ rcaMaxAgeMs: 30 * 60_000, rcaStaleTickMs: 5 * 60_000, rcaVolThreshold: 0.7 }),
+  globalExitsForChannel: () => ({ rcaMaxAgeMs: 30 * 60_000, rcaStaleTickMs: 5 * 60_000, rcaVolThreshold: 0.7, ...geFlags }),
   bookForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
   originKind: () => "ai",
   getActiveStrategies: () => ["sprint"],
@@ -96,6 +98,7 @@ function makeOpenTrade(overrides: any = {}) {
 describe("rcaMonitor — exit triggers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    geFlags.ageEnabled = geFlags.staleEnabled = geFlags.volEnabled = true;
     rcaMonitor.stop();
     rcaMonitor.start({
       maxAgeMs: 30 * 60_000,
@@ -117,6 +120,22 @@ describe("rcaMonitor — exit triggers", () => {
     expect(exitTradeMock).toHaveBeenCalledWith(
       expect.objectContaining({ reason: "AGE_EXIT" }),
     );
+  });
+
+  it("AGE is skipped when its checkbox is off (T133)", async () => {
+    geFlags.ageEnabled = false;
+    const tooOld = makeOpenTrade({ openedAt: Date.now() - 60 * 60_000 });
+    getPositionsMock.mockResolvedValueOnce([tooOld as any]);
+    await (rcaMonitor as any).tick();
+    expect(exitTradeMock).not.toHaveBeenCalled();
+  });
+
+  it("STALE_PRICE is skipped when its checkbox is off (T133)", async () => {
+    geFlags.staleEnabled = false;
+    const stale = makeOpenTrade({ openedAt: Date.now() - 60_000, lastTickAt: Date.now() - 10 * 60_000 });
+    getPositionsMock.mockResolvedValueOnce([stale as any]);
+    await (rcaMonitor as any).tick();
+    expect(exitTradeMock).not.toHaveBeenCalled();
   });
 
   it("STALE_PRICE trigger — fires when lastTickAt is older than staleTickMs", async () => {

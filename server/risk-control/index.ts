@@ -212,7 +212,8 @@ class RcaMonitor {
         // engine — the thing the replay is testing — manage it.
         if (!isReplayActive()) {
           const ageMs = now - trade.openedAt;
-          if (ageMs >= maxAgeMs) {
+          // T133 — each safety exit can be individually switched off in Settings.
+          if (ge.ageEnabled && ageMs >= maxAgeMs) {
             await this.exit(channel, trade, "AGE", {
               reason: "AGE_EXIT",
               detail: `Age ${Math.round(ageMs / 60_000)} min ≥ ${maxAgeMs / 60_000} min`,
@@ -223,7 +224,7 @@ class RcaMonitor {
           // Stale-price: requires a tick to have arrived once. If
           // lastTickAt is undefined the trade is fresh; only flag once
           // we've seen at least one tick AND it's gone stale.
-          if (trade.lastTickAt && now - trade.lastTickAt >= staleTickMs) {
+          if (ge.staleEnabled && trade.lastTickAt && now - trade.lastTickAt >= staleTickMs) {
             const stillness = now - trade.lastTickAt;
             await this.exit(channel, trade, "STALE_PRICE", {
               reason: "STALE_PRICE_EXIT",
@@ -234,7 +235,7 @@ class RcaMonitor {
         }
 
         const volSignal = this.lookupSignal(trade, latestSignal);
-        if (volSignal && (volSignal.max_drawdown_pred_30s ?? 0) >= volThreshold) {
+        if (ge.volEnabled && volSignal && (volSignal.max_drawdown_pred_30s ?? 0) >= volThreshold) {
           await this.exit(channel, trade, "VOLATILITY", {
             reason: "VOLATILITY_EXIT",
             detail: `Predicted max-drawdown ${volSignal.max_drawdown_pred_30s?.toFixed(2)} ≥ ${volThreshold}`,

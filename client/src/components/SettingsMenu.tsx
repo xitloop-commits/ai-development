@@ -22,15 +22,46 @@ import { InfoDot } from "./InfoDot";
 
 interface CommonCfg {
   revPct: number;
-  globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
+  globalExits: {
+    rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
+    ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
+  };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
 }
 
-function Group({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
+/** A compact checkbox. `indeterminate` renders the mixed (dash) state. */
+function Check2({ checked, indeterminate, onChange, title }: {
+  checked: boolean; indeterminate?: boolean; onChange: () => void; title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? "mixed" : checked}
+      onClick={(e) => { e.stopPropagation(); onChange(); }}
+      title={title}
+      className={`h-3.5 w-3.5 shrink-0 rounded-[3px] border flex items-center justify-center text-[0.5rem] font-bold leading-none transition-colors ${
+        checked || indeterminate
+          ? "bg-info-cyan/25 border-info-cyan/50 text-info-cyan"
+          : "bg-muted/30 border-border text-transparent hover:border-info-cyan/40"
+      }`}
+    >
+      {indeterminate ? "–" : checked ? "✓" : ""}
+    </button>
+  );
+}
+
+function Group({ title, info, toggle, children }: {
+  title: string; info?: string;
+  /** Optional checkbox in front of the title (e.g. master enable for the group). */
+  toggle?: { checked: boolean; indeterminate?: boolean; onChange: () => void; title?: string };
+  children: React.ReactNode;
+}) {
   return (
     <div className="border-t border-border pt-2 flex flex-col gap-1.5">
       <span className="flex items-center gap-1.5">
+        {toggle && <Check2 {...toggle} />}
         <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
         {info && <InfoDot text={info} />}
       </span>
@@ -39,17 +70,23 @@ function Group({ title, info, children }: { title: string; info?: string; childr
   );
 }
 
-function NumRow({ label, value, onChange, step = 1, min, max, unit }: {
+function NumRow({ label, value, onChange, step = 1, min, max, unit, check }: {
   label: string; value: number; onChange: (v: number) => void;
   step?: number; min?: number; max?: number; unit?: string;
+  /** Optional leading checkbox to enable/disable this exit. When unchecked the
+   *  input dims but keeps its value, so re-enabling restores the setting. */
+  check?: { checked: boolean; onChange: () => void };
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[0.625rem] text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-1">
-        <input type="number" step={step} min={min} max={max} value={value}
+      <span className="flex items-center gap-1.5 min-w-0">
+        {check && <Check2 checked={check.checked} onChange={check.onChange} title={check.checked ? "Disable" : "Enable"} />}
+        <span className={`text-[0.625rem] ${check && !check.checked ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>{label}</span>
+      </span>
+      <div className={`flex items-center gap-1 ${check && !check.checked ? "opacity-40" : ""}`}>
+        <input type="number" step={step} min={min} max={max} value={value} disabled={check && !check.checked}
           onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-          className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
         {unit && <span className="text-[0.5625rem] text-muted-foreground w-6">{unit}</span>}
       </div>
     </div>
@@ -106,7 +143,7 @@ export function SettingsMenu() {
           <div className="p-3 border-b border-border">
             <span className="flex items-center gap-1.5">
               <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                Settings · common
+                Settings
               </span>
               <InfoDot text="One value for the whole platform — paper and live both use these." />
             </span>
@@ -122,36 +159,61 @@ export function SettingsMenu() {
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
                 </Group>
 
-                <Group title="Global exits · RCA safety nets" info="RCA auto-closes an open trade after this age, after this long with no tick, or when predicted volatility exceeds the threshold.">
-                  <NumRow label="Age exit" value={Math.round(d.globalExits.rcaMaxAgeMs / 60000)} step={1} min={1} max={360} unit="min"
-                    onChange={(v) => edit((x) => { x.globalExits.rcaMaxAgeMs = v * 60000; })} />
-                  <NumRow label="Stale tick" value={Math.round(d.globalExits.rcaStaleTickMs / 60000)} step={1} min={1} max={60} unit="min"
-                    onChange={(v) => edit((x) => { x.globalExits.rcaStaleTickMs = v * 60000; })} />
-                  <NumRow label="Volatility" value={d.globalExits.rcaVolThreshold} step={0.1} min={0} max={10}
-                    onChange={(v) => edit((x) => { x.globalExits.rcaVolThreshold = v; })} />
-                </Group>
+                {(() => {
+                  const ge = d.globalExits;
+                  const allOn = ge.ageEnabled && ge.staleEnabled && ge.volEnabled;
+                  const anyOn = ge.ageEnabled || ge.staleEnabled || ge.volEnabled;
+                  return (
+                    <Group
+                      title="Global exits · RCA safety nets"
+                      info="RCA auto-closes an open trade after this age, after this long with no tick, or when predicted volatility exceeds the threshold. Tick a box to arm that exit; untick to switch it off."
+                      toggle={{
+                        checked: allOn,
+                        indeterminate: anyOn && !allOn,
+                        onChange: () => edit((x) => {
+                          const on = !allOn; // all-on when currently mixed/off, all-off when fully on
+                          x.globalExits.ageEnabled = on;
+                          x.globalExits.staleEnabled = on;
+                          x.globalExits.volEnabled = on;
+                        }),
+                        title: allOn ? "Turn off all safety exits" : "Turn on all safety exits",
+                      }}
+                    >
+                      <NumRow label="Age exit" value={Math.round(ge.rcaMaxAgeMs / 60000)} step={1} min={1} max={360} unit="min"
+                        check={{ checked: ge.ageEnabled, onChange: () => edit((x) => { x.globalExits.ageEnabled = !x.globalExits.ageEnabled; }) }}
+                        onChange={(v) => edit((x) => { x.globalExits.rcaMaxAgeMs = v * 60000; })} />
+                      <NumRow label="Stale tick" value={Math.round(ge.rcaStaleTickMs / 60000)} step={1} min={1} max={60} unit="min"
+                        check={{ checked: ge.staleEnabled, onChange: () => edit((x) => { x.globalExits.staleEnabled = !x.globalExits.staleEnabled; }) }}
+                        onChange={(v) => edit((x) => { x.globalExits.rcaStaleTickMs = v * 60000; })} />
+                      <NumRow label="Volatility" value={ge.rcaVolThreshold} step={0.1} min={0} max={10}
+                        check={{ checked: ge.volEnabled, onChange: () => edit((x) => { x.globalExits.volEnabled = !x.globalExits.volEnabled; }) }}
+                        onChange={(v) => edit((x) => { x.globalExits.rcaVolThreshold = v; })} />
+                    </Group>
+                  );
+                })()}
 
-                <Group title="EOD square-off" info="End-of-day auto-flatten. Every open intraday position is closed at these IST times (NSE for cash/F&O, MCX for commodities).">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[0.625rem] text-muted-foreground">Enabled</span>
-                    <button type="button"
-                      onClick={() => edit((x) => { x.squareoff.enabled = !x.squareoff.enabled; })}
-                      className={`px-2 py-1 rounded text-[0.625rem] font-bold tracking-wide border transition-colors ${
-                        d.squareoff.enabled ? "bg-info-cyan/20 text-info-cyan border-info-cyan/40"
-                          : "bg-muted/30 text-muted-foreground border-border hover:text-foreground"
-                      }`}>
-                      {d.squareoff.enabled ? "ON" : "OFF"}
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">NSE</span>
-                    <input type="time" value={d.squareoff.nseTime} onChange={(e) => edit((x) => { x.squareoff.nseTime = e.target.value; })}
-                      className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">MCX</span>
-                    <input type="time" value={d.squareoff.mcxTime} onChange={(e) => edit((x) => { x.squareoff.mcxTime = e.target.value; })}
-                      className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+                <Group
+                  title="EOD square-off"
+                  info="End-of-day auto-flatten. Every open intraday position is closed at these IST times (NSE for cash/F&O, MCX for commodities). Untick to switch it off."
+                  toggle={{
+                    checked: d.squareoff.enabled,
+                    onChange: () => edit((x) => { x.squareoff.enabled = !x.squareoff.enabled; }),
+                    title: d.squareoff.enabled ? "Turn off EOD square-off" : "Turn on EOD square-off",
+                  }}
+                >
+                  <div className={`flex flex-col gap-1.5 ${d.squareoff.enabled ? "" : "opacity-40"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[0.625rem] text-muted-foreground">NSE</span>
+                      <input type="time" value={d.squareoff.nseTime} disabled={!d.squareoff.enabled}
+                        onChange={(e) => edit((x) => { x.squareoff.nseTime = e.target.value; })}
+                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[0.625rem] text-muted-foreground">MCX</span>
+                      <input type="time" value={d.squareoff.mcxTime} disabled={!d.squareoff.enabled}
+                        onChange={(e) => edit((x) => { x.squareoff.mcxTime = e.target.value; })}
+                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
+                    </div>
                   </div>
                 </Group>
 

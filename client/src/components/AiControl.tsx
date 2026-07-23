@@ -51,7 +51,10 @@ interface ModeCfg {
 /** T129 — system-wide settings; edited in the Settings menu, not here. */
 interface CommonCfg {
   revPct: number;
-  globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
+  globalExits: {
+    rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
+    ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
+  };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
 }

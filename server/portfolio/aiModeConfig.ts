@@ -79,6 +79,11 @@ export interface GlobalExitsConfig {
   rcaMaxAgeMs: number; // age exit
   rcaStaleTickMs: number; // stale-tick exit
   rcaVolThreshold: number; // volatility exit
+  // T133 — each RCA safety exit can be switched off individually. Default true,
+  // so an old config (or a new install) keeps every guard on.
+  ageEnabled: boolean;
+  staleEnabled: boolean;
+  volEnabled: boolean;
 }
 
 export interface SquareoffConfig {
@@ -201,6 +206,9 @@ function baseCommon(): CommonConfig {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
       rcaVolThreshold: 0.7,
+      ageEnabled: true,
+      staleEnabled: true,
+      volEnabled: true,
     },
     squareoff: { enabled: true, nseTime: "15:25", mcxTime: "23:25" },
     // Lubas owns live exits by default — the staged strategies + Glide only work
@@ -340,6 +348,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);
+  c.globalExits.ageEnabled = c.globalExits.ageEnabled !== false;
+  c.globalExits.staleEnabled = c.globalExits.staleEnabled !== false;
+  c.globalExits.volEnabled = c.globalExits.volEnabled !== false;
   c.squareoff.enabled = !!c.squareoff.enabled;
   if (!isHHmm(c.squareoff.nseTime)) c.squareoff.nseTime = "15:25";
   if (!isHHmm(c.squareoff.mcxTime)) c.squareoff.mcxTime = "23:25";
