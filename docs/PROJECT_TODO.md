@@ -1627,6 +1627,38 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T111 [Execution] — AI paper/live are independent switches ✅ DONE 2026-07-23
+`aiTradesMode` was either/or: one signal, one book. Switching it to live silently
+stopped paper receiving anything — which is exactly what happened today when an
+MA `LONG_PE` fired and no paper trade appeared (it went to ai-live and was
+rejected there by Dhan's IP allowlist).
+
+- New `aiPaperEnabled` + `aiLiveEnabled`. Both on = one signal placed on BOTH
+  books, each evaluated INDEPENDENTLY and SEQUENTIALLY (own sizing, own capital,
+  own discipline verdict; sequential so two books can't race one capital check).
+- Neither on = explicit refusal, never a silent fallback to paper.
+- Live is never enabled implicitly — real money is opt-in.
+- Migrates from `aiTradesMode` when the flags are absent, so an existing install
+  behaves identically until the operator changes it.
+- Response: one book keeps the original shape; two books add `results[]` since a
+  fan-out can succeed on paper and be rejected on live.
+
+**Constraint (worth remembering):** SEA is ONE process with one cohort/threshold
+config, so both books get the SAME signals. Only placement (strategy, sizing,
+order type) is per-book. Genuinely different signals per book would need a second
+SEA instance.
+
+⚠️ `settings.updateTradingMode` REPLACES the whole tradingMode block — a partial
+patch resets unspecified fields to defaults (it silently cleared
+`aiTradesEnabled` during this work). Always send the full set.
+
+9 routing tests.
+
+### T112 [UI] — IST date + clock on the app bar ✅ DONE 2026-07-23
+Bold date + running clock next to CLEAR. Shown in IST explicitly because every
+timestamp in the system (signal logs, day records, square-off) is IST — a laptop
+on the wrong timezone would otherwise misread every time on screen.
+
 ### T110 [UI] — roll a trade's exit strategy by clicking its pill ✅ DONE 2026-07-23
 The desk's strategy pill was display-only. It now cycles the strategy on an OPEN
 trade: sprint → runway → anchor → (glide, MA-Signal only) → sprint.

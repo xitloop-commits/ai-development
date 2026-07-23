@@ -413,6 +413,41 @@ function ChannelModeToggle() {
           {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
         </button>
       )}
+      <IstClock />
+    </div>
+  );
+}
+
+/**
+ * IST date + running clock, next to CLEAR.
+ *
+ * Everything in this app is stamped in IST (signal logs, day records, the
+ * square-off schedule), so the bar shows IST explicitly rather than the
+ * machine's local time — a laptop on the wrong timezone silently misreads every
+ * timestamp on screen.
+ *
+ * Ticks on a 1s interval, cleared on unmount so it can't outlive the component.
+ */
+function IstClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const opts = { timeZone: 'Asia/Kolkata' } as const;
+  const date = now.toLocaleDateString('en-IN', { ...opts, day: '2-digit', month: 'short' });
+  const time = now.toLocaleTimeString('en-IN', { ...opts, hour12: false });
+
+  return (
+    <div
+      className="px-2.5 flex items-baseline gap-1.5 shrink-0 cursor-default select-none"
+      title={now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'medium' })}
+    >
+      <span className="text-[0.625rem] font-bold uppercase tracking-wide text-info-cyan">{date}</span>
+      {/* tabular-nums so the seconds digit doesn't shuffle the layout each tick */}
+      <span className="text-xs font-bold tabular-nums text-warning-amber">{time}</span>
+      <span className="text-[0.5rem] font-bold text-muted-foreground">IST</span>
     </div>
   );
 }

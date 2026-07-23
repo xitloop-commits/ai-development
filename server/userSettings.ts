@@ -75,6 +75,20 @@ export interface TradingModeSettings {
    *  returns false for it) and so cannot stop paper AI trades. Signals arriving
    *  while off are dropped, not queued. */
   aiTradesEnabled: boolean;
+  /**
+   * INDEPENDENT per-book routing for AI trades. Both true = one signal places on
+   * BOTH books (paper as a live control against the real account).
+   *
+   * Replaces the either/or `aiTradesMode`, which could only ever feed one book —
+   * switching it to live silently stopped paper receiving anything. That field is
+   * kept for the SEA cohort-push path and back-compat; these two decide ROUTING.
+   *
+   * NOTE the signals are IDENTICAL on both books: SEA is one process with one
+   * cohort/threshold config, so it emits a signal once. What differs per book is
+   * placement — strategy, sizing, order type — which stay per-mode.
+   */
+  aiPaperEnabled: boolean;
+  aiLiveEnabled: boolean;
   myTradesMode: "live" | "paper";     // My Trades workspace mode (on-screen toggle, persisted)
   testingMode: "live";                // Testing workspace is live-only (sandbox removed)
   aiKillSwitch: boolean;              // Kill switch for ai-live channel
@@ -176,6 +190,8 @@ export const DEFAULT_EXPIRY_RULES: ExpiryInstrumentRule[] = [
 export const DEFAULT_TRADING_MODE: TradingModeSettings = {
   aiTradesMode: "paper",
   aiTradesEnabled: true,
+  aiPaperEnabled: true,
+  aiLiveEnabled: false,
   myTradesMode: "paper",
   testingMode: "live",
   aiKillSwitch: false,
@@ -295,6 +311,8 @@ const tradingModeSchema = new Schema(
   {
     aiTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
     aiTradesEnabled: { type: Boolean, default: true },
+    aiPaperEnabled: { type: Boolean, default: true },
+    aiLiveEnabled: { type: Boolean, default: false },
     myTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
     testingMode: { type: String, enum: ["live"], default: "live" },
     aiKillSwitch: { type: Boolean, default: false },
@@ -476,6 +494,13 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
     tradingMode: {
       aiTradesMode: doc.tradingMode?.aiTradesMode ?? "paper",
       aiTradesEnabled: doc.tradingMode?.aiTradesEnabled ?? true,
+      // Back-fill from the old either/or mode so nothing changes for an install
+      // that predates these flags: whichever book it pointed at stays the only
+      // one enabled.
+      aiPaperEnabled:
+        doc.tradingMode?.aiPaperEnabled ?? (doc.tradingMode?.aiTradesMode ?? "paper") === "paper",
+      aiLiveEnabled:
+        doc.tradingMode?.aiLiveEnabled ?? (doc.tradingMode?.aiTradesMode ?? "paper") === "live",
       myTradesMode: doc.tradingMode?.myTradesMode ?? "paper",
       testingMode: doc.tradingMode?.testingMode ?? "live",
       aiKillSwitch: doc.tradingMode?.aiKillSwitch ?? false,

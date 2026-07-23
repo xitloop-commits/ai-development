@@ -553,6 +553,9 @@ export const appRouter = router({
     updateTradingMode: protectedProcedure
       .input(z.object({
         aiTradesMode: z.enum(["live", "paper"]).optional(),
+        // Independent per-book AI routing. Both true = one signal lands on both.
+        aiPaperEnabled: z.boolean().optional(),
+        aiLiveEnabled: z.boolean().optional(),
         aiTradesEnabled: z.boolean().optional(),
         myTradesMode: z.enum(["live", "paper"]).optional(),
         testingMode: z.enum(["live"]).optional(),

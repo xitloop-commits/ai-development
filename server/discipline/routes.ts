@@ -141,6 +141,9 @@ export function registerDisciplineRoutes(app: Express): void {
     async (req: Request, res: Response) => {
       const body = req.body as z.infer<typeof validateTradeSchema>;
       const t0 = Date.now();
+      // Books this signal should be placed on. AI fills it from the two routing
+      // switches below; non-AI leaves it empty and keeps its posted channel.
+      let aiChannels: Array<typeof body.channel> = [];
       // T87 — AI trades route by the SEA menu's aiTradesMode setting (the server
       // owns it), NOT the caller's posted channel: PAPER → the shared paper book,
       // LIVE → the real ai-live Dhan account. Default paper (safe). My/manual
@@ -162,10 +165,41 @@ export function registerDisciplineRoutes(app: Express): void {
             latencyMs: Date.now() - t0,
           });
         }
-        const aiMode = tm?.aiTradesMode ?? "paper";
-        body.channel = aiMode === "live" ? "ai-live" : "paper";
+        // Paper and live are INDEPENDENT switches. Both on = the signal is placed
+        // on BOTH books (paper acts as a live control against the real account).
+        // The old either/or `aiTradesMode` could only feed one, so switching to
+        // live silently stopped paper receiving anything.
+        //
+        // Falls back to aiTradesMode when neither flag is present, so an install
+        // predating them behaves exactly as before.
+        const paperOn = tm?.aiPaperEnabled ?? (tm?.aiTradesMode ?? "paper") === "paper";
+        const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
+        aiChannels = [
+          ...(paperOn ? ["paper" as const] : []),
+          ...(liveOn ? ["ai-live" as const] : []),
+        ];
+        if (aiChannels.length === 0) {
+          log.info(`AI trade blocked — neither paper nor live routing is on (${body.instrument})`);
+          return res.json({
+            approved: false,
+            reason: "AI trades are not routed to any book",
+            checks: [],
+            latencyMs: Date.now() - t0,
+          });
+        }
       }
       try {
+        // Non-AI (USER / RCA) keeps its posted channel — exactly one book.
+        const targetChannels: Array<typeof body.channel> =
+          aiChannels.length > 0 ? aiChannels : [body.channel];
+        const perChannel: Array<Record<string, unknown>> = [];
+
+        // Each book is evaluated INDEPENDENTLY and SEQUENTIALLY: its own sizing,
+        // its own capital/exposure, its own discipline verdict. Sequential (not
+        // parallel) so two books can never race the same capital check.
+        for (const targetChannel of targetChannels) {
+          body.channel = targetChannel;
+          perChannel.push(await (async (): Promise<Record<string, unknown>> => {
         // 0. Thin AI path — when the caller omits quantity, the server sizes the
         //    trade and sources capital/exposure itself (single source of truth),
         //    and enforces one open position per instrument so the SEA's 30s
@@ -196,13 +230,13 @@ export function registerDisciplineRoutes(app: Express): void {
             const openTrades = await portfolioAgent.listOpenTrades(body.channel);
             if (openTrades.some((t) => t.instrument === body.instrument)) {
               log.info(`AI trade skipped — position already open channel=${body.channel} instrument=${body.instrument}`);
-              res.json({
+              return {
+                channel: body.channel,
                 success: false,
                 stage: "GUARD",
                 decision: "REJECT",
                 reason: `position already open for ${body.instrument}`,
-              });
-              return;
+              };
             }
           }
 
@@ -299,7 +333,8 @@ export function registerDisciplineRoutes(app: Express): void {
             ? validation.blockReasons.join("; ")
             : validation.blockedBy.join(", ");
           log.info(`DA reject channel=${body.channel} reason="${reasonText}" dt=${Date.now() - t0}ms`);
-          res.json({
+          return {
+            channel: body.channel,
             success: false,
             stage: "DA",
             decision: "REJECT",
@@ -307,8 +342,7 @@ export function registerDisciplineRoutes(app: Express): void {
             blockReasons: validation.blockReasons,
             reason: reasonText,
             warnings: validation.warnings,
-          });
-          return;
+          };
         }
 
         // 2. RCA evaluate → forwards to TEA.submitTrade on APPROVE.
@@ -345,7 +379,8 @@ export function registerDisciplineRoutes(app: Express): void {
           `chain channel=${body.channel} instrument=${body.instrument} ` +
             `decision=${evalResult.decision} dt=${Date.now() - t0}ms`,
         );
-        res.json({
+        return {
+          channel: body.channel,
           success: evalResult.decision !== "REJECT",
           stage: "RCA",
           decision: evalResult.decision,
@@ -353,7 +388,20 @@ export function registerDisciplineRoutes(app: Express): void {
           tradeId: evalResult.submitResult?.tradeId,
           orderId: evalResult.submitResult?.orderId,
           status: evalResult.submitResult?.status,
-        });
+        };
+          })());
+        }
+
+        // One book → the original response shape, unchanged, so every existing
+        // caller keeps working. Two books → the same shape for the FIRST result
+        // plus `results` carrying both, since a fan-out can legitimately succeed
+        // on paper and be rejected on live (or vice versa).
+        const primary = perChannel[0] ?? { success: false, stage: "NONE", reason: "no book evaluated" };
+        res.json(
+          perChannel.length > 1
+            ? { ...primary, success: perChannel.some((r) => r.success), results: perChannel }
+            : primary,
+        );
       } catch (err: any) {
         log.error(`/validateTrade failed: ${err?.message ?? err}`);
         res.status(500).json({ success: false, stage: "ERROR", error: err?.message ?? String(err) });
