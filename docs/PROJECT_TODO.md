@@ -1627,6 +1627,28 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T115 [UI/Ops] — gross shown alongside net + a live reconciler ✅ DONE 2026-07-23
+Dhan's P&L screen quotes GROSS (charges billed separately); the desk showed only
+one side of the net/gross toggle, so any difference against Dhan looked like a
+break when it was just charges.
+
+- Day summary now shows the OTHER side plus the charge total under the headline
+  figure, so `gross` should equal Dhan and the gap between the two IS charges.
+  (The Net/Gross toggle on the P&L header already existed.)
+- `scripts/reconcile_live.ts` — compares both live books to Dhan; `--apply`
+  re-books drifted exits via the production `correctExitFill`.
+
+**Trap worth remembering:** Dhan returns ONE position row per security with P&L
+**aggregated over every trade on it that day**. The first version of the
+reconciler matched a single app trade to that row and flagged two false
+mismatches; applying it would have crammed a whole day's P&L on a strike into
+one trade. It now sums per security and REFUSES to auto-fix any security with
+more than one trade — which one drifted is unknowable. Caught because 10 app
+trades against 6 Dhan positions doesn't add up.
+
+Verified today: app gross −10,040.15 vs Dhan −10,041.50 (₹1.35 rounding), the
+remaining −1,047.46 being charges. Books reconcile.
+
 ### T114 [Ops] — API server logs to a rolling dated file (2-day retention) ✅ DONE 2026-07-23
 The server only logged to the console, so history vanished on every scroll or
 restart — and `tsx watch` restarts on every edit, which is exactly when you want

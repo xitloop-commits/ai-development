@@ -268,6 +268,21 @@ export function TodaySummaryRow({
             </span>
           )}
         </div>
+        {/*
+          The OTHER side of the net/gross pair, always visible.
+          The broker's P&L screen quotes GROSS (charges are billed separately),
+          so with only one number on show you cannot tell whether a difference
+          against Dhan is a real break or just charges. Showing both turns that
+          into a one-glance check: gross should match Dhan, and the gap between
+          the two IS the charge total.
+        */}
+        {hasTrades && (
+          <div className="text-[0.5625rem] tabular-nums text-muted-foreground leading-tight">
+            {showNet
+              ? <>gross {fmt(Math.round(totalPnl + totalCharges), false)} · chg {fmt(Math.round(totalCharges), false)}</>
+              : <>net {fmt(Math.round(totalPnl - totalCharges), false)} · chg {fmt(Math.round(totalCharges), false)}</>}
+          </div>
+        )}
       </td>
 
       {/* 15-17 unused */}
