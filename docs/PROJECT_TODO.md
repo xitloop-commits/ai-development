@@ -1627,6 +1627,38 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T122 [UI] 🔴 — copy-to-clipboard was silently dead ✅ FIXED 2026-07-23
+Reported: "it is not copying, cursor over the pill still insertion." Two causes,
+both silent.
+
+1. **`navigator.clipboard` only exists in a SECURE CONTEXT** — https, localhost
+   or 127.0.0.1. The desk is opened at **`http://lubas`** (hosts entry, vite runs
+   `host: true`), a plain-http origin, so the API is `undefined` there. The call
+   site wrote `navigator.clipboard?.writeText(...)` — the optional chain turned
+   that into a **no-op with no toast and no console error**. On localhost:3000 it
+   worked, which is why it looked fine.
+2. **Past rows never had the handler at all** — T119 gave them the copy TOOLTIP
+   but no `onClick` and no `cursor-pointer`, so they advertised a copy that could
+   never happen. That is the I-beam cursor in the report.
+
+- New [lib/clipboard.ts](../client/src/lib/clipboard.ts) `copyText()`: async API
+  when available, else the off-screen-textarea + `execCommand('copy')` fallback
+  that still works on insecure origins. Returns a definite true/false.
+- New [lib/copyContract.ts](../client/src/lib/copyContract.ts) — shared by both
+  rows; **always** toasts, success or failure. A copy that fails must look like
+  it failed.
+- Instrument tag is now a real `<button>` in both rows (keyboard-reachable);
+  falls back to a plain tag when there is no contract string to copy.
+
+Copy format is Dhan's search form: `NIFTY 24 JUL 23850 CALL`.
+
+Tests: 6 on the helper + 2 on the row. Mutation-verified — restoring the `?.`
+no-op fails 3.
+
+**Next:** [CredentialGate.tsx:137](../client/src/components/CredentialGate.tsx#L137)
+still calls `navigator.clipboard.readText()` unguarded — that one THROWS on
+`http://lubas` rather than no-opping. Same origin problem, different symptom.
+
 ### T121 [UI] — the contract pill IS the chart link ✅ DONE 2026-07-23
 A separate chart icon sat beside the Long(CE)/Short(PE) pill doing the same job
 for the same contract — a second target to aim at, and a column of width on

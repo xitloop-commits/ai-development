@@ -24,6 +24,7 @@ import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { TradeBar } from './TradeBar';
+import { copyContract } from '@/lib/copyContract';
 import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
 import { istDateString } from '@/lib/signalChart';
 
@@ -67,7 +68,7 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
   const pts = exitPrice ? tradePoints(trade, exitPrice) : 0;
   const isBuy = trade.type.includes('BUY');
   const contractLabel = getTradeContractLabel(trade.type);
-  const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
+  const copyLabel = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
 
   // Same popup chart today's rows open — it takes the trade's OWN day, so a
   // trade from three weeks ago loads that day's candles, not today's.
@@ -126,11 +127,21 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
           >
             {formatIstDayClock(trade.openedAt)}
           </span>
-          {/* Wrapped rather than passed a title prop — InstrumentTag has none,
-              and the contract string is worth having on hover here too. */}
-          <span title={copyText || undefined} className="shrink-0">
+          {/* Click the instrument to copy the contract in Dhan's search form.
+              This row previously carried the tooltip WITHOUT the handler, so it
+              advertised a copy that never happened. */}
+          {copyLabel ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); void copyContract(copyLabel); }}
+              className="shrink-0 cursor-pointer"
+              title={`Click to copy: ${copyLabel}`}
+            >
+              <InstrumentTag name={trade.instrument} muted />
+            </button>
+          ) : (
             <InstrumentTag name={trade.instrument} muted />
-          </span>
+          )}
           {trade.strike !== null && (
             <span className="text-[0.5625rem] font-semibold tabular-nums text-foreground shrink-0">
               {trade.strike}

@@ -19,6 +19,7 @@ import {
   formatIstDateTime,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
+import { copyContract } from '@/lib/copyContract';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strategyPillStyle, strategyLabel, canExitTrades } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { istDateString } from '@/lib/signalChart';
@@ -161,6 +162,10 @@ function _TodayTradeRow({
 
   const directionLabel = getTradeDirectionLabel(trade.type);
   const contractLabel = getTradeContractLabel(trade.type);
+  // Dhan-search form of the contract ("NIFTY 24 Jul 23850 CALL") — paste it into
+  // the broker app's search box to pull up the same strike. Null when the trade
+  // isn't an option or has no expiry, and then the tag is not clickable.
+  const copyLabel = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
   // Target for the popup option chart (only for CE/PE trades with a contract id).
   const chartTarget: OptionChartTargetLite | null =
     (contractLabel === 'CE' || contractLabel === 'PE') && trade.contractSecurityId && trade.strike != null
@@ -255,28 +260,18 @@ function _TodayTradeRow({
             {/* Expiry lives in the instrument's copy tooltip: at this width it
                 cost more than it told you, and the strike + side are what you
                 actually scan for. */}
-              {(() => {
-                const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
-                return copyText ? (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard?.writeText(copyText).then(
-                        () => toast.success(`Copied: ${copyText}`),
-                        () => toast.error('Copy failed'),
-                      );
-                    }}
-                    className="cursor-pointer"
-                    title={`Click to copy: ${copyText}`}
-                  >
-                    <InstrumentTag name={trade.instrument} muted={!isOpen} />
-                  </span>
-                ) : (
+              {copyLabel ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void copyContract(copyLabel); }}
+                  className="shrink-0 cursor-pointer"
+                  title={`Click to copy: ${copyLabel}`}
+                >
                   <InstrumentTag name={trade.instrument} muted={!isOpen} />
-                );
-              })()}
+                </button>
+              ) : (
+                <InstrumentTag name={trade.instrument} muted={!isOpen} />
+              )}
               {trade.strike !== null && (
                 <span className="text-[0.5625rem] font-semibold tabular-nums text-foreground shrink-0">{trade.strike}</span>
               )}

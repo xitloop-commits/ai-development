@@ -120,10 +120,31 @@ describe("PastTradeRow look and feel", () => {
   it("offers exactly ONE action — the contract pill, which opens the chart", () => {
     // A settled trade cannot be exited or re-strategised, so those controls stay
     // absent; looking at what happened is the one thing still worth doing.
+    // Fixture has no expiry, so the instrument is not a copy button here — the
+    // chart pill is the only control.
     const buttons = Array.from(renderRow().querySelectorAll("button"));
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.textContent).toBe("Long(CE)");
     expect(buttons[0]!.getAttribute("title")).toContain("chart");
+  });
+
+  it("makes the instrument itself the COPY button when the contract is nameable", () => {
+    // This row shipped with the copy TOOLTIP but no handler — it advertised a
+    // copy that never happened, and the cursor stayed an I-beam.
+    const row = renderRow(trade({ expiry: "2026-07-24" } as Partial<TradeRecord>));
+    const copyBtn = Array.from(row.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") ?? "").startsWith("Click to copy"));
+    expect(copyBtn).toBeTruthy();
+    expect(copyBtn!.getAttribute("title")).toContain("NIFTY 24 JUL 23850 CALL");
+    expect(copyBtn!.className).toContain("cursor-pointer");
+  });
+
+  it("leaves the instrument un-clickable when there is nothing to copy", () => {
+    // No expiry → contractCopyText returns null → no Dhan-search string exists.
+    const row = renderRow(trade({ expiry: null } as Partial<TradeRecord>));
+    const copyBtn = Array.from(row.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") ?? "").startsWith("Click to copy"));
+    expect(copyBtn).toBeUndefined();
   });
 
   it("leaves the pill inert when the contract cannot be charted", () => {
