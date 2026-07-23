@@ -164,9 +164,9 @@ export const appRouter = router({
 
     // SHARED Sprint / Runway / Anchor exit config — common to every mode.
     updateExitConfig: publicProcedure
-      .input(z.object({ patch: z.any() }))
+      .input(z.object({ book: z.enum(["paper", "live"]), patch: z.any() }))
       .mutation(({ input }) => {
-        updateExitConfig(input.patch);
+        updateExitConfig(input.book, input.patch);
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
         return all;

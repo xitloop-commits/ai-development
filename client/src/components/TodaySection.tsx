@@ -84,12 +84,14 @@ export function TodaySection({
   // rather than per row; each row turns it into an absolute end time from its own
   // openedAt. Sprint has no cooling window, so it isn't in this map.
   const aiConfigQuery = trpc.trading.aiConfig.useQuery(undefined);
+  // T134 — exits are per book now; read the book this desk is showing.
+  const exitBook = channel === "paper" ? "paper" : "live";
   const coolingSecByStrategy = useMemo(
     () => ({
-      runway: aiConfigQuery.data?.exits?.runway?.coolingSec ?? null,
-      anchor: aiConfigQuery.data?.exits?.anchor?.coolingSec ?? null,
+      runway: (aiConfigQuery.data as any)?.[exitBook]?.exits?.runway?.coolingSec ?? null,
+      anchor: (aiConfigQuery.data as any)?.[exitBook]?.exits?.anchor?.coolingSec ?? null,
     }),
-    [aiConfigQuery.data],
+    [aiConfigQuery.data, exitBook],
   );
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();

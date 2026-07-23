@@ -375,7 +375,7 @@ export const executorRouter = router({
       //     per-instrument SL, so one % now applies to every instrument;
       //   - fixed-₹ NET target (`targetMode: "fixed"`), which sized the target
       //     to clear charges. The AI menu's Sprint TP is a percentage only.
-      const aiLevels = sprintOpeningLevels(entryPrice, isBuy);
+      const aiLevels = sprintOpeningLevels(input.channel, entryPrice, isBuy);
 
       let resolvedTakeProfit: number | null;
       if (input.targetPrice !== undefined) {

@@ -381,7 +381,7 @@ class TickHandler extends EventEmitter {
 
     // Sprint trailing config — SHARED across paper / live / manual (a strategy's
     // exit behaviour is intrinsic to the strategy, not the book).
-    const sprintCfg = getExitConfig().sprint;
+    const sprintCfg = getExitConfig(channel).sprint;
     const trailingStopEnabled = sprintCfg.trailingStopEnabled;
     const trailingStopPercent = sprintCfg.trailingStopPercent;
     // Trailing distance source: "config" = fixed gap% below the peak;
@@ -488,8 +488,8 @@ class TickHandler extends EventEmitter {
             // TEA enforces the step threshold + per-order modify budget).
             if (trade.targetPrice !== null) {
               const candidateTP = lBuy
-                ? tick.ltp * (1 + getExitConfig().sprint.tpTrailPercent / 100)
-                : tick.ltp * (1 - getExitConfig().sprint.tpTrailPercent / 100);
+                ? tick.ltp * (1 + getExitConfig(channel).sprint.tpTrailPercent / 100)
+                : tick.ltp * (1 - getExitConfig(channel).sprint.tpTrailPercent / 100);
               const rounded = Math.round(candidateTP * 100) / 100;
               const raise = lBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
               const lastEmit = this.lastTpEmitAt.get(trade.id) ?? 0;
@@ -536,7 +536,7 @@ class TickHandler extends EventEmitter {
         if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") {
           // SHARED staged-stop config from the AI menu (same for every book);
           // independent Runway vs Anchor knobs.
-          const exits = getExitConfig();
+          const exits = getExitConfig(channel);
           const stratCfg = trade.exitStrategy === "runway" ? exits.runway : exits.anchor;
           const out = decideExit(trade.exitStrategy, {
             entry: trade.entryPrice,
@@ -602,7 +602,7 @@ class TickHandler extends EventEmitter {
         // the guard below because that guard skips EVERY exit; putting the check
         // after it would leave the stop configured but never evaluated.
         if (trade.exitStrategy === "glide" && trade.entryPrice > 0) {
-          const pct = getExitConfig().glide.disasterSlPct;
+          const pct = getExitConfig(channel).glide.disasterSlPct;
           const isBuy = trade.type.includes("BUY");
           // Mirror for a short: a sold option loses when the premium RISES.
           const limit = trade.entryPrice * (1 + (isBuy ? -pct : pct) / 100);
@@ -628,7 +628,7 @@ class TickHandler extends EventEmitter {
           //
           // Also sits ABOVE the manualExitOnly guard, for the same reason the
           // disaster stop does — that guard skips every exit below it.
-          const gb = getExitConfig().glide;
+          const gb = getExitConfig(channel).glide;
           if (gb.giveBackPct > 0 && trade.entryPrice > 0) {
             const peak = this.peakPrices.get(trade.id) ?? trade.peakLtp ?? trade.entryPrice;
             // Gain measured in the direction the trade profits: a bought option
@@ -747,8 +747,8 @@ class TickHandler extends EventEmitter {
         // this TP only fires if price gaps past it in a single tick.
         if (trade.tslMode !== "manual" && !trade.targetDisabled && trade.targetPrice !== null) {
           const candidateTP = isBuy
-            ? tick.ltp * (1 + getExitConfig().sprint.tpTrailPercent / 100)
-            : tick.ltp * (1 - getExitConfig().sprint.tpTrailPercent / 100);
+            ? tick.ltp * (1 + getExitConfig(channel).sprint.tpTrailPercent / 100)
+            : tick.ltp * (1 - getExitConfig(channel).sprint.tpTrailPercent / 100);
           const rounded = Math.round(candidateTP * 100) / 100;
           const raise = isBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
           if (raise) {

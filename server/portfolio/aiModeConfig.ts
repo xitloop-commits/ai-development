@@ -162,16 +162,15 @@ export interface CommonConfig {
   lubasManagedExit: boolean;
 }
 
-/** One book's two streams: AI-placed and hand-placed. */
+/** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
+ *  paper can be tuned without touching live) plus its two placement streams. */
 export interface BookConfig {
+  exits: SharedExitConfig;
   ai: AiModeConfig;
   manual: AiModeConfig;
 }
 
 export interface AllAiConfig {
-  /** Sprint / Runway / Anchor / Glide exit tunables. Shared across books for
-   *  now — a per-book split is a separate change. */
-  exits: SharedExitConfig;
   /** System-wide knobs (detector, RCA, square-off, live-exit owner). */
   common: CommonConfig;
   paper: BookConfig;
@@ -257,10 +256,9 @@ function defaultAll(): AllAiConfig {
   const liveAi = baseMode();
   liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false };
   return {
-    exits: baseExits(),
     common: baseCommon(),
-    paper: { ai: paperAi, manual: baseManual() },
-    live: { ai: liveAi, manual: baseManual() },
+    paper: { exits: baseExits(), ai: paperAi, manual: baseManual() },
+    live: { exits: baseExits(), ai: liveAi, manual: baseManual() },
   };
 }
 
@@ -445,19 +443,21 @@ export function resolveManualCohort(channel: Channel): string {
  * gate fed.
  */
 export function sprintOpeningLevels(
+  channel: Channel,
   entry: number,
   isLong: boolean,
 ): { stopLoss: number; takeProfit: number } {
-  const { defaultSL, defaultTP } = state.exits.sprint;
+  const { defaultSL, defaultTP } = state[bookForChannel(channel)].exits.sprint;
   const round2 = (x: number) => Math.round(x * 100) / 100;
   const move = (pct: number, favourable: boolean) =>
     round2(entry * (1 + (isLong === favourable ? pct : -pct) / 100));
   return { stopLoss: move(defaultSL, false), takeProfit: move(defaultTP, true) };
 }
 
-/** The SHARED Sprint / Runway / Anchor config (same for every mode). */
-export function getExitConfig(): SharedExitConfig {
-  return state.exits;
+/** The Sprint / Runway / Anchor / Glide config for a channel's book (T134 —
+ *  per book now, so paper and live can be tuned independently). */
+export function getExitConfig(channel: Channel): SharedExitConfig {
+  return state[bookForChannel(channel)].exits;
 }
 
 /** Everything — for the UI. */
@@ -537,12 +537,12 @@ export function resolveExitStrategy(
   return active.find((s) => s !== "glide") ?? "sprint";
 }
 
-/** Deep-merge a patch into the SHARED exit config; clamp, persist, return it. */
-export function updateExitConfig(patch: unknown): SharedExitConfig {
-  deepMerge(state.exits, patch);
-  sanitizeExits(state.exits);
+/** Deep-merge a patch into one BOOK's exit config; clamp, persist, return it. */
+export function updateExitConfig(book: Book, patch: unknown): SharedExitConfig {
+  deepMerge(state[book].exits, patch);
+  sanitizeExits(state[book].exits);
   persist();
-  return state.exits;
+  return state[book].exits;
 }
 
 /** Deep-merge a patch into one book+origin block; clamp, persist, return it. */
@@ -553,12 +553,13 @@ export function updateAiConfig(book: Book, kind: OriginKind, patch: unknown): Ai
   return state[book][kind];
 }
 
-/** Run every clamp: exits, common, and all four blocks. */
+/** Run every clamp: common, and each book's exits + two blocks. */
 function sanitizeAll(): void {
-  sanitizeExits(state.exits);
   sanitizeCommon(state.common);
-  for (const book of ["paper", "live"] as const)
+  for (const book of ["paper", "live"] as const) {
+    sanitizeExits(state[book].exits);
     for (const kind of ["ai", "manual"] as const) sanitizeMode(state[book][kind]);
+  }
 }
 
 /** Hydrate persisted overrides at server boot. Call once during bootstrap. */
@@ -568,8 +569,16 @@ export function initAiConfig(): void {
     const p = cfgPath();
     if (!existsSync(p)) return;
     const j = JSON.parse(readFileSync(p, "utf8"));
-    if (j?.exits) deepMerge(state.exits, j.exits);
     if (j?.common) deepMerge(state.common, j.common);
+
+    // T134 — exits moved from a top-level `exits` (shared) into each book. An
+    // old file with top-level exits seeds BOTH books with it, so paper and live
+    // start identical and diverge only as edited. A newer file carries
+    // `paper.exits` / `live.exits`, merged below with the rest of the book.
+    if (j?.exits) {
+      deepMerge(state.paper.exits, j.exits);
+      deepMerge(state.live.exits, j.exits);
+    }
 
     // Shape migration. The file may be:
     //   - OLDEST (three blocks): `paper`/`live`/`manual`, each an AiModeConfig
@@ -606,14 +615,15 @@ export function initAiConfig(): void {
     // Strip legacy keys deepMerge copied in from an old file — the new types
     // don't carry them and nothing reads them, but leaving them in the persisted
     // file is confusing. Their values were already lifted into `common` above.
-    delete (state.exits as unknown as Record<string, unknown>).lubasManagedExit;
-    for (const book of ["paper", "live"] as const)
+    for (const book of ["paper", "live"] as const) {
+      delete (state[book].exits as unknown as Record<string, unknown>).lubasManagedExit;
       for (const kind of ["ai", "manual"] as const) {
         const b = state[book][kind] as unknown as Record<string, unknown>;
         delete b.globalExits;
         delete b.squareoff;
         delete (b.cohorts as Record<string, unknown>).revPct;
       }
+    }
 
     sanitizeAll();
     // Re-persist in the current shape so the on-disk file matches the running

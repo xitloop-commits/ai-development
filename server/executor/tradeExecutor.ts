@@ -1307,7 +1307,7 @@ function buildTradeRecord(
 
   // T85: the attached exit strategy drives every book; trailing seeds from the
   // shared Sprint config (the single source of trailing truth).
-  const sprintCfg = getExitConfig().sprint;
+  const sprintCfg = getExitConfig(req.channel).sprint;
   // Cohort FIRST — the strategy gate below reads it (Glide is MA-Signal only).
   // Resolved server-side for manual trades so every placement path is tagged,
   // rather than each client remembering to send it.
@@ -1343,7 +1343,7 @@ function buildTradeRecord(
   // get null: their engine recomputes both from entry on the first tick.
   const cfgLevels =
     strategy === "sprint" && req.entryPrice > 0
-      ? sprintOpeningLevels(req.entryPrice, isLong)
+      ? sprintOpeningLevels(req.channel, req.entryPrice, isLong)
       : null;
   const cfgStop = cfgLevels?.stopLoss ?? null;
   const cfgTarget = cfgLevels?.takeProfit ?? null;

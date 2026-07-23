@@ -1023,7 +1023,7 @@ class PortfolioAgentImpl {
       trade.manualExitOnly = next === "glide";
       if (next !== "glide" && trade.entryPrice > 0 &&
           (trade.stopLossPrice == null || trade.targetPrice == null)) {
-        const lv = sprintOpeningLevels(trade.entryPrice, trade.type.includes("BUY"));
+        const lv = sprintOpeningLevels(channel, trade.entryPrice, trade.type.includes("BUY"));
         if (trade.stopLossPrice == null) trade.stopLossPrice = lv.stopLoss;
         if (trade.targetPrice == null) trade.targetPrice = lv.takeProfit;
       }

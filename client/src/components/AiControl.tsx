@@ -58,9 +58,9 @@ interface CommonCfg {
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
 }
-/** T127 — four blocks: each book carries an AI stream and a manual stream. */
-type BookCfg = { ai: ModeCfg; manual: ModeCfg };
-type AllCfg = { exits: ExitsCfg; common: CommonCfg; paper: BookCfg; live: BookCfg };
+/** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
+type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };
+type AllCfg = { common: CommonCfg; paper: BookCfg; live: BookCfg };
 type Mode = "paper" | "live";
 
 // ── Small building blocks ────────────────────────────────────────────────────
@@ -347,9 +347,9 @@ export function AiControl() {
   }, [open, hasCfg]);
 
   useEffect(() => {
-    if (all) setExitsDraft(structuredClone(all.exits));
+    if (all) setExitsDraft(structuredClone(all[mode].exits));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, hasCfg]);
+  }, [mode, open, hasCfg]);
 
   // Another panel applied a change → refetch so `dirty` compares against the
   // current server state. Drafts are left alone so your edits are never lost.
@@ -363,7 +363,7 @@ export function AiControl() {
     onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
   });
 
-  const dirty = useMemo(
+  const blockDirty = useMemo(
     () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all[mode].ai)),
     [draft, all, mode],
   );
@@ -389,17 +389,13 @@ export function AiControl() {
     });
 
 
-  const apply = () => { if (draft) applyMut.mutate({ book: mode, kind: "ai", patch: draft }); };
-  const reset = () => { if (all) setDraft(structuredClone(all[mode].ai)); };
-
-
-  // Shared exits block — one Sprint/Runway/Anchor config for every mode.
+  // Per-book strategy exits (T134).
   const applyExitsMut = trpc.trading.updateExitConfig.useMutation({
     onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
   });
   const exitsDirty = useMemo(
-    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all.exits)),
-    [exitsDraft, all],
+    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all[mode].exits)),
+    [exitsDraft, all, mode],
   );
   const editExits = (fn: (e: ExitsCfg) => void) =>
     setExitsDraft((prev) => {
@@ -408,8 +404,22 @@ export function AiControl() {
       fn(n);
       return n;
     });
-  const applyExits = () => { if (exitsDraft) applyExitsMut.mutate({ patch: exitsDraft }); };
-  const resetExits = () => { if (all) setExitsDraft(structuredClone(all.exits)); };
+
+  // T134 — ONE Apply for the whole panel (cohorts/strategies/sizing/order AND
+  // strategy exits), both for the current book. Sequential await so the exits
+  // response — which reflects the block change already persisted — is the final
+  // cache write and nothing is clobbered.
+  const dirty = blockDirty || exitsDirty;
+  const applying = applyMut.isPending || applyExitsMut.isPending;
+  const apply = async () => {
+    if (blockDirty && draft) await applyMut.mutateAsync({ book: mode, kind: "ai", patch: draft });
+    if (exitsDirty && exitsDraft) await applyExitsMut.mutateAsync({ book: mode, patch: exitsDraft });
+  };
+  const reset = () => {
+    if (!all) return;
+    setDraft(structuredClone(all[mode].ai));
+    setExitsDraft(structuredClone(all[mode].exits));
+  };
 
   // T130 — the LABEL colour is the liveness indicator; no separate dot.
   const aliveTone = sea.anyAlive ? "text-bullish" : "text-muted-foreground";
@@ -429,13 +439,22 @@ export function AiControl() {
       {open && (
         <>
           <div className="absolute right-0 top-full mt-1 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
+            {/* Panel title — the book comes from the app-bar tab. */}
+            <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5">
+              <BrainCircuit className="h-3.5 w-3.5 text-info-cyan" />
+              <span className="font-display text-[0.6875rem] font-bold tracking-wider text-foreground">AI Autopilot</span>
+              <span className={`ml-auto text-[0.5625rem] font-bold tracking-wider ${mode === "live" ? "text-bullish" : "text-warning-amber"}`}>
+                {mode === "live" ? "LIVE" : "PAPER"}
+              </span>
+            </div>
+
             {/* ① AI trades — PER BOOK. Paper and live each have their own switch,
                 so turning one off leaves the other running. Both on = one signal
                 is placed on BOTH books. Applies immediately (no Apply): it is a
                 safety control and must never sit in a draft. */}
             <div className="p-3 border-b border-border flex items-center justify-between">
               <div className="flex flex-col">
-                <SectionLabel>AI trades · {mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
+                <SectionLabel>AI trades</SectionLabel>
                 <span className="text-[0.5625rem] text-muted-foreground">
                   {aiOnForMode
                     ? mode === "live"
@@ -445,11 +464,6 @@ export function AiControl() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {!aiOnForMode && (
-                  <span className="text-[0.5rem] px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
-                    Off
-                  </span>
-                )}
                 <Pill
                   label={aiOnForMode ? "ON" : "OFF"}
                   on={aiOnForMode}
@@ -578,13 +592,16 @@ export function AiControl() {
                     onChange={(v) => edit((x) => { x.order.productType = v; })} />
                 </div>
 
-                {/* ═══ SHARED strategy exits — common to Paper / Live / My Trades ═══ */}
+                {/* Strategy exits — PER BOOK (T134). Paper and live can be tuned
+                    independently, so you can try a stop on paper without touching
+                    live. Applied together with the rest of the panel by the one
+                    footer button. */}
                 {ed && (
                 <div className="border-t-2 border-warning-amber/30 pt-2 mt-1 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
-                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · shared</SectionLabel>
-                      <InfoDot text="Common to Paper, Live and My Trades — a strategy exits the same way in every book." />
+                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · {mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
+                      <InfoDot text="Per book — paper and live each have their own exit tuning, so you can test on paper without changing live. Both hand-placed and AI trades on this book use these." />
                     </span>
                     {exitsDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
                   </div>
@@ -633,17 +650,6 @@ export function AiControl() {
                       </span>
                     )}
                   </Group>
-
-                  <div className="flex items-center gap-2 pt-1">
-                    <button type="button" onClick={applyExits} disabled={!exitsDirty || applyExitsMut.isPending}
-                      className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/30 disabled:opacity-40 transition-colors">
-                      <Check className="h-3 w-3" /> Apply Exits
-                    </button>
-                    <button type="button" onClick={resetExits} disabled={!exitsDirty}
-                      className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors" title="Discard unsaved edits">
-                      <RotateCcw className="h-3 w-3" />
-                    </button>
-                  </div>
                 </div>
                 )}
 
@@ -654,7 +660,7 @@ export function AiControl() {
                   <button
                     type="button"
                     onClick={apply}
-                    disabled={!dirty || applyMut.isPending}
+                    disabled={!dirty || applying}
                     className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30 disabled:opacity-40 transition-colors"
                   >
                     <Check className="h-3 w-3" /> Apply {mode === "live" ? "LIVE" : "PAPER"}

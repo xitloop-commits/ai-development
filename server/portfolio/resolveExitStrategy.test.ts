@@ -139,35 +139,35 @@ describe("equity is pinned to sprint", () => {
  * trade is gated on and the level it is opened with cannot drift.
  */
 describe("sprintOpeningLevels", () => {
-  beforeEach(() => updateExitConfig({ sprint: { defaultSL: 10, defaultTP: 5 } }));
+  beforeEach(() => updateExitConfig("live", { sprint: { defaultSL: 10, defaultTP: 5 } }));
 
   it("puts a LONG's stop below entry and target above", () => {
-    expect(sprintOpeningLevels(100, true)).toEqual({ stopLoss: 90, takeProfit: 105 });
+    expect(sprintOpeningLevels("live", 100, true)).toEqual({ stopLoss: 90, takeProfit: 105 });
   });
 
   it("mirrors both for a SHORT", () => {
     // Without the mirror the stop lands on the profitable side — it would exit
     // winners and let losers run.
-    expect(sprintOpeningLevels(100, false)).toEqual({ stopLoss: 110, takeProfit: 95 });
+    expect(sprintOpeningLevels("live", 100, false)).toEqual({ stopLoss: 110, takeProfit: 95 });
   });
 
   it("tracks the AI menu, so changing the config changes the levels", () => {
-    updateExitConfig({ sprint: { defaultSL: 3 } });
-    expect(sprintOpeningLevels(100, true).stopLoss).toBe(97);
-    updateExitConfig({ sprint: { defaultSL: 10 } });
-    expect(sprintOpeningLevels(100, true).stopLoss).toBe(90);
+    updateExitConfig("live", { sprint: { defaultSL: 3 } });
+    expect(sprintOpeningLevels("live", 100, true).stopLoss).toBe(97);
+    updateExitConfig("live", { sprint: { defaultSL: 10 } });
+    expect(sprintOpeningLevels("live", 100, true).stopLoss).toBe(90);
   });
 
   it("never returns null — the discipline gate reads this value", () => {
     // Handing the gate an undefined stop would let a manual trade through the
     // risk check with no stop at all.
-    const l = sprintOpeningLevels(487.75, true);
+    const l = sprintOpeningLevels("live", 487.75, true);
     expect(Number.isFinite(l.stopLoss)).toBe(true);
     expect(Number.isFinite(l.takeProfit)).toBe(true);
   });
 
   it("rounds to paise", () => {
-    expect(sprintOpeningLevels(58.63, true).stopLoss).toBe(52.77);
+    expect(sprintOpeningLevels("live", 58.63, true).stopLoss).toBe(52.77);
   });
 });
 
