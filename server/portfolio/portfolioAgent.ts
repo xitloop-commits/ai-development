@@ -66,6 +66,7 @@ import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { getActiveRunId, appendTrade as appendTradeToRun, getRun, updateRunTrades } from "../replay/replayRuns";
 import { disciplineAgent } from "../discipline";
 import { notifyOrderRejected } from "../_core/tradeEventNotifier";
+import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import type {
   PortfolioSnapshot,
   TradeClosedRequest,
@@ -844,12 +845,17 @@ class PortfolioAgentImpl {
     qty: number,
     price: number,
   ): TradeRecord {
+    // T123 — an order placed OUTSIDE Lubas (adopted from the broker's order
+    // stream) arrives with a securityId and nothing else. Strike and expiry were
+    // both hardcoded null, so an adopted option landed on the desk unidentified.
+    // The scrip master knows both from that one id; resolve rather than guess.
+    const scrip = update.securityId ? getScripBySecurityId(String(update.securityId)) : undefined;
     return {
       id: `EXT-${update.orderId}`,
       instrument: symbol,
       type: direction, // BUY = long, SELL = short
-      strike: null,
-      expiry: null,
+      strike: scrip?.strikePrice && scrip.strikePrice > 0 ? scrip.strikePrice : null,
+      expiry: scrip?.expiryDateOnly || null,
       contractSecurityId: update.securityId ?? null,
       productType: update.productType === "CNC" ? "CNC" : "INTRADAY",
       entryPrice: price,

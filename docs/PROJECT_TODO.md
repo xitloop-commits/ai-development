@@ -1659,6 +1659,25 @@ backfill fails 2, removing the mandatory-expiry gate fails 1). One unrealistic
 fixture fixed: `integration.test.ts` had `expiryDateOnly: null`, which no real
 option record ever is.
 
+🔴 **The backfill fixed the WRONG STORE first.** Trades live in **two** places:
+`position_state` (one doc per trade) and `day_records[].trades[]` (an embedded
+COPY — the legacy nested array `position_state` was extracted from, see
+[storage.ts](../server/portfolio/storage.ts) header). **The desk reads the day
+records.** The first pass wrote only `position_state`, so the database read as
+fully repaired while the UI was unchanged through several server restarts —
+diagnosed as a stale in-memory cache, which it never was. Symptom that gave it
+away: only the operator's *manual* trades showed a copy button, because those
+were the only ones that ever had an expiry in the embedded copy.
+**Applied:** 94 embedded trades across 3 day docs. All four day docs now 0 null.
+
+Going forward both stay in sync on their own — `mirrorPosition` copies the same
+`TradeRecord` into `position_state`, so resolving at build time covers both.
+
+Also fixed: `buildExternalTrade` (orders placed OUTSIDE Lubas, adopted from the
+broker stream) hardcoded **both** `strike: null` and `expiry: null`, so an
+adopted option landed on the desk unidentified. Both now resolve from the scrip
+master via the securityId the event already carries.
+
 **Next:** SEA could send `expiry` too, so the payload is self-describing rather
 than relying on server-side resolution — cosmetic now that the executor resolves
 it, but it would make the POST readable on its own.

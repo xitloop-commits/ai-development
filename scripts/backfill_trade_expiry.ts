@@ -43,13 +43,17 @@ async function main() {
   const unresolved: string[] = [];
   let notAnOption = 0;
 
+  /** securityId → expiry from the scrip master, or null when it isn't known. */
+  const lookup = (secId: unknown): string | null =>
+    secId ? getScripBySecurityId(String(secId))?.expiryDateOnly || null : null;
+
   for (const t of rows) {
     // Equity has no expiry and never will — leave those alone entirely.
     const isOption = typeof t.type === "string" && /CALL|PUT/.test(t.type);
     if (!isOption) { notAnOption++; continue; }
 
     const secId = t.contractSecurityId;
-    const expiry = secId ? getScripBySecurityId(String(secId))?.expiryDateOnly : undefined;
+    const expiry = lookup(secId);
     const label = `${t.instrument} ${t.strike} ${t.type}`;
     if (expiry) fixable.push({ id: String(t._id), expiry, label });
     else unresolved.push(`${label} (securityId ${secId ?? "none"})`);
@@ -67,6 +71,26 @@ async function main() {
   console.log("\n  would set:");
   for (const [e, n] of Object.entries(byExpiry).sort()) console.log(`      ${e}  ×${n}`);
 
+  // ── The copy the DESK actually reads ──────────────────────────────
+  // day_records embeds its OWN trades[] array — the legacy nested array
+  // position_state was extracted from. Fixing position_state alone leaves the
+  // UI unchanged no matter how many times the server is restarted, which is
+  // exactly what happened on the first run of this script.
+  const dayCol = db.collection("day_records");
+  const dayDocs = await dayCol.find({}).toArray();
+  let embeddedNull = 0;
+  let embeddedFixable = 0;
+  for (const day of dayDocs) {
+    for (const t of Array.isArray(day.trades) ? day.trades : []) {
+      if (t.expiry) continue;
+      if (!(typeof t.type === "string" && /CALL|PUT/.test(t.type))) continue;
+      embeddedNull++;
+      if (lookup(t.contractSecurityId)) embeddedFixable++;
+    }
+  }
+  console.log(`\nday_records embedded copies with no expiry : ${embeddedNull}`);
+  console.log(`  resolvable                              : ${embeddedFixable}`);
+
   if (!APPLY) {
     console.log("\nDRY RUN — re-run with --apply to write.");
     return;
@@ -77,7 +101,30 @@ async function main() {
     await col.updateOne({ _id: new mongoose.Types.ObjectId(f.id) }, { $set: { expiry: f.expiry } });
     written++;
   }
-  console.log(`\nDone. ${written} trade(s) updated.`);
+  console.log(`\nposition_state : ${written} trade(s) updated.`);
+
+  let embeddedWritten = 0;
+  let docsTouched = 0;
+  for (const day of dayDocs) {
+    const trades = Array.isArray(day.trades) ? day.trades : [];
+    if (!trades.length) continue;
+    let touched = false;
+    for (const t of trades) {
+      if (t.expiry) continue;
+      if (!(typeof t.type === "string" && /CALL|PUT/.test(t.type))) continue;
+      const expiry = lookup(t.contractSecurityId);
+      if (!expiry) continue;
+      t.expiry = expiry;
+      touched = true;
+      embeddedWritten++;
+    }
+    if (touched) {
+      await dayCol.updateOne({ _id: day._id }, { $set: { trades } });
+      docsTouched++;
+    }
+  }
+  console.log(`day_records    : ${embeddedWritten} embedded trade(s) across ${docsTouched} day doc(s).`);
+  console.log("\nDone. Restart the API server to reload both.");
 }
 
 main()
