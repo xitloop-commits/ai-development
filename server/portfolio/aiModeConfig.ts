@@ -251,7 +251,17 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
 
 /** Clamp one mode's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  c.cohorts.revPct = clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
+  // revPct picks the MA-Signal detector MODE, it is not just a size:
+  //   0        → 20-EMA SLOPE segmentation (ema_period / slope_lookback /
+  //              thr_hi / thr_lo) — the same computation the chart's green/red
+  //              MA line draws, so colour flips ARE the entry/exit signals.
+  //   0.02–0.6 → raw price peak/trough reversal of that % (no averaging).
+  //
+  // The old floor of 0.02 made 0 unreachable, so the EMA path could never be
+  // selected from the AI menu — the detector short-circuits to reversal on
+  // `rev_pct > 0`. That left the chart showing an EMA-slope line while SEA
+  // signalled off price swings: the line turned red with no EXIT firing.
+  c.cohorts.revPct = c.cohorts.revPct === 0 ? 0 : clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor", "glide"] as const) c.strategies[s] = !!c.strategies[s];
   for (const inst of Object.keys(c.sizing.perInstrument)) {

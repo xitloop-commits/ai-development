@@ -147,7 +147,13 @@ export function setCohort(cohort: Cohort, enabled: boolean): CohortState {
 /** Set the MA-Signal reversal size (%). Clamped, persisted to both configs, and
  *  pushed to running SEA — the live detector applies it on the next candle. */
 export function setRevPct(value: number): CohortState {
-  const v = Math.round(Math.min(REV_MAX, Math.max(REV_MIN, value)) * 100) / 100;
+  // 0 is a MODE, not a size: it selects the detector's 20-EMA SLOPE path — the
+  // same computation the chart's green/red MA line draws, so a colour flip IS
+  // the entry/exit signal. Any value > 0 selects raw price peak/trough reversal
+  // instead (the detector short-circuits on `rev_pct > 0`). Clamping 0 up to
+  // REV_MIN made the EMA path unreachable from the AI menu, which is why the
+  // chart could turn red with no EXIT ever firing.
+  const v = value === 0 ? 0 : Math.round(Math.min(REV_MAX, Math.max(REV_MIN, value)) * 100) / 100;
   if (state.revPct === v) return { ...state };
   state.revPct = v;
   persistRevPct(v);
