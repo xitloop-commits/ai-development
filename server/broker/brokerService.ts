@@ -6,6 +6,11 @@
  *   dhanAiData  → ai-live + TFA data feed (brokerId: "dhan-secondary-ac")
  *   mockPaper   → paper (shared AI + My) (brokerId: "mock-paper")
  *
+ * ai-live's account is CONFIGURABLE (T118) -- see `brokerIdForChannel`. With a
+ * single whitelisted IP at home, ai-live can be pointed at the primary account
+ * so it can actually place orders; dhanAiData then serves the TFA data feed
+ * only. TFA's WebSocket is untouched either way.
+ *
  * Kill switches are per-workspace and independent (ai / my).
  * Kill switch state is persisted to user_settings and loaded at startup.
  */
@@ -50,7 +55,7 @@ export type Workspace = "ai" | "my";
 
 interface BSAAdapters {
   dhanLive: DhanAdapter | null;       // my-live (options + equity)  (user's primary Dhan account)
-  dhanAiData: DhanAdapter | null;     // ai-live + TFA data feed (spouse's Dhan account)
+  dhanAiData: DhanAdapter | null;     // TFA data feed, + ai-live unless AI_LIVE_BROKER_ID moves it (spouse's Dhan account)
   mockPaper: MockAdapter | null;      // paper (shared AI + My book; options + equity)
 }
 
@@ -190,17 +195,56 @@ async function migrateEnvCredentialsToMongo(): Promise<void> {
 // ─── Channel Routing ────────────────────────────────────────────
 
 /**
+ * T118 — which real Dhan account backs each live book.
+ *
+ * `my-live` is always the primary account. `ai-live` defaults to the secondary
+ * (spouse's) account, but Dhan whitelists an API key against ONE IP and refuses
+ * to reuse an IP already registered on another account. With a single static
+ * IP at home, only one of the two accounts can place orders — so `ai-live` can
+ * be pointed at the primary account with:
+ *
+ *     AI_LIVE_BROKER_ID=dhan-primary-ac
+ *
+ * Deliberately an env var, not a UI toggle: swapping accounts while positions
+ * are open would strand them at a broker the app is no longer talking to, so
+ * the change should cost a restart.
+ *
+ * ⚠️ When both books share one account they share one pot of money. Auto-seeding
+ * is disabled for `ai-live` in that case (see `SEED_BROKER_FOR` in
+ * portfolio/state.ts) — otherwise both books read the same balance and the net
+ * worth doubles. Fund it by hand instead.
+ *
+ * This is the ONE place the mapping lives; capital seeding and reconciliation
+ * both read it rather than repeating the ternary.
+ */
+export function brokerIdForChannel(channel: Channel): string | null {
+  switch (channel) {
+    case "my-live": return "dhan-primary-ac";
+    case "ai-live": return process.env.AI_LIVE_BROKER_ID?.trim() || "dhan-secondary-ac";
+    default: return null; // paper — no real account behind it
+  }
+}
+
+/** True when the two live books are funded by the SAME real Dhan account. */
+export function liveBooksShareAccount(): boolean {
+  return brokerIdForChannel("ai-live") === brokerIdForChannel("my-live");
+}
+
+/**
  * Resolve a channel string to the correct adapter instance.
  */
 export function getAdapter(channel: Channel): BrokerAdapter {
   switch (channel) {
-    case "ai-live":
-      // Prefer the dedicated dhan-secondary-ac adapter (spouse account); fall back
-      // to the primary adapter if dhan-secondary-ac hasn't been configured yet
+    case "ai-live": {
+      // Honour the configured account first (see brokerIdForChannel). Falls back
+      // to the primary adapter when the secondary hasn't been configured yet
       // (first-run before credentials are entered into Settings).
+      const wanted = _getAdapterByBrokerId(brokerIdForChannel("ai-live")!);
+      if (wanted) return wanted;
       if (adapters.dhanAiData) return adapters.dhanAiData;
       if (adapters.dhanLive) return adapters.dhanLive;
       throw new Error("Neither DhanAdapter (ai-data) nor (live) is initialised");
+    }
     case "my-live":
       // my-live routes options AND equity to the primary account.
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");

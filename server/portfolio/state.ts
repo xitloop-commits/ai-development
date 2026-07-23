@@ -886,11 +886,25 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
 /**
  * Get or initialize capital state for a channel.
  */
-/** brokerId that funds each live channel. Paper has no broker account. */
-const SEED_BROKER_FOR: Partial<Record<Channel, string>> = {
-  "my-live": "dhan-primary-ac",
-  "ai-live": "dhan-secondary-ac",
-};
+/**
+ * brokerId that funds each live channel. Paper has no broker account.
+ *
+ * T118 — resolved through `brokerIdForChannel`, the single source of truth for
+ * which real account backs which book (ai-live can be pointed at the primary
+ * account when only one IP can be whitelisted).
+ *
+ * Returns null when the two live books SHARE one account: seeding both from the
+ * same balance would count the same money twice and double the net worth. The
+ * shared book is funded by hand instead — `inject` treats an unseeded book as
+ * the manual escape hatch and stamps it seeded (portfolio/router.ts).
+ */
+async function seedBrokerFor(channel: Channel): Promise<string | null> {
+  // Imported lazily: brokerService pulls in the whole adapter stack, and this
+  // module is loaded during early bootstrap.
+  const { brokerIdForChannel, liveBooksShareAccount } = await import("../broker/brokerService");
+  if (channel === "ai-live" && liveBooksShareAccount()) return null;
+  return brokerIdForChannel(channel);
+}
 
 /**
  * T92 — read a live channel's opening capital from its Dhan account, ONCE.
@@ -911,8 +925,10 @@ const SEED_BROKER_FOR: Partial<Record<Channel, string>> = {
  * loaded during early bootstrap.
  */
 async function seedFromBroker(channel: Channel): Promise<number | null> {
-  const brokerId = SEED_BROKER_FOR[channel];
-  if (!brokerId) return null; // paper — nothing to seed from
+  const brokerId = await seedBrokerFor(channel);
+  // Null = paper (no broker), or a live book sharing another book's account
+  // (T118) — in both cases the operator funds it by hand.
+  if (!brokerId) return null;
   try {
     // _getAdapterByBrokerId, NOT getAdapter(channel): the latter falls back to
     // the PRIMARY adapter when the spouse account isn't initialised, which would
@@ -953,6 +969,8 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
 
   const isLive = channel !== "paper";
   const seeded = isLive ? await seedFromBroker(channel) : 0;
+  // Which account the money came from — only meaningful when a seed succeeded.
+  const seedSource = seeded === null || !isLive ? null : await seedBrokerFor(channel);
 
   const initial: CapitalState = {
     channel,
@@ -989,9 +1007,9 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
       tradingDelta: initial.tradingPool,
       reserveDelta: 0,
       note: isLive
-        ? `Seeded ₹${initial.tradingPool.toLocaleString("en-IN")} from ${SEED_BROKER_FOR[channel]}`
+        ? `Seeded ₹${initial.tradingPool.toLocaleString("en-IN")} from ${seedSource}`
         : "Paper book opened at ₹0 — fund it by hand",
-      detail: { source: isLive ? SEED_BROKER_FOR[channel] : "manual" },
+      detail: { source: seedSource ?? "manual" },
     }),
   ).catch(() => { /* ledger must never block book creation */ });
   return initial;

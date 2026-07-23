@@ -362,10 +362,26 @@ export async function reconcile(
     };
   }
 
-  const brokerId = channel === "my-live" ? "dhan-primary-ac" : "dhan-secondary-ac";
+  const { _getAdapterByBrokerId, brokerIdForChannel, liveBooksShareAccount } =
+    await import("../broker/brokerService");
+  const brokerId = brokerIdForChannel(channel)!;
+
+  // T118 — when both live books are funded by ONE Dhan account, neither book on
+  // its own can match that account's balance: the account holds the sum of the
+  // two. Compare the sum, or every reconcile would report permanent drift.
+  const shared = liveBooksShareAccount();
+  let bookLabel = "This book";
+  let compareBalance = bookBalance;
+  if (shared) {
+    const other: Channel = channel === "my-live" ? "ai-live" : "my-live";
+    const { getCapitalState } = await import("./state");
+    const o = await getCapitalState(other);
+    compareBalance = round2(bookBalance + o.tradingPool + o.reservePool);
+    bookLabel = "Both live books together";
+  }
+
   let brokerBalance: number | null = null;
   try {
-    const { _getAdapterByBrokerId } = await import("../broker/brokerService");
     const adapter = _getAdapterByBrokerId(brokerId);
     // Strict lookup: getAdapter() falls back to the PRIMARY account when the
     // secondary is not up, which would reconcile ai-live against my-live's money.
@@ -389,21 +405,24 @@ export async function reconcile(
     };
   }
 
-  const difference = round2(bookBalance - brokerBalance);
+  const difference = round2(compareBalance - brokerBalance);
+  const sharedNote = shared
+    ? ` ai-live and my-live share ${brokerId}, so this compares both books added together.`
+    : "";
   if (Math.abs(difference) <= DRIFT_TOLERANCE) {
     return {
       channel, brokerBalance, bookBalance, difference,
       status: "MATCHED",
-      message: `Book agrees with ${brokerId}.`,
+      message: `${bookLabel} agrees with ${brokerId}.${sharedNote}`,
     };
   }
   return {
     channel, brokerBalance, bookBalance, difference,
     status: "DRIFT",
     message:
-      `Book is ${difference > 0 ? "AHEAD OF" : "BEHIND"} ${brokerId} by ` +
+      `${bookLabel} is ${difference > 0 ? "AHEAD OF" : "BEHIND"} ${brokerId} by ` +
       `₹${Math.abs(difference).toLocaleString("en-IN")}. Open positions, a deposit made ` +
-      `directly at Dhan, or funds added to the wrong book will all show up here.`,
+      `directly at Dhan, or funds added to the wrong book will all show up here.${sharedNote}`,
   };
 }
 

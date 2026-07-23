@@ -1627,6 +1627,43 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T118 [Execution] — ai-live moved onto the primary Dhan account ✅ DONE 2026-07-23
+Dhan binds an API key to ONE whitelisted IP and refuses an IP already registered
+on another account. This house has a single static IP (115.96.67.32, Hathway),
+so the secondary account could never be whitelisted and every ai-live order
+would have been rejected. Second IP / cloud-proxy deferred (see Next).
+
+- `brokerIdForChannel(channel)` + `liveBooksShareAccount()` in
+  [brokerService.ts](../server/broker/brokerService.ts) — the ONE place the
+  book→account mapping lives. Driven by `AI_LIVE_BROKER_ID` (env, restart to
+  change; a UI toggle would let you swap accounts with positions open).
+  `getAdapter("ai-live")` reads it, which covers every order path — they all go
+  through `getAdapter`.
+- **Auto-seeding disabled for a shared book** ([state.ts](../server/portfolio/state.ts)
+  `seedBrokerFor`). Both books reading the same Dhan balance would count the same
+  rupees twice and double the net worth. ai-live stays unseeded (= not tradeable)
+  until Add Fund, which `inject` already handles as its manual escape hatch.
+- **`reconcile()` compares the SUM of both books** against the one account when
+  they share it ([capitalLedger.ts](../server/portfolio/capitalLedger.ts)) —
+  per-book comparison would report permanent drift and train you to ignore it.
+- One-off [scripts/rebase_ai_live_book.ts](../scripts/rebase_ai_live_book.ts)
+  (dry-run by default, refuses if the book ever traded) — **applied**: ai-live
+  ₹1,00,978.28 → ₹0, unfunded, with a CAPITAL_ADJUSTED ledger row explaining why.
+  That balance was the secondary account's money and was never traded.
+- TFA untouched — the secondary adapter stays connected for its data feed.
+
+Tests: resolver 5, seeding 3, reconcile 4. Both gates mutation-verified (removing
+the seed guard fails 1, removing the shared-sum handling fails 3).
+
+⚠️ **Two books, one real account now.** Their pools must be funded from one pot
+or they will together size beyond the cash that exists. Nothing enforces that
+today — a "funding both live books beyond the broker balance" warning is the
+obvious fast-follow.
+
+**Next:** fund ai-live by hand (Add Fund on the net-worth panel, Live mode);
+API-server restart required for the env var to take effect; first live AI order
+still needs a real smoke test.
+
 ### T117 [UI] — replay controls collapsed into a menu ✅ DONE 2026-07-23
 Replay kept five widgets permanently parked on the app bar (date, speed, two
 model pickers, button) for something touched only when starting a run.

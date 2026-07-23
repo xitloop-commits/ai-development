@@ -41,11 +41,19 @@ let registered: Record<string, unknown> = {};
 /** Every brokerId the seeder asked for, in order. */
 const requestedBrokerIds: string[] = [];
 
+/** T118 — which account backs ai-live; flipped per-test. */
+let aiLiveBrokerId = "dhan-secondary-ac";
+
 vi.mock("../broker/brokerService", () => ({
   _getAdapterByBrokerId: (brokerId: string) => {
     requestedBrokerIds.push(brokerId);
     return registered[brokerId] ? { getMargin: getMarginMock } : null;
   },
+  brokerIdForChannel: (channel: string) =>
+    channel === "my-live" ? "dhan-primary-ac"
+    : channel === "ai-live" ? aiLiveBrokerId
+    : null,
+  liveBooksShareAccount: () => aiLiveBrokerId === "dhan-primary-ac",
 }));
 
 vi.mock("../broker/tickBus", () => ({
@@ -59,6 +67,7 @@ beforeEach(() => {
   for (const k of Object.keys(docs)) delete docs[k];
   registered = { "dhan-primary-ac": {}, "dhan-secondary-ac": {} };
   requestedBrokerIds.length = 0;
+  aiLiveBrokerId = "dhan-secondary-ac";
   getMarginMock.mockReset();
 });
 
@@ -167,5 +176,44 @@ describe("T92 — live capital seeds once from Dhan", () => {
       expect(st.tradingPool).not.toBe(100_000);
       expect(st.initialFunding).not.toBe(100_000);
     }
+  });
+});
+
+describe("T118 — ai-live sharing my-live's Dhan account", () => {
+  it("does NOT seed ai-live from the broker when both books share one account", async () => {
+    // The whole point: one real account behind two books. Seeding both from the
+    // same balance would count the same rupees twice and double the net worth.
+    aiLiveBrokerId = "dhan-primary-ac";
+    getMarginMock.mockResolvedValue({ available: 500_000, used: 0, total: 500_000 });
+
+    const st = await getCapitalState("ai-live");
+
+    expect(getMarginMock).not.toHaveBeenCalled(); // never even asked
+    expect(requestedBrokerIds).toEqual([]);
+    expect(st.tradingPool).toBe(0);
+    expect(st.seededAt).toBeNull();   // ← "not funded", so it is not tradeable
+    expect(createMock).not.toHaveBeenCalled(); // nothing baked into the database
+  });
+
+  it("still seeds my-live normally when ai-live is sharing its account", async () => {
+    aiLiveBrokerId = "dhan-primary-ac";
+    getMarginMock.mockResolvedValue({ available: 400_000, used: 0, total: 500_000 });
+
+    const st = await getCapitalState("my-live");
+
+    expect(requestedBrokerIds).toEqual(["dhan-primary-ac"]);
+    expect(st.tradingPool).toBe(500_000);
+    expect(st.seededAt).toBeTypeOf("number");
+  });
+
+  it("seeds ai-live from the secondary account when the books are NOT shared", async () => {
+    // Guard against the fix over-reaching: default config must behave as before.
+    getMarginMock.mockResolvedValue({ available: 0, used: 0, total: 222_000 });
+
+    const st = await getCapitalState("ai-live");
+
+    expect(requestedBrokerIds).toEqual(["dhan-secondary-ac"]);
+    expect(st.tradingPool).toBe(222_000);
+    expect(st.seededAt).toBeTypeOf("number");
   });
 });

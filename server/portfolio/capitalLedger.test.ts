@@ -13,16 +13,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getMargin = vi.fn();
+/** T118 — which account backs ai-live; flipped per-test. */
+let aiLiveBrokerId = "dhan-secondary-ac";
 vi.mock("../broker/brokerService", () => ({
   _getAdapterByBrokerId: vi.fn((id: string) =>
     id === "dhan-primary-ac" || id === "dhan-secondary-ac" ? { getMargin } : null,
   ),
+  brokerIdForChannel: (channel: string) =>
+    channel === "my-live" ? "dhan-primary-ac"
+    : channel === "ai-live" ? aiLiveBrokerId
+    : null,
+  liveBooksShareAccount: () => aiLiveBrokerId === "dhan-primary-ac",
 }));
 vi.mock("./storage", () => ({ appendEvent: vi.fn(), getEvents: vi.fn(async () => []) }));
 
+/** The OTHER book's pools, read by reconcile only when the account is shared. */
+const otherBook = { tradingPool: 0, reservePool: 0 };
+vi.mock("./state", () => ({ getCapitalState: vi.fn(async () => ({ ...otherBook })) }));
+
 import { reconcile } from "./capitalLedger";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  aiLiveBrokerId = "dhan-secondary-ac";
+  otherBook.tradingPool = 0;
+  otherBook.reservePool = 0;
+});
 
 describe("paper", () => {
   it("is not reconciled — there is no broker behind it", async () => {
@@ -100,5 +116,59 @@ describe("a failed broker read is never a match", () => {
   it("is UNAVAILABLE when the balance is NaN", async () => {
     getMargin.mockResolvedValue({ available: NaN, used: 0, total: 0 });
     expect((await reconcile("my-live", 100_000, 0)).status).toBe("UNAVAILABLE");
+  });
+});
+
+describe("T118 — both live books funded by ONE Dhan account", () => {
+  it("compares the SUM of both books against the single account", async () => {
+    // One account holds the money for both books, so neither book alone can
+    // ever equal its balance. Comparing them separately would report permanent
+    // drift and train the operator to ignore the check.
+    aiLiveBrokerId = "dhan-primary-ac";
+    otherBook.tradingPool = 40_000; // ai-live
+    getMargin.mockResolvedValue({ available: 100_000, used: 0, total: 100_000 });
+
+    const r = await reconcile("my-live", 60_000, 0);
+
+    expect(r.status).toBe("MATCHED");
+    expect(r.difference).toBe(0);
+    expect(r.bookBalance).toBe(60_000); // this book's own figure is still reported
+    expect(r.message).toContain("Both live books together");
+    expect(r.message).toContain("share dhan-primary-ac");
+  });
+
+  it("reports DRIFT on the sum, not on one book's shortfall", async () => {
+    aiLiveBrokerId = "dhan-primary-ac";
+    otherBook.tradingPool = 40_000;
+    getMargin.mockResolvedValue({ available: 130_000, used: 0, total: 130_000 });
+
+    const r = await reconcile("my-live", 60_000, 0);
+
+    expect(r.status).toBe("DRIFT");
+    expect(r.difference).toBe(-30_000); // 100k of book vs 130k at the broker
+    expect(r.message).toContain("BEHIND");
+  });
+
+  it("reconciles ai-live against the same shared account", async () => {
+    aiLiveBrokerId = "dhan-primary-ac";
+    otherBook.tradingPool = 60_000; // my-live
+    getMargin.mockResolvedValue({ available: 100_000, used: 0, total: 100_000 });
+
+    const r = await reconcile("ai-live", 40_000, 0);
+
+    expect(r.status).toBe("MATCHED");
+    expect(r.brokerBalance).toBe(100_000);
+  });
+
+  it("compares each book on its OWN when the accounts are separate", async () => {
+    // Default setup must be untouched: two accounts, two independent checks.
+    otherBook.tradingPool = 999_999; // must be ignored entirely
+    getMargin.mockResolvedValue({ available: 60_000, used: 0, total: 60_000 });
+
+    const r = await reconcile("my-live", 60_000, 0);
+
+    expect(r.status).toBe("MATCHED");
+    expect(r.message).toContain("This book");
+    expect(r.message).not.toContain("together");
   });
 });
