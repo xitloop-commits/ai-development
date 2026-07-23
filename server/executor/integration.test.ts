@@ -55,7 +55,11 @@ vi.mock("./tradeResolution", () => ({
 vi.mock("../broker/adapters/dhan/scripMaster", () => ({
   getScripBySecurityId: vi.fn((id: string) =>
     id?.startsWith("INT-")
-      ? { securityId: id, optionType: id.includes("-PE-") ? "PE" : "CE", lotSize: 15, expiryDateOnly: null }
+      // expiryDateOnly was null here, which no real option record ever is —
+      // the master always carries an expiry. T123 made expiry mandatory on an
+      // option row, so the unrealistic fixture started (correctly) being
+      // rejected. Give it the shape a real record has.
+      ? { securityId: id, optionType: id.includes("-PE-") ? "PE" : "CE", lotSize: 15, expiryDateOnly: "2026-07-28" }
       : null,
   ),
 }));

@@ -6,6 +6,11 @@
  * Live channels intentionally share an adapter when they share an account;
  * the test asserts the documented mapping rather than universal isolation.
  *
+ * ai-live's account is CONFIGURABLE (T118, `AI_LIVE_BROKER_ID`). These tests
+ * pin BOTH settings explicitly instead of inheriting whatever `.env` happens to
+ * say — the ambient value is a deployment choice, and a suite that reads it
+ * turns a config edit into a red test with no code change behind it.
+ *
  * Reference: T87 two-book model (paper | ai-live | my-live).
  *
  * Strategy: real MockAdapter instances injected via _setAdaptersForTesting
@@ -40,7 +45,12 @@ describe("invariant: channel isolation", () => {
   let mockPaper: MockAdapter;
   let spies: Record<string, ReturnType<typeof vi.spyOn>>;
 
+  const ORIGINAL_AI_BROKER = process.env.AI_LIVE_BROKER_ID;
+
   beforeEach(() => {
+    // Default deployment: two accounts. Set, never inherited — .env on this
+    // machine currently points ai-live at the PRIMARY account.
+    delete process.env.AI_LIVE_BROKER_ID;
     _resetForTesting();
     // Three real adapter instances — one per BSA broker slot. Real
     // MockAdapter behaviour, but each instance is independent.
@@ -60,6 +70,8 @@ describe("invariant: channel isolation", () => {
   });
 
   afterEach(() => {
+    if (ORIGINAL_AI_BROKER === undefined) delete process.env.AI_LIVE_BROKER_ID;
+    else process.env.AI_LIVE_BROKER_ID = ORIGINAL_AI_BROKER;
     Object.values(spies).forEach((s) => s.mockRestore());
     _resetForTesting();
   });
@@ -104,6 +116,24 @@ describe("invariant: channel isolation", () => {
     expect(spies.dhanLive).toHaveBeenCalledTimes(1);
     expect(spies.dhanAiData).not.toHaveBeenCalled();
     expect(spies.mockPaper).not.toHaveBeenCalled();
+  });
+
+  // ── AI_LIVE_BROKER_ID: ai-live moved onto the primary account (T118) ──
+
+  it("routes ai-live to the PRIMARY account when AI_LIVE_BROKER_ID says so", () => {
+    // One whitelisted IP means only one Dhan account can place orders.
+    process.env.AI_LIVE_BROKER_ID = "dhan-primary-ac";
+    expect(getAdapter("ai-live")).toBe(dhanLive);
+    expect(getAdapter("my-live")).toBe(dhanLive);
+  });
+
+  it("keeps PAPER isolated even when both live books share one account", async () => {
+    // The thing that must never break, whatever the live wiring is.
+    process.env.AI_LIVE_BROKER_ID = "dhan-primary-ac";
+    await getAdapter("paper").placeOrder(sampleOrder);
+    expect(spies.mockPaper).toHaveBeenCalledTimes(1);
+    expect(spies.dhanLive).not.toHaveBeenCalled();
+    expect(spies.dhanAiData).not.toHaveBeenCalled();
   });
 
   // ── ai-live fallback when dhan-secondary-ac is missing ─────────────

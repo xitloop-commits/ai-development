@@ -1163,6 +1163,14 @@ function validateOptionAgainstScrip(req: SubmitTradeRequest): string | null {
   if (reqExpiry && rec.expiryDateOnly && reqExpiry !== rec.expiryDateOnly) {
     return `Option ${label}: expiry ${reqExpiry} does not match the scrip master (${rec.expiryDateOnly}) for securityId ${req.contractSecurityId}.`;
   }
+  // Expiry is MANDATORY on an option row (Partha, 2026-07-23) — an option
+  // without one is not identifiable, since the same strike exists on every
+  // weekly. The caller may omit it (SEA does); the scrip master is then the
+  // source. Only when NEITHER has it is the trade refused — the docstring above
+  // has always claimed expiry must resolve, but until now nothing enforced it.
+  if (!reqExpiry && !rec.expiryDateOnly) {
+    return `Option ${label}: no expiry — the caller sent none and the scrip master has none for securityId ${req.contractSecurityId}. Refresh the scrip master.`;
+  }
   if (!rec.lotSize || rec.lotSize <= 0) {
     return `Option ${label}: scrip master has no lot size for securityId ${req.contractSecurityId}.`;
   }
@@ -1170,6 +1178,30 @@ function validateOptionAgainstScrip(req: SubmitTradeRequest): string | null {
     return `Option ${label}: quantity ${req.quantity} is not a whole multiple of the lot size ${rec.lotSize} (from scrip master).`;
   }
   return null;
+}
+
+/**
+ * T123 — the contract's expiry, resolved from the AUTHORITATIVE scrip master.
+ *
+ * SEA's trade payload never carried `expiry` (it sends only the strike and the
+ * contract securityId), so every AI trade was persisted with `expiry: null` —
+ * 94 of 109 trades on the books. That is not a cosmetic gap: the expiry is what
+ * makes an option row identifiable ("NIFTY 23850 CALL" is three different
+ * contracts across three weeks), and it is what the Dhan-search copy string is
+ * built from.
+ *
+ * Resolving it HERE rather than asking every caller to send it means the AI
+ * path, the UI path and the replay path all get it — the recurring shape of bug
+ * in this codebase is the one call site that forgot.
+ *
+ * Date part only ("2026-07-28"): the scrip master stores "2026-07-28 14:30:00"
+ * and the trade record's contract is a plain date everywhere else.
+ */
+function resolveContractExpiry(req: SubmitTradeRequest): string | null {
+  const given = (req.expiry ?? "").split(" ")[0].split("T")[0];
+  if (given) return given;
+  if (!req.contractSecurityId) return null;
+  return getScripBySecurityId(req.contractSecurityId)?.expiryDateOnly || null;
 }
 
 function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
@@ -1185,7 +1217,7 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
     transactionType: resolveTransactionType(req.direction),
     optionType: resolveOptionType(req),
     strike: req.strike ?? 0,
-    expiry: req.expiry ?? "",
+    expiry: resolveContractExpiry(req) ?? "",
     quantity: req.quantity,
     price: req.entryPrice,
     orderType: req.orderType,
@@ -1322,7 +1354,9 @@ function buildTradeRecord(
     instrument: req.instrument,
     type: tradeType,
     strike: req.strike ?? null,
-    expiry: req.expiry ?? null,
+    // Resolved from the scrip master when the caller didn't send one — see
+    // resolveContractExpiry. Options can no longer be persisted without it.
+    expiry: resolveContractExpiry(req),
     contractSecurityId: req.contractSecurityId ?? null,
     // Stocks persist their product type (MIS→INTRADAY | CNC) so the exit squares
     // off on the same product. Options leave it undefined (exit defaults INTRADAY).

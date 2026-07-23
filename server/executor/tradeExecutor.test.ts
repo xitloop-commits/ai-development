@@ -38,6 +38,11 @@ vi.mock("../broker/adapters/dhan/scripMaster", () => ({
   getScripBySecurityId: vi.fn((id: string) =>
     id === "55123"
       ? { securityId: "55123", optionType: "CE", expiryDateOnly: "2026-06-25", lotSize: 75 }
+      // T123 — a record present in the master but carrying NO expiry. Rare, but
+      // it is the only way a validated contract can still have nothing to fall
+      // back to, so the rejection path needs something to exercise it.
+      : id === "55404"
+      ? { securityId: "55404", optionType: "CE", expiryDateOnly: "", lotSize: 75 }
       : undefined,
   ),
 }));
@@ -262,6 +267,84 @@ describe("submitTrade — paper path", () => {
     expect(resp.success).toBe(false);
     expect(resp.error).toMatch(/not in the scrip master/i);
     expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("fills in a missing expiry from the scrip master (the SEA path sends none)", async () => {
+    // SEA's payload carries the strike and the contract securityId but never an
+    // expiry, so every AI trade was persisted with expiry: null — 94 of 109 on
+    // the books. The master knows it; resolve rather than ask each caller.
+    const req = paperRequest({
+      instrument: "NIFTY 50",
+      optionType: "CE",
+      strike: 23550,
+      contractSecurityId: "55123",
+      expiry: undefined,
+    });
+    const resp = await tradeExecutor.submitTrade(req);
+
+    expect(resp.success).toBe(true);
+    expect(portfolioAgent.appendTrade).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expiry: "2026-06-25" }),
+    );
+  });
+
+  it("sends the resolved expiry to the broker too, not an empty string", async () => {
+    const req = paperRequest({
+      instrument: "NIFTY 50", optionType: "CE", strike: 23550,
+      contractSecurityId: "55123", expiry: undefined,
+    });
+    await tradeExecutor.submitTrade(req);
+    expect((fillingAdapter.placeOrder as any).mock.calls[0][0].expiry).toBe("2026-06-25");
+  });
+
+  it("keeps the caller's expiry when one IS supplied", async () => {
+    const req = paperRequest({
+      instrument: "NIFTY 50", optionType: "CE", strike: 23550,
+      contractSecurityId: "55123", expiry: "2026-06-25",
+    });
+    await tradeExecutor.submitTrade(req);
+    expect(portfolioAgent.appendTrade).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expiry: "2026-06-25" }),
+    );
+  });
+
+  it("strips a time component — the row's expiry is a plain date", async () => {
+    // The scrip master stores "2026-07-28 14:30:00"; a caller echoing that back
+    // would otherwise persist a different string for the same contract.
+    const req = paperRequest({
+      instrument: "NIFTY 50", optionType: "CE", strike: 23550,
+      contractSecurityId: "55123", expiry: "2026-06-25 14:30:00",
+    });
+    await tradeExecutor.submitTrade(req);
+    expect(portfolioAgent.appendTrade).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expiry: "2026-06-25" }),
+    );
+  });
+
+  it("REFUSES an option when no expiry can be resolved from anywhere", async () => {
+    // Partha, 2026-07-23: "expiry is mandatory for trade row. without that
+    // trade should not be created." An option without one is not identifiable —
+    // the same strike exists on every weekly.
+    const req = paperRequest({
+      instrument: "NIFTY 50", optionType: "CE", strike: 23550,
+      contractSecurityId: "55404", expiry: undefined,
+    });
+    const resp = await tradeExecutor.submitTrade(req);
+
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/no expiry/i);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+    expect(portfolioAgent.appendTrade).not.toHaveBeenCalled();
+  });
+
+  it("still allows an EQUITY trade with no expiry — stocks never have one", async () => {
+    // The mandate is about option rows. Applying it to equity would block the
+    // stock workspace entirely.
+    const resp = await tradeExecutor.submitTrade(paperRequest({ optionType: undefined }));
+    expect(resp.success).toBe(true);
   });
 
   it("rejects an option whose quantity is not a whole lot multiple", async () => {

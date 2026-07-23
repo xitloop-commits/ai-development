@@ -1627,6 +1627,42 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T123 [Execution] 🔴 — every AI trade was stored with expiry: null ✅ FIXED 2026-07-23
+Found chasing "why is the copy button missing" — 94 of 109 trades had no expiry.
+The split was exact: **every manual trade had one, every AI trade had none.**
+
+**Root cause:** SEA's payload ([engine.py:218](../python_modules/signal_engine_agent/engine.py#L218)
+`_maybe_submit_ai_trade`) sends the strike and `contractSecurityId` but **never
+`expiry`**. The server passed `req.expiry ?? null` straight through. The scrip
+master knew it all along — the securityId was right there on the trade.
+
+- `resolveContractExpiry()` in [tradeExecutor.ts](../server/executor/tradeExecutor.ts):
+  caller's value (date part only) → else the scrip master via `contractSecurityId`.
+  Resolved in the executor, NOT in SEA, so the AI, UI and replay paths all get it
+  — the recurring bug in this codebase is the one call site that forgot.
+- **Expiry is now MANDATORY on an option row** (Partha): if neither the caller
+  nor the master has one, the trade is REFUSED. `validateOptionAgainstScrip`'s
+  docstring has always claimed expiry must resolve; nothing enforced it. Equity
+  is untouched — stocks have no expiry.
+- [scripts/backfill_trade_expiry.ts](../scripts/backfill_trade_expiry.ts) — pure
+  securityId→expiry lookup, never a guess; leaves unresolvable rows alone and
+  reports them. **Applied: 94/94 resolved to 2026-07-28, 0 unresolvable.**
+
+⚠️ **Caught late:** the T118 `.env` edit (`AI_LIVE_BROKER_ID=dhan-primary-ac`)
+turned two channel-isolation invariants red, and the T118 suite run predated the
+edit so it went unnoticed. Those tests read the ambient env; they now SET both
+settings explicitly, plus 2 new cases for the shared-account wiring. A config
+edit should never redden a suite with no code change behind it.
+
+Tests: 6 executor + 2 invariants. Both new gates mutation-verified (removing the
+backfill fails 2, removing the mandatory-expiry gate fails 1). One unrealistic
+fixture fixed: `integration.test.ts` had `expiryDateOnly: null`, which no real
+option record ever is.
+
+**Next:** SEA could send `expiry` too, so the payload is self-describing rather
+than relying on server-side resolution — cosmetic now that the executor resolves
+it, but it would make the POST readable on its own.
+
 ### T122 [UI] 🔴 — copy-to-clipboard was silently dead ✅ FIXED 2026-07-23
 Reported: "it is not copying, cursor over the pill still insertion." Two causes,
 both silent.
