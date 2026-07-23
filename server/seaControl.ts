@@ -206,20 +206,50 @@ export function setModelVersion(instrument: string, version: string): CohortStat
  * `initSeaControl()` re-hydrates from sea_thresholds on every restart and the
  * engine silently reverts to the old file while the menu still shows the new
  * value — i.e. you turn a cohort off and it keeps firing. Called at boot, when
- * the active AI mode changes, and whenever cohorts are applied.
+ * an AI-trades switch flips, and whenever cohorts are applied.
  *
- * SEA is a single process, so only the ACTIVE mode's cohorts apply. `manual`
- * has no SEA signals, so it's ignored.
+ * T128 — SEA detects the UNION of every enabled book's AI cohorts.
+ *
+ * SEA is one process with one cohort set, but the two books can want different
+ * cohorts (paper races Scalp+MA, live takes MA only). Rather than let whichever
+ * tab you last viewed decide what fires — which silently made live place scalp
+ * signals its own config had switched off — SEA now detects a cohort if ANY
+ * enabled book wants it. Each book then FILTERS at placement (discipline/routes)
+ * so it only acts on the cohorts it enabled. Detection is cheap; a cohort SEA
+ * emits that no book will place just gets dropped at the gate.
+ *
+ * A book counts only when its AI trading is switched on (aiPaperEnabled /
+ * aiLiveEnabled). If neither is on, nothing would be placed anyway, so the
+ * union is empty and SEA goes quiet.
+ *
+ * `revPct` is a single detector parameter — the two books cannot hold different
+ * values in one process. The live book wins when its AI is on, else paper. (T129
+ * lifts revPct into a common block so the ambiguity disappears.)
  */
-export function syncCohortsFromAiConfig(book: "paper" | "live"): void {
-  // T127 — SEA is one process; for now it takes the book's AI cohorts. (Step 3
-  // makes it the UNION of every enabled book, so a scalp signal fires whenever
-  // any book wants it and each book filters at placement.)
-  const c = getAiConfig(book, "ai").cohorts;
-  setCohort("scalp", c.scalp);
-  setCohort("trend", c.trend);
-  setCohort("ma", c.ma);
-  setRevPct(c.revPct);
+export async function syncCohortsFromAiConfig(): Promise<void> {
+  const { getUserSettings } = await import("./userSettings");
+  const tm = (await getUserSettings(1)).tradingMode;
+  const paperOn = tm?.aiPaperEnabled ?? (tm?.aiTradesMode ?? "paper") === "paper";
+  const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
+
+  const books: Array<"paper" | "live"> = [
+    ...(paperOn ? (["paper"] as const) : []),
+    ...(liveOn ? (["live"] as const) : []),
+  ];
+  const cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
+  const anyWants = (k: "scalp" | "trend" | "ma") => cohortsOf.some((c) => c[k]);
+
+  setCohort("scalp", anyWants("scalp"));
+  setCohort("trend", anyWants("trend"));
+  setCohort("ma", anyWants("ma"));
+
+  // revPct — live's value if live is on, else paper's, else leave as configured.
+  const rev = liveOn
+    ? getAiConfig("live", "ai").cohorts.revPct
+    : paperOn
+      ? getAiConfig("paper", "ai").cohorts.revPct
+      : null;
+  if (rev != null) setRevPct(rev);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate

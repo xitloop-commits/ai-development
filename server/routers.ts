@@ -152,9 +152,10 @@ export const appRouter = router({
         // SEA-generated), and only the ACTIVE book pushes — editing the book
         // you're NOT trading must not change what fires. (Step 3 replaces this
         // with a union push so both books' cohorts are always live.)
+        // T128 — SEA takes the UNION of both enabled books' AI cohorts, so any
+        // cohort edit on the AI stream re-syncs regardless of which book it was.
         if (input.kind === "ai" && (input.patch as { cohorts?: unknown })?.cohorts) {
-          const activeMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
-          if (activeMode === input.book) syncCohortsFromAiConfig(input.book);
+          await syncCohortsFromAiConfig();
         }
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
@@ -572,10 +573,12 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
-        // Cohorts are per-mode but SEA is one process — re-push the now-active
-        // mode's cohorts so switching paper↔live can't leave SEA firing the
-        // other mode's set.
-        if (input.aiTradesMode) syncCohortsFromAiConfig(input.aiTradesMode);
+        // T128 — an AI-trades switch (paper/live on/off) changes the union of
+        // cohorts SEA should detect, so re-sync whenever routing changes.
+        if (input.aiTradesMode !== undefined || input.aiPaperEnabled !== undefined
+            || input.aiLiveEnabled !== undefined || input.aiTradesEnabled !== undefined) {
+          await syncCohortsFromAiConfig();
+        }
         return { success: true, tradingMode: updated.tradingMode };
       }),
 

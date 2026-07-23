@@ -270,10 +270,8 @@ async function startServer() {
   // sea_thresholds, so without this a restart leaves the engine firing cohorts
   // the menu says are OFF.
   try {
-    const { getUserSettings } = await import("../userSettings");
     const { syncCohortsFromAiConfig } = await import("../seaControl");
-    const activeAiMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
-    syncCohortsFromAiConfig(activeAiMode);
+    await syncCohortsFromAiConfig(); // T128 — union of both enabled books' cohorts
   } catch (err) {
     bootLog.warn(`cohort sync at boot failed: ${(err as Error).message ?? err}`);
   }

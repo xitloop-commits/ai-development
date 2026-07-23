@@ -188,8 +188,39 @@ export function registerDisciplineRoutes(app: Express): void {
       }
       try {
         // Non-AI (USER / RCA) keeps its posted channel — exactly one book.
-        const targetChannels: Array<typeof body.channel> =
+        let targetChannels: Array<typeof body.channel> =
           aiChannels.length > 0 ? aiChannels : [body.channel];
+
+        // T128 — COHORT FILTER. SEA detects the union of both books' cohorts, so
+        // a signal can arrive for a cohort a given book switched off. Each book
+        // takes only the cohorts its OWN AI stream enabled. Without this, live —
+        // set to MA only — would place the scalp signals paper wanted, because
+        // nothing downstream checked the book's cohort config. Manual/USER trades
+        // are not cohort-gated: you asked for that specific trade by hand.
+        if (body.origin === "AI" && body.cohort) {
+          const { getAiConfig, bookForChannel } = await import("../portfolio/aiModeConfig");
+          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing" } as const)[
+            body.cohort as "ma_signal" | "scalp" | "trend" | "swing"
+          ];
+          if (cohortKey) {
+            targetChannels = targetChannels.filter((ch) => {
+              const on = getAiConfig(bookForChannel(ch), "ai").cohorts[cohortKey];
+              if (!on) {
+                log.info(`AI ${body.cohort} signal skipped on ${ch} — cohort not enabled for that book`);
+              }
+              return on;
+            });
+          }
+          if (targetChannels.length === 0) {
+            return res.json({
+              approved: false,
+              reason: `No book takes the ${body.cohort} cohort`,
+              checks: [],
+              latencyMs: Date.now() - t0,
+            });
+          }
+        }
+
         const perChannel: Array<Record<string, unknown>> = [];
 
         // Each book is evaluated INDEPENDENTLY and SEQUENTIALLY: its own sizing,
