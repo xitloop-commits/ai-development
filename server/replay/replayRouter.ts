@@ -59,16 +59,22 @@ export const replayRouter = router({
           message: "Replay is only available outside live market hours (it would collide with the real feed).",
         });
       }
-      // A replay must never place REAL orders. AI signals route by aiTradesMode
-      // (discipline/routes.ts), so with the AI menu on LIVE a replayed signal
-      // would hit the live account. Trades are redirected to the run before
-      // that point, but refusing outright is the honest guard: it also stops a
-      // run being recorded while the operator believes they are live-trading.
-      const aiMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
-      if (aiMode === "live") {
+      // A replay must never place REAL orders. Trades are always redirected to
+      // the run (portfolioAgent.appendTrade — one choke point, every trade while
+      // a run is open), so a replay physically cannot touch a real book. This is
+      // the honest belt-and-braces guard: don't record a run while LIVE AI
+      // trading is actually armed, in case the operator believes they are
+      // live-trading.
+      //
+      // T135 — checks `aiLiveEnabled`, the real per-book live switch. The old
+      // guard read the legacy `aiTradesMode`, which the app-bar Live TAB sets
+      // just by viewing the live book — a false positive that blocked replay
+      // whenever you were looking at the live desk, even with live AI off.
+      const tm = (await getUserSettings(1)).tradingMode;
+      if (tm?.aiLiveEnabled === true) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Switch AI trades to PAPER before replaying — replay must not run against the live account.",
+          message: "Turn OFF live AI trades before replaying — replay must not run while the live account is armed.",
         });
       }
       try {
