@@ -1627,6 +1627,22 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T116 [UI] — My Trades settings moved out of the AI menu ✅ DONE 2026-07-23
+The manual block lived inside the AI menu, below the AI mode toggle — implying
+the Paper/Live switch applied to hand-placed trades, which it never did.
+
+- New `MyTradesControl` AppBar CTA (hand icon, amber) with its own popover:
+  cohort · strategy · per-instrument sizing, own draft + Apply/Reset.
+- Removed from `AiControl` along with its orphaned state (`manualDraft`,
+  `editManual`, `applyManual`, `resetManual`, `MANUAL_COHORTS`).
+- Glide's warnings carried over verbatim — a manual Glide trade is never closed
+  automatically, and that caveat had to travel with the setting.
+- Header comment corrected: it still described the mode toggle as ROUTING trades
+  (stale since T111 made routing per-book).
+
+Shared exit configs stay in the AI menu — they genuinely are common to Paper,
+Live and My Trades.
+
 ### T115 [UI/Ops] — gross shown alongside net + a live reconciler ✅ DONE 2026-07-23
 Dhan's P&L screen quotes GROSS (charges billed separately); the desk showed only
 one side of the net/gross toggle, so any difference against Dhan looked like a

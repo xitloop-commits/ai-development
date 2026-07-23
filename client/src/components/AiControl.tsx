@@ -2,11 +2,16 @@
  * AiControl — the single AI menu (merges the old SEA control + AI-trades mode).
  *
  * One AppBar CTA ("AI") opens a per-mode control panel. The Paper/Live toggle at
- * the top BOTH routes AI trades (aiTradesMode) AND selects which mode's config
- * you're editing — paper and live keep entirely independent settings. Edits are
- * batched into a local draft; hitting Apply pushes the whole draft to the server
+ * the top selects which book's config you're editing — it does NOT route trades;
+ * routing is the per-book AI-trades switch beneath it (aiPaperEnabled /
+ * aiLiveEnabled), so both books can run at once. Edits are batched into a local
+ * draft; hitting Apply pushes the whole draft to the server
  * (trading.updateAiConfig), which clamps + persists + broadcasts, so backend and
  * every open panel update at once. A dim backdrop closes on click-out.
+ *
+ * MANUAL ("My Trades") settings are NOT here — they moved to their own AppBar
+ * CTA (MyTradesControl). They govern trades you place by hand, so living inside
+ * the AI menu implied the AI mode toggle applied to them, which it never did.
  *
  * Sections: cohorts · strategies (N on = N trades/signal) · sizing · order ·
  * Sprint / Runway / Anchor exit configs · global exits · EOD square-off.
@@ -245,21 +250,12 @@ const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide"; label: string
   { key: "glide", label: "Glide" },
 ];
 
-/** Cohorts a MANUAL trade can be tagged with. `ma` maps to the signal engine's
- *  `ma_signal`; the server owns that translation (resolveManualCohort). */
-const MANUAL_COHORTS: { key: "ma" | "scalp" | "trend" | "swing"; label: string }[] = [
-  { key: "ma", label: "MA-Signal" },
-  { key: "scalp", label: "Scalp" },
-  { key: "trend", label: "Trend" },
-  { key: "swing", label: "Swing" },
-];
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
 
 export function AiControl() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("paper");
   const [draft, setDraft] = useState<ModeCfg | null>(null);
-  const [manualDraft, setManualDraft] = useState<ModeCfg | null>(null);
   const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
   const sea = useSeaStatus();
   const utils = trpc.useUtils();
@@ -311,7 +307,6 @@ export function AiControl() {
   }, [mode, open, hasCfg]);
 
   useEffect(() => {
-    if (all) setManualDraft(structuredClone(all.manual));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, hasCfg]);
 
@@ -370,20 +365,6 @@ export function AiControl() {
   const apply = () => { if (draft) applyMut.mutate({ mode, patch: draft }); };
   const reset = () => { if (all) setDraft(structuredClone(all[mode])); };
 
-  // Manual (my-live) block — its own draft + Apply, independent of the mode toggle.
-  const manualDirty = useMemo(
-    () => !!(manualDraft && all && JSON.stringify(manualDraft) !== JSON.stringify(all.manual)),
-    [manualDraft, all],
-  );
-  const editManual = (fn: (d: ModeCfg) => void) =>
-    setManualDraft((prev) => {
-      if (!prev) return prev;
-      const n = structuredClone(prev);
-      fn(n);
-      return n;
-    });
-  const applyManual = () => { if (manualDraft) applyMut.mutate({ mode: "manual", patch: manualDraft }); };
-  const resetManual = () => { if (all) setManualDraft(structuredClone(all.manual)); };
 
   // Shared exits block — one Sprint/Runway/Anchor config for every mode.
   const applyExitsMut = trpc.trading.updateExitConfig.useMutation({
@@ -405,7 +386,6 @@ export function AiControl() {
 
   const dotClass = sea.anyAlive ? "bg-bullish" : "bg-muted-foreground";
   const d = draft;
-  const md = manualDraft;
   const ed = exitsDraft;
 
   return (
@@ -708,91 +688,6 @@ export function AiControl() {
                   </div>
                 </div>
 
-                {/* ═══ MY TRADES (manual / my-live) — its own strategies + sizing + exits ═══ */}
-                {md && (
-                  <div className="border-t-2 border-info-cyan/30 pt-2 mt-1 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <SectionLabel><span className="text-info-cyan">My Trades</span> · manual</SectionLabel>
-                      {manualDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
-                    </div>
-                    <p className="text-[0.5625rem] text-muted-foreground -mt-1.5 leading-snug">
-                      Order type, EOD square-off &amp; safety exits use your Settings. These are manual-only.
-                    </p>
-
-                    <Group title="Cohort · tags the trade">
-                      <div className="flex gap-1.5 flex-wrap">
-                        {MANUAL_COHORTS.map((c) => (
-                          <Pill key={c.key} label={c.label} on={!!md.cohorts[c.key]}
-                            onClick={() => editManual((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })} />
-                        ))}
-                      </div>
-                      <span className="text-[0.5625rem] text-muted-foreground">
-                        First selected wins · defaults to MA-Signal
-                      </span>
-                    </Group>
-
-                    <Group title="Strategies · pick one per trade">
-                      <div className="flex gap-1.5 flex-wrap">
-                        {STRATEGIES.map((s) => (
-                          <Pill key={s.key} label={s.label} on={!!md.strategies[s.key]}
-                            onClick={() => editManual((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
-                        ))}
-                      </div>
-                      <span className="text-[0.5625rem] text-muted-foreground">
-                        {STRATEGIES.filter((s) => md.strategies[s.key]).length} available to choose
-                      </span>
-                      {/*
-                        Glide has no stop, no target and no trailing, and NOTHING
-                        closes a manual one automatically — SEA only closes the
-                        trades it opened itself. Saying so here is the difference
-                        between a deliberate choice and an expensive surprise.
-                      */}
-                      {md.strategies.glide && (
-                        <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                          Glide: no SL / TP / trailing. You close it yourself — MA-Signal
-                          only closes trades it opened. Needs the MA-Signal cohort;
-                          otherwise the next enabled strategy is used.
-                        </span>
-                      )}
-                      {md.strategies.glide && !md.cohorts.ma && (
-                        <span className="text-[0.5625rem] text-bearish font-bold leading-snug">
-                          Cohort is not MA-Signal — Glide will be skipped for these trades.
-                        </span>
-                      )}
-                    </Group>
-
-                    <Group title="Sizing">
-                      {INSTRUMENTS.map((inst) => {
-                        const s = md.sizing.perInstrument[inst] ?? { mode: "lots" as const, value: 0 };
-                        return (
-                          <div key={inst} className="flex items-center justify-between gap-2">
-                            <span className="text-[0.625rem] text-muted-foreground capitalize">{inst}</span>
-                            <div className="flex items-center gap-1">
-                              <input type="number" step={1} min={0} value={s.value}
-                                onChange={(e) => editManual((x) => {
-                                  const cur = x.sizing.perInstrument[inst] ?? { mode: "lots" as const, value: 0 };
-                                  x.sizing.perInstrument[inst] = { ...cur, value: e.target.value === "" ? 0 : Number(e.target.value) };
-                                })}
-                                className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                              <span className="text-[0.5625rem] text-muted-foreground w-6">{s.mode === "percent" ? "%" : "lots"}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </Group>
-
-                    <div className="flex items-center gap-2 pt-1">
-                      <button type="button" onClick={applyManual} disabled={!manualDirty || applyMut.isPending}
-                        className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30 disabled:opacity-40 transition-colors">
-                        <Check className="h-3 w-3" /> Apply My Trades
-                      </button>
-                      <button type="button" onClick={resetManual} disabled={!manualDirty}
-                        className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors" title="Discard unsaved edits">
-                        <RotateCcw className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                )}
                 </div>
 
                 {/* Apply / Reset — footer */}
