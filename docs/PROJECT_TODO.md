@@ -1627,6 +1627,21 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T117 [UI] — replay controls collapsed into a menu ✅ DONE 2026-07-23
+Replay kept five widgets permanently parked on the app bar (date, speed, two
+model pickers, button) for something touched only when starting a run.
+
+- `ReplayControl` is now an icon CTA (rewind, primary) + popover, same pattern as
+  `MyTradesControl`: `useRef` + mousedown click-outside, `absolute right-0
+  top-full`. Controls widened to full width — the bar-era `max-w-[7rem]` was
+  truncating model version strings inside the panel.
+- The **running** state deliberately stays inline on the bar (pulsing dot +
+  speed + Stop). While a replay runs every tick on the desk is simulated; that
+  must never be one click away from being noticed. Its detail (date, tick count)
+  moved into the tooltip to keep the badge small.
+- The menu closes itself on a successful start, since the desk switches to the
+  new run at that moment anyway.
+
 ### T116 [UI] — My Trades settings moved out of the AI menu ✅ DONE 2026-07-23
 The manual block lived inside the AI menu, below the AI mode toggle — implying
 the Paper/Live switch applied to hand-placed trades, which it never did.

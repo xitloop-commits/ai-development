@@ -7,8 +7,8 @@
  * Stop. Backed by the `replay` tRPC router; replay is blocked during live
  * market hours (the server enforces that).
  */
-import { useState } from 'react';
-import { Play, Square } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Play, Square, Rewind } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { setSelectedRunId, openReplayTab } from '@/lib/replaySelection';
 import { toast } from 'sonner';
@@ -23,6 +23,19 @@ export function ReplayControl() {
   const dates = datesQ.data ?? [];
   const status = statusQ.data;
   const running = !!status?.running;
+
+  // Collapsed into a popover to give the AppBar its space back — the controls
+  // are only touched when starting a run, but they occupied the bar always.
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
 
   const [date, setDate] = useState<string>('');
   const [speed, setSpeed] = useState<number>(1);
@@ -59,6 +72,7 @@ export function ReplayControl() {
       // Jump straight to the run: switch the left drawer to Replay and select
       // the new run, so the desk shows the experiment as it fills rather than
       // leaving you to go and find it.
+      setOpen(false);
       if (res?.runId) {
         openReplayTab();
         setSelectedRunId(res.runId);
@@ -72,12 +86,18 @@ export function ReplayControl() {
     onError: (e: any) => toast.error(e?.message ?? 'Stop failed'),
   });
 
+  // A RUNNING replay stays visible on the bar rather than hiding in the menu:
+  // every tick the desk shows is simulated while it runs, so that must never be
+  // one click away from being noticed.
   if (running) {
     return (
       <div className="px-2 flex items-center gap-1.5 shrink-0">
-        <span className="flex items-center gap-1 text-[0.5625rem] font-bold tabular-nums text-warning-amber" title="Live simulation running">
+        <span
+          className="flex items-center gap-1 text-[0.5625rem] font-bold tabular-nums text-warning-amber"
+          title={`Live simulation running — ${status?.date} at ${status?.speed}x, ${(status?.ticksEmitted ?? 0).toLocaleString('en-IN')} ticks emitted`}
+        >
           <span className="h-1.5 w-1.5 rounded-full bg-warning-amber animate-pulse" />
-          REPLAY {status?.date} · {status?.speed}× · {(status?.ticksEmitted ?? 0).toLocaleString('en-IN')}
+          REPLAY {status?.speed}×
         </span>
         <button
           type="button"
@@ -93,14 +113,25 @@ export function ReplayControl() {
   }
 
   return (
-    <div className="px-2 flex items-center gap-1 shrink-0">
-      <span className="text-[0.5rem] font-bold uppercase tracking-wider text-muted-foreground">Replay</span>
+    <div className="relative shrink-0 self-stretch flex" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
+        title="Replay — re-run a recorded day as a live simulation"
+      >
+        <Rewind className="h-3.5 w-3.5 text-primary" />
+        <span className="font-display text-[0.625rem] font-bold tracking-wider text-primary">REPLAY</span>
+      </button>
+
+      {open && (
+      <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-md border border-border bg-popover text-popover-foreground shadow-xl p-3 flex flex-col gap-2">
+      <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Replay a recorded day</span>
       <select
         value={selectedDate}
         onChange={(e) => setDate(e.target.value)}
         disabled={dates.length === 0}
         title="Recorded day to replay"
-        className="max-w-[7rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
+        className="w-full rounded border border-border bg-muted/40 px-1.5 py-1 text-[0.625rem] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
       >
         {dates.length === 0
           ? <option value="">no recordings</option>
@@ -110,7 +141,7 @@ export function ReplayControl() {
         value={speed}
         onChange={(e) => setSpeed(Number(e.target.value))}
         title="Replay speed (1× = real-time)"
-        className="rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
+        className="w-full rounded border border-border bg-muted/40 px-1.5 py-1 text-[0.625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
       >
         {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
       </select>
@@ -126,7 +157,7 @@ export function ReplayControl() {
             value={selected}
             onChange={(e) => setModels((p) => ({ ...p, [inst]: e.target.value }))}
             title={`${inst} model version for this run — SEA hot-swaps to it before the replay starts`}
-            className="max-w-[7.5rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="w-full rounded border border-border bg-muted/40 px-1.5 py-1 text-[0.625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
           >
             {list.map((m) => (
               <option key={m.version} value={m.version} disabled={!m.compatible}>
@@ -152,11 +183,13 @@ export function ReplayControl() {
           })
         }
         disabled={!selectedDate || startMut.isPending}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.5625rem] font-bold text-bullish hover:bg-bullish/15 transition-colors disabled:opacity-40"
+        className="w-full flex items-center justify-center gap-1 rounded px-2 py-1.5 mt-1 text-[0.6875rem] font-bold bg-bullish/15 text-bullish hover:bg-bullish/25 transition-colors disabled:opacity-40"
         title="Replay this day's recorded ticks as a live simulation (available outside market hours)"
       >
-        <Play className="h-2.5 w-2.5" /> Replay
+        <Play className="h-3 w-3" /> Start replay
       </button>
+      </div>
+      )}
     </div>
   );
 }
