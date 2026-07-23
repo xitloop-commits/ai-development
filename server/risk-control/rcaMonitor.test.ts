@@ -63,17 +63,15 @@ vi.mock("../executor/settings", () => ({
   })),
 }));
 
-// The monitor tests exercise the executor-settings safety-exit path, so route
-// every channel through the fallback (aiModeForChannel → null). The other
-// exports are only used by the placement path (not under test here).
+// The monitor tests exercise the safety-exit path; globalExitsForChannel feeds
+// the thresholds. The other exports are used by the placement path (not here).
 vi.mock("../portfolio/aiModeConfig", () => ({
-  aiModeForChannel: () => null,
-  modeForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
+  globalExitsForChannel: () => ({ rcaMaxAgeMs: 30 * 60_000, rcaStaleTickMs: 5 * 60_000, rcaVolThreshold: 0.7 }),
+  bookForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
+  originKind: () => "ai",
   getActiveStrategies: () => ["sprint"],
-  getAiConfig: () => ({
-    order: { orderType: "MARKET", productType: "INTRADAY" },
-    globalExits: { rcaMaxAgeMs: 30 * 60_000, rcaStaleTickMs: 5 * 60_000, rcaVolThreshold: 0.7 },
-  }),
+  strategiesForCohort: (s: string[]) => s,
+  getAiConfig: () => ({ order: { orderType: "MARKET", productType: "INTRADAY" } }),
 }));
 
 import { rcaMonitor } from "./index";

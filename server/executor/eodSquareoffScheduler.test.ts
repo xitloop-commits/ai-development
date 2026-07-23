@@ -33,8 +33,7 @@ vi.mock("./settings", () => ({
   getExecutorSettings: getSettingsMock,
 }));
 vi.mock("../portfolio/aiModeConfig", () => ({
-  aiModeForChannel: (ch: string) => (ch === "paper" ? "paper" : ch === "live" ? "live" : null),
-  getAiConfig: () => ({ squareoff: aiSquareoffMock() }),
+  squareoffForChannel: () => aiSquareoffMock(),
 }));
 vi.mock("../holidays", () => ({
   isTodayHoliday: isTodayHolidayMock,

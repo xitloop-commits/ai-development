@@ -15,6 +15,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Hand, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useChannel } from "@/contexts/CapitalContext";
 
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
@@ -74,11 +75,16 @@ export function MyTradesControl() {
   const applyMut = trpc.trading.updateAiConfig.useMutation({
     onSuccess: () => { void utils.trading.aiConfig.invalidate(); },
   });
-  const all = cfgQuery.data as { manual: ModeCfg } | undefined;
+  // T127 — My Trades is per-book now. Follow the app-bar tab: editing the manual
+  // block of whichever book you are viewing (paper vs live).
+  const { channel } = useChannel();
+  const book: "paper" | "live" = channel === "paper" ? "paper" : "live";
+  const all = cfgQuery.data as { paper: { manual: ModeCfg }; live: { manual: ModeCfg } } | undefined;
+  const manualCfg = all?.[book]?.manual;
 
   // Re-seed the draft when the panel opens (not on every server push, or an edit
   // in progress would be wiped by an unrelated broadcast).
-  useEffect(() => { if (open && all) setDraft(structuredClone(all.manual)); }, [open, !!all]);
+  useEffect(() => { if (open && manualCfg) setDraft(structuredClone(manualCfg)); }, [open, !!all, book]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +96,7 @@ export function MyTradesControl() {
   }, [open]);
 
   const dirty = useMemo(
-    () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all.manual)),
+    () => !!(draft && manualCfg && JSON.stringify(draft) !== JSON.stringify(manualCfg)),
     [draft, all],
   );
   const edit = (fn: (d: ModeCfg) => void) =>
@@ -114,7 +120,7 @@ export function MyTradesControl() {
         <div className="absolute right-0 top-full mt-1 z-50 w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-xl">
           <div className="p-3 border-b border-border">
             <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-warning-amber">
-              My Trades · manual
+              My Trades · {book === "live" ? "LIVE" : "PAPER"}
             </span>
             <p className="text-[0.5625rem] text-muted-foreground leading-snug mt-0.5">
               Applies to trades you place yourself. Order type, EOD square-off and safety
@@ -193,7 +199,7 @@ export function MyTradesControl() {
               <div className="px-3 py-2 bg-popover border-t border-border flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => applyMut.mutate({ mode: "manual", patch: d })}
+                  onClick={() => applyMut.mutate({ book, kind: "manual", patch: d })}
                   disabled={!dirty || applyMut.isPending}
                   className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/30 disabled:opacity-40 transition-colors"
                 >
@@ -201,7 +207,7 @@ export function MyTradesControl() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => all && setDraft(structuredClone(all.manual))}
+                  onClick={() => manualCfg && setDraft(structuredClone(manualCfg))}
                   disabled={!dirty}
                   className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
                   title="Discard unsaved edits"

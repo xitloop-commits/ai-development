@@ -139,17 +139,22 @@ export const appRouter = router({
     // the next tick; strategy / sizing / order apply at the next entry.
     aiConfig: publicProcedure.query(() => getAllAiConfig()),
     updateAiConfig: publicProcedure
-      .input(z.object({ mode: z.enum(["paper", "live", "manual"]), patch: z.any() }))
+      .input(z.object({
+        book: z.enum(["paper", "live"]),
+        kind: z.enum(["ai", "manual"]),
+        patch: z.any(),
+      }))
       .mutation(async ({ input }) => {
-        updateAiConfig(input.mode, input.patch);
+        updateAiConfig(input.book, input.kind, input.patch);
         // Cohorts drive the RUNNING SEA: push them over /ws/sea-control (which
         // also persists to config/sea_thresholds/*.json) so the engine applies
-        // them in <100 ms. Only the ACTIVE mode may push — SEA is one process, so
-        // editing the mode you're NOT trading must not change what fires. Manual
-        // trades aren't SEA-generated, so that mode never pushes.
-        if (input.mode !== "manual" && (input.patch as { cohorts?: unknown })?.cohorts) {
+        // them in <100 ms. Only the AI stream feeds SEA (manual trades aren't
+        // SEA-generated), and only the ACTIVE book pushes — editing the book
+        // you're NOT trading must not change what fires. (Step 3 replaces this
+        // with a union push so both books' cohorts are always live.)
+        if (input.kind === "ai" && (input.patch as { cohorts?: unknown })?.cohorts) {
           const activeMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
-          if (activeMode === input.mode) syncCohortsFromAiConfig(input.mode);
+          if (activeMode === input.book) syncCohortsFromAiConfig(input.book);
         }
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);

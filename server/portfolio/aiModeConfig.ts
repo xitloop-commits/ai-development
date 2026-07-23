@@ -25,7 +25,19 @@ import { resolve } from "path";
 import { DEFAULT_EXIT_CFG, type ExitStrategyConfig } from "./exitStrategies";
 import type { Channel } from "./state";
 
-export type AiMode = "paper" | "live" | "manual";
+/**
+ * T127 — the config is addressed by (book, origin), giving FOUR blocks:
+ * paper·ai, paper·manual, live·ai, live·manual.
+ *
+ * Before this there were three blocks — paper, live, manual — and `manual` was
+ * book-agnostic, so a hand-placed trade used the same size whether it landed on
+ * paper or on live. You cannot size 10 lots on paper and 1 lot on live for your
+ * own trades until manual splits per book, which is what this does.
+ */
+export type Book = "paper" | "live";
+/** Who placed the trade, collapsed to the two config streams. USER → manual;
+ *  AI and RCA → ai. */
+export type OriginKind = "ai" | "manual";
 export type StrategyName = "sprint" | "runway" | "anchor" | "glide";
 
 export interface CohortsConfig {
@@ -141,15 +153,17 @@ export interface AiModeConfig {
   squareoff: SquareoffConfig;
 }
 
+/** One book's two streams: AI-placed and hand-placed. */
+export interface BookConfig {
+  ai: AiModeConfig;
+  manual: AiModeConfig;
+}
+
 export interface AllAiConfig {
   /** Common Sprint / Runway / Anchor configs — same for every mode. */
   exits: SharedExitConfig;
-  paper: AiModeConfig;
-  live: AiModeConfig;
-  /** Manual (live). Only `strategies` + `sizing` are used; order,
-   *  square-off and global exits come from the existing broker/executor
-   *  settings (live shares those). */
-  manual: AiModeConfig;
+  paper: BookConfig;
+  live: BookConfig;
 }
 
 // ─── Defaults (preserve current behaviour) ──────────────────────────────────
@@ -200,24 +214,48 @@ function baseMode(): AiModeConfig {
   };
 }
 
-/** paper races all three (today's paper behaviour); live is Sprint-only
- *  (today's live behaviour); manual defaults to MA-Signal + Glide. */
+/** A fresh MANUAL block: MA-Signal cohort, Glide strategy.
+ *
+ * ⚠️ A manual Glide trade is NOT closed by MA-Signal's exit. SEA closes the
+ * specific trade IT opened (it stores the id at leg start), and a trade you
+ * placed by hand was never in that map. So a manual Glide trade rides until YOU
+ * close it, the disaster stop fires, or EOD square-off. That is the accepted
+ * behaviour, not an oversight — but it is why Glide must never be reached by
+ * accident. */
+function baseManual(): AiModeConfig {
+  const m = baseMode();
+  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, swing: false };
+  m.strategies = { sprint: false, runway: false, anchor: false, glide: true };
+  return m;
+}
+
+/** paper·ai races all three (today's paper behaviour); live·ai is Sprint-only
+ *  (today's live behaviour); both manual blocks default to MA-Signal + Glide. */
 function defaultAll(): AllAiConfig {
-  const paper = baseMode();
-  const live = baseMode();
-  live.strategies = { sprint: true, runway: false, anchor: false, glide: false };
-  const manual = baseMode();
-  // Manual defaults: MA-Signal cohort, Glide strategy.
-  //
-  // ⚠️ A manual Glide trade is NOT closed by MA-Signal's exit. SEA closes the
-  // specific trade IT opened (it stores the id at leg start), and a trade you
-  // placed by hand was never in that map. So a manual Glide trade rides until
-  // YOU close it, the disaster stop fires, or EOD square-off. That is the
-  // accepted behaviour, not an oversight — but it is why Glide must never be
-  // reached by accident.
-  manual.cohorts = { ...manual.cohorts, scalp: false, trend: false, ma: true, swing: false };
-  manual.strategies = { sprint: false, runway: false, anchor: false, glide: true };
-  return { exits: baseExits(), paper, live, manual };
+  const paperAi = baseMode();
+  const liveAi = baseMode();
+  liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false };
+  return {
+    exits: baseExits(),
+    paper: { ai: paperAi, manual: baseManual() },
+    live: { ai: liveAi, manual: baseManual() },
+  };
+}
+
+/** A book+origin block, addressed by the pair rather than a flat mode string. */
+export function getAiConfig(book: Book, kind: OriginKind): AiModeConfig {
+  return state[book][kind];
+}
+
+/** The origin stream a trade's origin maps to. USER → manual; everything else
+ *  (AI, RCA) is treated as the AI stream. */
+export function originKind(origin: "RCA" | "AI" | "USER"): OriginKind {
+  return origin === "USER" ? "manual" : "ai";
+}
+
+/** The book a channel belongs to. */
+export function bookForChannel(channel: Channel): Book {
+  return channel === "paper" ? "paper" : "live";
 }
 
 // ─── State + persistence ────────────────────────────────────────────────────
@@ -317,34 +355,30 @@ function persist(): void {
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-/** The channel a trade is on → the mode block governing strategies / sizing:
- *  paper→paper, live→live, live→manual. */
-export function modeForChannel(channel: Channel): AiMode {
-  if (channel === "paper") return "paper";
-  if (channel === "live") return "live";
-  return "manual"; // live
+/** Squareoff for a channel's book. Origin-independent, so read from the AI
+ *  stream. (Step 5 will lift this to a common block.) */
+export function squareoffForChannel(channel: Channel): SquareoffConfig {
+  return state[bookForChannel(channel)].ai.squareoff;
 }
 
-/** AI-only guard: paper→paper, live→live, live→null. Used where live
- *  keeps the existing broker/executor defaults (order, square-off, RCA). */
-export function aiModeForChannel(channel: Channel): Exclude<AiMode, "manual"> | null {
-  if (channel === "paper") return "paper";
-  if (channel === "live") return "live";
-  return null; // live — not governed by the AI menu for these
+/** Global exits (age / stale / volatility) for a channel's book. Same for both
+ *  streams; read from the AI one. */
+export function globalExitsForChannel(channel: Channel): GlobalExitsConfig {
+  return state[bookForChannel(channel)].ai.globalExits;
 }
 
 /**
- * The cohort a MANUAL trade is tagged with, from the AI menu's "My Trades"
- * block. First enabled wins (manual is one cohort per trade, not a race);
- * nothing enabled → ma_signal, the default this block ships with.
+ * The cohort a MANUAL trade is tagged with, from the book's "My Trades" block.
+ * First enabled wins (manual is one cohort per trade, not a race); nothing
+ * enabled → ma_signal, the default this block ships with.
  *
  * The config uses the UI's short keys (`ma`) while trade records use the signal
  * engine's names (`ma_signal`) — translated here, in one place, rather than at
  * each call site. Getting that mapping wrong would tag trades with a cohort
  * that matches nothing downstream, including Glide's MA-only gate.
  */
-export function resolveManualCohort(): string {
-  const c = state.manual.cohorts;
+export function resolveManualCohort(channel: Channel): string {
+  const c = state[bookForChannel(channel)].manual.cohorts;
   if (c.ma) return "ma_signal";
   if (c.scalp) return "scalp";
   if (c.trend) return "trend";
@@ -387,19 +421,14 @@ export function getExitConfig(): SharedExitConfig {
   return state.exits;
 }
 
-/** One mode's block (strategies, sizing, cohorts, order, globalExits, squareoff). */
-export function getAiConfig(mode: AiMode): AiModeConfig {
-  return state[mode];
-}
-
 /** Everything — for the UI. */
 export function getAllAiConfig(): AllAiConfig {
   return state;
 }
 
-/** The active strategies for a mode, in a stable order. */
-export function getActiveStrategies(mode: AiMode): StrategyName[] {
-  const s = state[mode].strategies;
+/** The active strategies for a book+origin block, in a stable order. */
+export function getActiveStrategies(book: Book, kind: OriginKind): StrategyName[] {
+  const s = state[book][kind].strategies;
   return (["sprint", "runway", "anchor", "glide"] as StrategyName[]).filter((k) => s[k]);
 }
 
@@ -455,8 +484,7 @@ export function resolveExitStrategy(
   cohort?: string | null,
 ): StrategyName {
   if (isEquity) return "sprint";
-  const mode: AiMode = origin === "USER" ? "manual" : modeForChannel(channel);
-  const active = getActiveStrategies(mode);
+  const active = getActiveStrategies(bookForChannel(channel), originKind(origin));
   // Glide is MA-Signal ONLY, and for an MA-Signal trade it WINS.
   //
   // It is the cohort-specific choice, so it takes priority over the general
@@ -478,12 +506,19 @@ export function updateExitConfig(patch: unknown): SharedExitConfig {
   return state.exits;
 }
 
-/** Deep-merge a patch into one mode's block; clamp, persist, return it. */
-export function updateAiConfig(mode: AiMode, patch: unknown): AiModeConfig {
-  deepMerge(state[mode], patch);
-  sanitizeMode(state[mode]);
+/** Deep-merge a patch into one book+origin block; clamp, persist, return it. */
+export function updateAiConfig(book: Book, kind: OriginKind, patch: unknown): AiModeConfig {
+  deepMerge(state[book][kind], patch);
+  sanitizeMode(state[book][kind]);
   persist();
-  return state[mode];
+  return state[book][kind];
+}
+
+/** Run the per-block clamp over all four blocks. */
+function sanitizeAll(): void {
+  sanitizeExits(state.exits);
+  for (const book of ["paper", "live"] as const)
+    for (const kind of ["ai", "manual"] as const) sanitizeMode(state[book][kind]);
 }
 
 /** Hydrate persisted overrides at server boot. Call once during bootstrap. */
@@ -494,13 +529,27 @@ export function initAiConfig(): void {
     if (!existsSync(p)) return;
     const j = JSON.parse(readFileSync(p, "utf8"));
     if (j?.exits) deepMerge(state.exits, j.exits);
-    if (j?.paper) deepMerge(state.paper, j.paper);
-    if (j?.live) deepMerge(state.live, j.live);
-    if (j?.manual) deepMerge(state.manual, j.manual);
-    sanitizeExits(state.exits);
-    sanitizeMode(state.paper);
-    sanitizeMode(state.live);
-    sanitizeMode(state.manual);
+
+    // T127 migration — the file may be in the OLD three-block shape
+    // (`paper`/`live`/`manual`, each an AiModeConfig) or the new nested one
+    // (`paper`/`live`, each `{ai, manual}`). Detect by whether `paper.ai`
+    // exists. Old → new: paper→paper.ai, live→live.ai, manual→BOTH manuals
+    // (so hand-placed sizing is identical on day one, then diverges as edited).
+    const isNew = j?.paper && typeof j.paper === "object" && "ai" in j.paper;
+    if (isNew) {
+      if (j.paper) deepMerge(state.paper, j.paper);
+      if (j.live) deepMerge(state.live, j.live);
+    } else {
+      if (j?.paper) deepMerge(state.paper.ai, j.paper);
+      if (j?.live) deepMerge(state.live.ai, j.live);
+      if (j?.manual) {
+        deepMerge(state.paper.manual, j.manual);
+        deepMerge(state.live.manual, j.manual);
+      }
+    }
+    sanitizeAll();
+    // Re-persist in the new shape so the on-disk file matches the running one.
+    if (!isNew) persist();
   } catch {
     /* corrupt/absent file → run on defaults */
   }

@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, strategiesForCohort, getAiConfig, modeForChannel, aiModeForChannel } from "../portfolio/aiModeConfig";
+import { getActiveStrategies, strategiesForCohort, getAiConfig, globalExitsForChannel, bookForChannel, originKind } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -183,14 +183,12 @@ class RcaMonitor {
         log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
         continue;
       }
-      // Per-mode safety-exit thresholds: AI channels (paper/live) read the
-      // AI menu's per-mode global-exits; live keeps the executor-settings
-      // defaults loaded into this.* .
-      const geMode = aiModeForChannel(channel);
-      const ge = geMode ? getAiConfig(geMode).globalExits : null;
-      const maxAgeMs = ge ? ge.rcaMaxAgeMs : this.maxAgeMs;
-      const staleTickMs = ge ? ge.rcaStaleTickMs : this.staleTickMs;
-      const volThreshold = ge ? ge.rcaVolThreshold : this.volThreshold;
+      // Per-book safety-exit thresholds from the AI menu. (Origin-independent;
+      // step 5 lifts these into a common block.)
+      const ge = globalExitsForChannel(channel);
+      const maxAgeMs = ge.rcaMaxAgeMs;
+      const staleTickMs = ge.rcaStaleTickMs;
+      const volThreshold = ge.rcaVolThreshold;
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
         // Skip a trade whose exit is already in flight — but only within the
@@ -404,16 +402,17 @@ class RcaMonitor {
     // strategy toggles in the AI menu). Each twin needs a DISTINCT executionId —
     // idempotency is keyed on it, else twins collapse to one. Zero active = the
     // mode is paused: the signal fired but no trade is placed.
-    const mode = modeForChannel(input.channel);
+    const book = bookForChannel(input.channel);
+    const kind = originKind(input.origin);
     // Glide is MA-Signal ONLY — see strategiesForCohort. Without this a
     // Scalp/Trend signal would spawn a Glide twin that rides forever (no
     // leg-end EXIT ever comes to close it).
-    const strategies = strategiesForCohort(getActiveStrategies(mode), input.cohort);
+    const strategies = strategiesForCohort(getActiveStrategies(book, kind), input.cohort);
     if (strategies.length === 0) {
-      log.info(`no strategies enabled for ${mode} — signal not placed`);
-      return { decision: "REJECT", reason: `No strategies enabled for ${mode} mode` };
+      log.info(`no strategies enabled for ${book}·${kind} — signal not placed`);
+      return { decision: "REJECT", reason: `No strategies enabled for ${book}·${kind}` };
     }
-    const order = getAiConfig(mode).order; // per-mode order type / product
+    const order = getAiConfig(book, kind).order; // per-block order type / product
     const placedAt = Date.now();
     let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
     for (const strat of strategies) {

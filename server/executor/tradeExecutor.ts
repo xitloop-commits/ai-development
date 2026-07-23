@@ -1311,7 +1311,7 @@ function buildTradeRecord(
   // Resolved server-side for manual trades so every placement path is tagged,
   // rather than each client remembering to send it.
   const cohort =
-    req.cohort ?? (req.origin === "USER" && req.optionType ? resolveManualCohort() : null);
+    req.cohort ?? (req.origin === "USER" && req.optionType ? resolveManualCohort(req.channel) : null);
   const strategy =
     req.exitStrategy ?? resolveExitStrategy(req.channel, req.origin, !req.optionType, cohort);
   const exitFlags = resolveOpenExitFlags(

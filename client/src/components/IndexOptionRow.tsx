@@ -83,7 +83,9 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
   // Sizing and strategy both come from the AI menu's `manual` block, via the
   // shared helper so this row and the signals feed cannot drift apart.
   const aiConfig = trpc.trading.aiConfig.useQuery(undefined);
-  const manual = aiConfig.data?.manual;
+  // The manual block of the book we are viewing (T127 — manual is per-book now).
+  const book = channel === "paper" ? "paper" : "live";
+  const manual = aiConfig.data?.[book]?.manual;
 
   // Display only. The SERVER resolves the actual strategy from the same config
   // (`resolveExitStrategy`) — sending it from here would let a caller bypass

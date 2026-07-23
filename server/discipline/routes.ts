@@ -281,10 +281,12 @@ export function registerDisciplineRoutes(app: Express): void {
           // channel's trading pool spent on premium / (premium * lotSize). Falls
           // back to the SEA-sent lots only if no sizing is configured.
           const { sizedLots } = await import("../executor/positionSizing");
-          // Sizing per mode (paper/live from the AI menu; live from the
-          // manual block). Falls back to the SEA-sent lots only if unset.
-          const { modeForChannel, getAiConfig } = await import("../portfolio/aiModeConfig");
-          const sizing = getAiConfig(modeForChannel(body.channel)).sizing.perInstrument[body.instrument.toLowerCase()];
+          // Sizing per (book, origin): a hand-placed trade uses the book's
+          // manual block, an AI one the book's ai block. Falls back to the
+          // SEA-sent lots only if unset.
+          const { getAiConfig, bookForChannel, originKind } = await import("../portfolio/aiModeConfig");
+          const block = getAiConfig(bookForChannel(targetChannel), originKind(body.origin));
+          const sizing = block.sizing.perInstrument[body.instrument.toLowerCase()];
           const lots = sizing
             ? sizedLots(sizing, cap.tradingPool, entryPrice, lotSize)
             : (body.lots ?? 1);

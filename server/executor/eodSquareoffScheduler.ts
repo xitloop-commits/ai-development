@@ -24,7 +24,7 @@ import { getExecutorSettings } from "./settings";
 import { getISTNow, parseTimeToMinutes, type Exchange } from "../discipline/types";
 import { isTodayHoliday } from "../holidays";
 import { isReplayActive } from "../replay/tickReplay";
-import { aiModeForChannel, getAiConfig } from "../portfolio/aiModeConfig";
+import { squareoffForChannel } from "../portfolio/aiModeConfig";
 import type { Channel, TradeRecord } from "../portfolio/state";
 
 const log = createLogger("TEA", "EodSquareoff");
@@ -186,12 +186,9 @@ export async function checkOnce(): Promise<void> {
   const { minutes: nowMin, date } = istNowParts();
 
   for (const channel of SQUAREOFF_CHANNELS) {
-    // Per-mode square-off config: AI channels (paper/live) read the AI menu's
-    // per-mode times; live keeps the executor-settings times.
-    const aiMode = aiModeForChannel(channel);
-    const so = aiMode
-      ? getAiConfig(aiMode).squareoff
-      : {
+    // Per-book square-off times from the AI menu. (Origin-independent; step 5
+    // lifts these into a common block.)
+    const so = squareoffForChannel(channel) ?? {
           enabled: settings.eodSquareoffEnabled,
           nseTime: settings.eodSquareoffNseTime,
           mcxTime: settings.eodSquareoffMcxTime,

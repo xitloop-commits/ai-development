@@ -160,7 +160,7 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
       // path. This used to hardcode 5% and 1 lot, so the configured size was
       // silently ignored here while the watchlist row honoured it — the same
       // setting produced different trades depending on which button you pressed.
-      ...manualTradeSize(aiConfig.data?.manual, uiName),
+      ...manualTradeSize(aiConfig.data?.[channel === "paper" ? "paper" : "live"]?.manual, uiName),
       targetPrice: signal.tp ?? null,
       stopLossPrice: signal.sl ?? null,
     });

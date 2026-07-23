@@ -47,7 +47,9 @@ interface ModeCfg {
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
 }
-type AllCfg = { exits: ExitsCfg; paper: ModeCfg; live: ModeCfg; manual: ModeCfg };
+/** T127 — four blocks: each book carries an AI stream and a manual stream. */
+type BookCfg = { ai: ModeCfg; manual: ModeCfg };
+type AllCfg = { exits: ExitsCfg; paper: BookCfg; live: BookCfg };
 type Mode = "paper" | "live";
 
 // ── Small building blocks ────────────────────────────────────────────────────
@@ -311,7 +313,7 @@ export function AiControl() {
   // other two (each Apply refreshes `all`).
   const hasCfg = !!all;
   useEffect(() => {
-    if (all) setDraft(structuredClone(all[mode]));
+    if (all) setDraft(structuredClone(all[mode].ai));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, open, hasCfg]);
 
@@ -337,7 +339,7 @@ export function AiControl() {
   });
 
   const dirty = useMemo(
-    () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all[mode])),
+    () => !!(draft && all && JSON.stringify(draft) !== JSON.stringify(all[mode].ai)),
     [draft, all, mode],
   );
 
@@ -371,8 +373,8 @@ export function AiControl() {
     if (m !== activeMode) setAiMode.mutate({ aiTradesMode: m });
   };
 
-  const apply = () => { if (draft) applyMut.mutate({ mode, patch: draft }); };
-  const reset = () => { if (all) setDraft(structuredClone(all[mode])); };
+  const apply = () => { if (draft) applyMut.mutate({ book: mode, kind: "ai", patch: draft }); };
+  const reset = () => { if (all) setDraft(structuredClone(all[mode].ai)); };
 
 
   // Shared exits block — one Sprint/Runway/Anchor config for every mode.

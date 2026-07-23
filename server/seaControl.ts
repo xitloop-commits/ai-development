@@ -211,9 +211,11 @@ export function setModelVersion(instrument: string, version: string): CohortStat
  * SEA is a single process, so only the ACTIVE mode's cohorts apply. `manual`
  * has no SEA signals, so it's ignored.
  */
-export function syncCohortsFromAiConfig(mode: "paper" | "live" | "manual"): void {
-  if (mode === "manual") return;
-  const c = getAiConfig(mode).cohorts;
+export function syncCohortsFromAiConfig(book: "paper" | "live"): void {
+  // T127 — SEA is one process; for now it takes the book's AI cohorts. (Step 3
+  // makes it the UNION of every enabled book, so a scalp signal fires whenever
+  // any book wants it and each book filters at placement.)
+  const c = getAiConfig(book, "ai").cohorts;
   setCohort("scalp", c.scalp);
   setCohort("trend", c.trend);
   setCohort("ma", c.ma);
