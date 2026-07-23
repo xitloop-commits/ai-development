@@ -104,6 +104,15 @@ export default function TradingDesk({
   );
   const run = selectedRunId ? runQuery.data : null;
 
+  // CLEAR — wipe this book's pool back to its opening funding. Paper only; it
+  // moved off the app bar into the day-jump bar (T130) so a destructive control
+  // isn't sitting permanently in the chrome. clearWorkspace resets the channel.
+  const utils = trpc.useUtils();
+  const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
+    onSuccess: () => { void utils.portfolio.allDays.invalidate(); refetchAll?.(); },
+  });
+  const canClear = channel === 'paper' && !run;
+
   /**
    * What the table actually renders. Normally the live book; with a run selected,
    * ONE synthetic day carrying that run's trades — so PastRow / TodaySection /
@@ -352,7 +361,11 @@ export default function TradingDesk({
         </div>
 
         {allDays.length > 0 && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-row gap-1 z-20">
+          // T130 — hidden until you hover the bottom-centre; it is a navigation
+          // aid, not something to look at all day. `opacity-0` elements are still
+          // hoverable, and focus-within keeps it up while a button has keyboard
+          // focus. CLEAR lives here now (paper only) rather than on the app bar.
+          <div className="group absolute bottom-0 left-1/2 -translate-x-1/2 pb-3 pt-6 z-20 flex flex-row gap-1 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
             <button
               onClick={() => scrollToDay(capital.currentDayIndex)}
               className="px-2 py-0.5 rounded font-bold bg-card/90 border border-border/60 text-info-cyan hover:bg-info-cyan/20 hover:border-info-cyan/50 transition-colors backdrop-blur-sm"
@@ -368,6 +381,16 @@ export default function TradingDesk({
                 {d}
               </button>
             ))}
+            {canClear && (
+              <button
+                onClick={() => clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })}
+                disabled={clearWorkspaceMutation.isPending}
+                className="px-2 py-0.5 rounded font-bold bg-card/90 border border-destructive/40 text-destructive hover:bg-destructive/15 transition-colors backdrop-blur-sm disabled:opacity-50"
+                title="Reset the paper pool to its opening funding"
+              >
+                {clearWorkspaceMutation.isPending ? '…' : 'CLEAR'}
+              </button>
+            )}
           </div>
         )}
       </div>

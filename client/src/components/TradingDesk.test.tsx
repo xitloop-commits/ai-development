@@ -40,6 +40,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     portfolio: {
       updateLtp: { useMutation: () => noopMutation },
+      clearWorkspace: { useMutation: () => noopMutation }, // CLEAR moved into the desk (T130)
     },
     // TodaySection reads the shared exit config for the cooling-window countdown.
     trading: {

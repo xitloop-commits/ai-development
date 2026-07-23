@@ -17,7 +17,7 @@
  * Sprint / Runway / Anchor exit configs · global exits · EOD square-off.
  */
 import { useState, useEffect, useMemo, useRef } from "react";
-import { SlidersHorizontal, Check, RotateCcw } from "lucide-react";
+import { BrainCircuit, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useSeaStatus } from "@/stores/seaStatusStore";
 import { useSignalEpoch } from "@/stores/liveSignals";
@@ -163,20 +163,38 @@ function Seg<T extends string>({ label, value, options, onChange, help }: {
   );
 }
 
-function Group({ title, children, help }: { title: string; children: React.ReactNode; help?: string }) {
-  const [open, setOpen] = useState(false);
+function Group({ title, children, help, collapsible = false }: {
+  title: string; children: React.ReactNode; help?: string; collapsible?: boolean;
+}) {
+  const [helpOpen, setHelpOpen] = useState(false);
+  // T130 — the four strategy-exit groups open COLLAPSED: their knobs are tuned
+  // rarely but take a lot of vertical space, so the menu was a long scroll of
+  // numbers you mostly don't touch. Click the title to expand.
+  const [bodyOpen, setBodyOpen] = useState(!collapsible);
   return (
     <div className="border-t border-border pt-2 flex flex-col gap-1.5">
       <span className="flex items-center gap-1.5">
-        <SectionLabel>{title}</SectionLabel>
-        {help && <HelpDot open={open} onClick={() => setOpen((o) => !o)} />}
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={() => setBodyOpen((o) => !o)}
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+            title={bodyOpen ? "Collapse" : "Expand"}
+          >
+            <span className="text-[0.5rem] text-muted-foreground w-2">{bodyOpen ? "▾" : "▸"}</span>
+            <SectionLabel>{title}</SectionLabel>
+          </button>
+        ) : (
+          <SectionLabel>{title}</SectionLabel>
+        )}
+        {help && <HelpDot open={helpOpen} onClick={() => setHelpOpen((o) => !o)} />}
       </span>
-      {help && open && (
+      {help && helpOpen && (
         <p className="rounded border border-info-cyan/25 bg-info-cyan/5 px-2 py-1 text-[0.5625rem] leading-relaxed text-muted-foreground">
           {help}
         </p>
       )}
-      {children}
+      {bodyOpen && children}
     </div>
   );
 }
@@ -400,7 +418,8 @@ export function AiControl() {
   const applyExits = () => { if (exitsDraft) applyExitsMut.mutate({ patch: exitsDraft }); };
   const resetExits = () => { if (all) setExitsDraft(structuredClone(all.exits)); };
 
-  const dotClass = sea.anyAlive ? "bg-bullish" : "bg-muted-foreground";
+  // T130 — the LABEL colour is the liveness indicator; no separate dot.
+  const aliveTone = sea.anyAlive ? "text-bullish" : "text-muted-foreground";
   const d = draft;
   const ed = exitsDraft;
 
@@ -411,9 +430,8 @@ export function AiControl() {
         className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
         title="AI control — mode, cohorts, strategies, sizing, exits"
       >
-        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-        <SlidersHorizontal className="h-3.5 w-3.5 text-info-cyan" />
-        <span className="font-display text-[0.625rem] font-bold tracking-wider text-info-cyan">AI</span>
+        <BrainCircuit className={`h-3.5 w-3.5 ${aliveTone}`} />
+        <span className={`font-display text-[0.625rem] font-bold tracking-wider ${aliveTone}`}>AI</span>
       </button>
 
       {open && (
@@ -605,7 +623,7 @@ export function AiControl() {
                     Common to Paper, Live and My Trades — a strategy exits the same way in every book.
                   </p>
 
-                  <Group title="Sprint" help={HELP.sprint}>
+                  <Group title="Sprint" help={HELP.sprint} collapsible>
                     <Num help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />
                     <Num help={HELP.sprintTP} label="Take-profit" value={ed.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultTP = v; })} />
                     <Num help={HELP.dailyTarget} label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
@@ -620,7 +638,7 @@ export function AiControl() {
                     <Num help={HELP.tpTrail} label="TP trail %" value={ed.sprint.tpTrailPercent} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.tpTrailPercent = v; })} />
                   </Group>
 
-                  <Group title="Runway" help={HELP.runway}>
+                  <Group title="Runway" help={HELP.runway} collapsible>
                     <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
                     <Num help={HELP.wideStop} label="Wide stop" value={ed.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} />
                     <Num help={HELP.cooledStop} label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
@@ -630,7 +648,7 @@ export function AiControl() {
                     <Num help={HELP.target} label="Target" value={ed.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} />
                   </Group>
 
-                  <Group title="Anchor" help={HELP.anchor}>
+                  <Group title="Anchor" help={HELP.anchor} collapsible>
                     <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
                     <Num help={HELP.wideStop} label="Wide stop" value={ed.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} />
                     <Num help={HELP.cooledStop} label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
@@ -638,7 +656,7 @@ export function AiControl() {
                     <Num help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
                   </Group>
 
-                  <Group title="Glide" help={HELP.glide}>
+                  <Group title="Glide" help={HELP.glide} collapsible>
                     <Num help={HELP.glideDisaster} label="Disaster stop" value={ed.glide.disasterSlPct} step={5} min={5} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.disasterSlPct = v; })} />
                     <Num help={HELP.glideArm} label="Guard arms at" value={ed.glide.giveBackArmPct} step={1} min={0} max={200} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackArmPct = v; })} />
                     <Num help={HELP.glideGiveBack} label="Give-back exit" value={ed.glide.giveBackPct} step={5} min={0} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackPct = v; })} />

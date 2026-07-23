@@ -367,18 +367,8 @@ function ChannelModeToggle() {
   const { channel, setChannel } = useChannel();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
-  const utils = trpc.useUtils();
-  // Refresh capital data after a workspace clear, via the stable trpc utils
-  // (so this component needn't read the capital context).
-  const refetchData = () => {
-    void utils.portfolio.state.invalidate();
-    void utils.portfolio.allDays.invalidate();
-  };
-
-  const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
-    onSuccess: () => refetchData(),
-  });
-  const canClear = currentMode === 'paper';
+  // CLEAR moved into the desk's day-jump bar (T130) — a destructive control
+  // shouldn't sit permanently in the app-bar chrome.
 
   // Full-height PAPER / LIVE tabs (T87 point 17 — styled like the old workspace
   // tabs). Switching is IMMEDIATE (no confirm): new orders route to the target
@@ -403,18 +393,6 @@ function ChannelModeToggle() {
           </button>
         );
       })}
-      {canClear && (
-        <button
-          onClick={() =>
-            clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })
-          }
-          disabled={clearWorkspaceMutation.isPending}
-          className="px-2 flex items-center text-[0.5625rem] font-bold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-50"
-          title={`Clear ${channel} pool`}
-        >
-          {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-        </button>
-      )}
     </div>
   );
 }
