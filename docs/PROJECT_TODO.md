@@ -1627,6 +1627,35 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T113 [Execution] 🔴 — live auto-exit never reached the broker ✅ FIXED 2026-07-23
+**Regression introduced by T107 (Lubas-managed live exits), same day.**
+
+`recordAutoExit` was written for PAPER ONLY — its own comment says "no broker
+call is needed". It calls `portfolioAgent.closeTrade`, a purely LOCAL close.
+T107 made the tick engine detect SL/TSL/TP on LIVE channels, and those exits
+route here. Result: the app marked the trade CLOSED at its COMPUTED stop
+(entry × 0.98) while the real position stayed OPEN at Dhan, unmanaged.
+
+The T107 commit claimed this path "already places a real market exit for live
+channels". That was wrong — `closeTrade` was misread for `exitTrade`.
+
+**Real cost:** two my-live trades booked at −282 and −777; the positions kept
+running and had to be flattened by hand at **−3,525 and −9,613**. Six trades
+total needed re-booking against Dhan; session P&L moved −1,304 → −11,610.
+
+- LIVE now routes through `exitTrade` (the only path that places a real order).
+- A failed live exit does NOT fall back to a local close — the trade is left OPEN
+  so the engine retries and the operator can see it. Falling back is the bug.
+- PAPER keeps the local close, unchanged.
+
+3 tests (live places an order; paper does not; broker failure never closes
+locally). Mutation-verified — reverting to the local close fails 2.
+
+**Still open:** a close with no `exitBrokerOrderId` should be marked desync and
+reconciled rather than trusted. The desync mechanism exists but isn't triggered
+on this path. Also: a reusable Dhan↔app sync script (built ad-hoc today, derives
+the true exit from Dhan's realised P&L) is worth keeping as `scripts/`.
+
 ### T111 [Execution] — AI paper/live are independent switches ✅ DONE 2026-07-23
 `aiTradesMode` was either/or: one signal, one book. Switching it to live silently
 stopped paper receiving anything — which is exactly what happened today when an

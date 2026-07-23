@@ -870,6 +870,45 @@ class TradeExecutorAgent {
    * No broker call is needed — paper auto-exits never hit the broker.
    */
   async recordAutoExit(req: RecordAutoExitRequest): Promise<void> {
+    // ── LIVE must go through the BROKER, not a local close ──────────────────
+    //
+    // This method was written for PAPER only (see the comment above): it calls
+    // closeTrade, which mutates local state and never touches the broker. That
+    // was correct while the tick engine only detected exits on paper.
+    //
+    // Lubas-managed live exits changed that — the engine now detects SL/TSL/TP
+    // on live channels too, and those exits arrive here. Closing locally marked
+    // the trade CLOSED at the app's COMPUTED stop while the real position stayed
+    // OPEN at Dhan, unmanaged. Observed 2026-07-23: two my-live trades booked at
+    // entry x 0.98 with no exit order, the positions kept running, and the
+    // operator had to flatten them by hand at far worse prices (-3,525 and
+    // -9,613 against a booked -282 and -777).
+    //
+    // exitTrade is the single path that places a real exit order AND closes;
+    // it is idempotent-safe here because the trade is guarded by
+    // tickHandler.exitingTrades for the retry window.
+    if (isLiveChannel(req.channel)) {
+      const resp = await this.exitTrade({
+        executionId: `AUTO-${req.reason}-${req.tradeId}-${Date.now()}`,
+        positionId: `POS-${req.tradeId.replace(/^T/, "")}`,
+        channel: req.channel,
+        exitType: "MARKET",
+        exitPrice: req.exitPrice,
+        reason: req.reason,
+        triggeredBy: "RCA",
+        timestamp: Date.now(),
+      });
+      if (!resp.success) {
+        // Do NOT fall back to a local close — that is exactly the bug above.
+        // Leave the trade OPEN so the engine retries and the operator can see it.
+        log.error(
+          `[XSYNC-SVR] LIVE auto-exit FAILED channel=${req.channel} trade=${req.tradeId} ` +
+            `reason=${req.reason}: ${resp.error ?? "unknown"} — position left OPEN for retry`,
+        );
+      }
+      return;
+    }
+
     try {
       const { trade: closed, pnl } = await portfolioAgent.closeTrade(
         req.channel,

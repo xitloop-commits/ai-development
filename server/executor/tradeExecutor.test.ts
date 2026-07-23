@@ -616,3 +616,69 @@ describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
     expect(subscribeLTP).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * recordAutoExit — a LIVE auto-exit must reach the BROKER.
+ *
+ * This method was written for paper ("no broker call is needed"). When
+ * Lubas-managed live exits started routing live SL/TSL/TP detections here, it
+ * closed them LOCALLY: the app marked the trade CLOSED at its computed stop
+ * while the real position stayed OPEN at Dhan, unmanaged.
+ *
+ * Observed 2026-07-23 on my-live — two trades booked at entry x 0.98 with no
+ * exit order, positions kept running, and they had to be flattened by hand at
+ * -3,525 and -9,613 against a booked -282 and -777.
+ *
+ * So: live goes through exitTrade (which places a real order); paper keeps the
+ * local close. A failed live exit must NOT fall back to closing locally — that
+ * is the bug — it leaves the trade OPEN to be retried.
+ */
+describe("recordAutoExit — live vs paper", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (getAdapter as any).mockReturnValue(fillingAdapter);
+  });
+
+  it("LIVE: places a real broker exit order", async () => {
+    await tradeExecutor.recordAutoExit({
+      channel: "my-live",
+      tradeId: "T1234",
+      reason: "SL_HIT",
+      exitPrice: 95,
+      timestamp: Date.now(),
+    } as any);
+    // The whole point: the broker was told.
+    expect(fillingAdapter.placeOrder).toHaveBeenCalledTimes(1);
+    const order = (fillingAdapter.placeOrder as any).mock.calls[0][0];
+    expect(order.transactionType).toBe("SELL"); // reverse of the CALL_BUY
+    expect(order.orderType).toBe("MARKET");
+  });
+
+  it("PAPER: closes locally and never touches the broker", async () => {
+    await tradeExecutor.recordAutoExit({
+      channel: "my-paper",
+      tradeId: "T1234",
+      reason: "SL_HIT",
+      exitPrice: 95,
+      timestamp: Date.now(),
+    } as any);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+    expect(portfolioAgent.closeTrade).toHaveBeenCalledTimes(1);
+  });
+
+  it("LIVE: a broker failure does NOT close the trade locally", async () => {
+    // Falling back to a local close is exactly what stranded the real position.
+    (getAdapter as any).mockReturnValue({
+      ...fillingAdapter,
+      placeOrder: vi.fn(async () => { throw new Error("Dhan timeout"); }),
+    });
+    await tradeExecutor.recordAutoExit({
+      channel: "my-live",
+      tradeId: "T1234",
+      reason: "SL_HIT",
+      exitPrice: 95,
+      timestamp: Date.now(),
+    } as any);
+    expect(portfolioAgent.closeTrade).not.toHaveBeenCalled();
+  });
+});
