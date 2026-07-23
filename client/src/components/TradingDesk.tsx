@@ -195,31 +195,39 @@ export default function TradingDesk({
 
   return (
     <div className="flex flex-col h-full">
+      {/* T132 — the header row must NEVER force a horizontal scrollbar. The P&L
+          bar is the one flexible element (flex-1 min-w-0): it soaks up spare
+          width and, crucially, SHRINKS when the fixed cells (Cash, filter, the
+          three menus) need the room. Everything else is shrink-0 so it keeps its
+          size and the P&L bar gives way instead of the row overflowing. */}
       <div className="relative z-30 flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center shrink-0">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cash</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Net/Gross P&L toggle moved to the P&L column header of the table. */}
-        <TodayPnlBar
-          pnl={capital.todayPnl}
-          tradingPool={capital.tradingPool}
-          exitAllEnabled={canManageTrades}
-          openTradeCount={openTradeCount}
-          onExitAll={handleExitAll}
-        />
-        <TradeFilterBar
-          value={tradeFilter}
-          onChange={setTradeFilter}
-          instruments={todayInstruments}
-          cohorts={todayCohorts}
-          strategies={todayStrategies}
-          exitReasons={todayExitReasons}
-        />
-        {/* T130 — the config menus live beside the filter, on the table they
-            govern, rather than up in the app-bar chrome. Pushed to the right so
-            they sit at the trailing edge of the header row. */}
-        <div className="ml-auto flex items-stretch divide-x divide-border">
+        <div className="flex-1 min-w-0 flex">
+          <TodayPnlBar
+            pnl={capital.todayPnl}
+            tradingPool={capital.tradingPool}
+            exitAllEnabled={canManageTrades}
+            openTradeCount={openTradeCount}
+            onExitAll={handleExitAll}
+          />
+        </div>
+        <div className="shrink-0 flex items-stretch">
+          <TradeFilterBar
+            value={tradeFilter}
+            onChange={setTradeFilter}
+            instruments={todayInstruments}
+            cohorts={todayCohorts}
+            strategies={todayStrategies}
+            exitReasons={todayExitReasons}
+          />
+        </div>
+        {/* The config menus, on the table they govern (T130). shrink-0 so they
+            always keep full size; the P&L bar yields the space instead. */}
+        <div className="shrink-0 flex items-stretch divide-x divide-border">
           <AiControl />
           <MyTradesControl />
           <SettingsMenu />
