@@ -221,8 +221,47 @@ export function TickChart({
         data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
       }
       s.setData(data);
+
+      // ── Reversal markers (T138) ──────────────────────────────────────
+      // The MA line is already tri-coloured: green = rising leg, red = falling.
+      // So a colour flip IS a reversal — green→red is a TOP, red→green a BOTTOM.
+      // We drop a marker at each flip and size it by the swing that led into it:
+      // a big move = MAJOR (solid arrow), a small one = MINOR (faint dot), which
+      // is exactly the major/minor split the reversal detector cares about.
+      if (indicators.has("reversals")) {
+        // Threshold separating a real turn from noise, as % of the MA value.
+        // ~0.12% of an index level (≈29 pts on NIFTY) — a visible swing, not a wiggle.
+        const MAJOR_PCT = 0.12;
+        const trendOf = (c: string) => (c === UP ? "UP" : c === DOWN ? "DOWN" : "FLAT");
+        const revs: SeriesMarker<UTCTimestamp>[] = [];
+        let lastTrend = "FLAT";
+        let legStartVal: number | null = data.length ? data[0].value : null;
+        for (const pt of data) {
+          const tr = trendOf(pt.color);
+          if (tr === "FLAT") continue;
+          if (lastTrend !== "FLAT" && tr !== lastTrend) {
+            // Flip: the leg that just ended ran from legStartVal to pt.value.
+            const swingPct = legStartVal ? Math.abs(pt.value - legStartVal) / pt.value * 100 : 0;
+            const major = swingPct >= MAJOR_PCT;
+            const isTop = lastTrend === "UP"; // was rising, now falling → a top
+            revs.push({
+              time: pt.time,
+              position: isTop ? "aboveBar" : "belowBar",
+              shape: major ? (isTop ? "arrowDown" : "arrowUp") : "circle",
+              color: isTop
+                ? (major ? "#ef4444" : "rgba(239,68,68,0.45)")
+                : (major ? "#22c55e" : "rgba(34,197,94,0.45)"),
+              size: major ? 1.4 : 0.7,
+              text: major ? (isTop ? "T" : "B") : undefined,
+            });
+            legStartVal = pt.value;
+          }
+          lastTrend = tr;
+        }
+        if (revs.length) createSeriesMarkers(s, revs);
+      }
     };
-    if (indicators.has("ma")) addMaSlopeLine(closes);
+    if (indicators.has("ma") || indicators.has("reversals")) addMaSlopeLine(closes);
     if (indicators.has("sma5")) addOverlay(sma(closes, 5), SMA5_COLOR);
     if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5_COLOR);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(sma(closes, 21), SMA21_COLOR); }
