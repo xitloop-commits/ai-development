@@ -29,6 +29,41 @@ function aiChannelsFor(tm: TradingMode | undefined): string[] {
   return [...(paperOn ? ["paper"] : []), ...(liveOn ? ["live"] : [])];
 }
 
+/**
+ * Mirrors the per-channel idempotency-key scoping in discipline/routes.ts.
+ * Idempotency is keyed on executionId; a fan-out to two books reuses one signal
+ * executionId, so without this scoping the SECOND book's submit is deduped as a
+ * duplicate of the first and its order is never placed (observed 2026-07-24:
+ * every AI live trade was silently deduped away while paper looked fine).
+ */
+function execIdFor(baseExecutionId: string, channels: string[], channel: string): string {
+  return channels.length > 1 ? `${baseExecutionId}:${channel}` : baseExecutionId;
+}
+
+describe("per-channel idempotency key on a fan-out", () => {
+  it("gives paper and live DISTINCT execution ids so both books actually submit", () => {
+    const base = "AI-NIFTY50-1784880182496";
+    const channels = ["paper", "live"];
+    const ids = channels.map((c) => execIdFor(base, channels, c));
+    expect(ids).toEqual([`${base}:paper`, `${base}:live`]);
+    expect(new Set(ids).size).toBe(2); // not deduped against each other
+  });
+
+  it("leaves a single-channel placement's id untouched (manual/USER path)", () => {
+    expect(execIdFor("UI-abc", ["live"], "live")).toBe("UI-abc");
+    expect(execIdFor("UI-abc", ["paper"], "paper")).toBe("UI-abc");
+  });
+
+  it("re-emits of the SAME signal to the SAME book still collide (dedupe stacking)", () => {
+    // Scoping is by channel, not by attempt — a 30s SEA re-emit of the same
+    // signal keeps the same per-channel id, so the idempotency store still
+    // prevents it stacking a duplicate entry on that book.
+    const base = "AI-NIFTY50-1784880182496";
+    expect(execIdFor(base, ["paper", "live"], "live"))
+      .toBe(execIdFor(base, ["paper", "live"], "live"));
+  });
+});
+
 describe("independent paper / live routing", () => {
   it("both ON places on BOTH books", () => {
     expect(aiChannelsFor({ aiPaperEnabled: true, aiLiveEnabled: true }))

@@ -387,8 +387,17 @@ export function registerDisciplineRoutes(app: Express): void {
           const { getSignalSeqByCorrelation } = await import("../seaSignalStore");
           signalSeq = await getSignalSeqByCorrelation(body.correlationId).catch(() => null);
         }
+        // Idempotency is keyed on executionId. When an AI signal fans out to BOTH
+        // paper and live it enters this loop twice with the SAME body.executionId,
+        // so the second book's submit was seen as a duplicate of the first and
+        // replayed its cached result — the live order was NEVER placed while paper
+        // looked fine (observed 2026-07-24: every AI live signal deduped away).
+        // Scope the id to the channel so each book has its own idempotency key;
+        // single-channel placements (all manual/USER trades) are left untouched.
+        const channelExecutionId =
+          targetChannels.length > 1 ? `${body.executionId}:${body.channel}` : body.executionId;
         const evalResult = await rcaMonitor.evaluateTrade({
-          executionId: body.executionId,
+          executionId: channelExecutionId,
           channel: body.channel,
           instrument: body.instrument,
           direction: body.transactionType === "BUY" ? "BUY" : "SELL",
