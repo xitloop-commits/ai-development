@@ -709,7 +709,7 @@ class TradeExecutorAgent {
           // Square off on the same product the entry used (CNC delivery must sell
           // CNC). Options + legacy trades have no stored product → INTRADAY.
           productType: (trade.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY",
-          tag: `EXIT-${trade.id}`,
+          tag: dhanSafeTag(`EXIT-${trade.id}`),
         };
         try {
           // An option with no contractSecurityId cannot be exited — fail through
@@ -1227,8 +1227,19 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
     productType: req.productType === "CNC" ? "CNC" : "INTRADAY",
     stopLoss: req.stopLoss ?? undefined,
     target: req.takeProfit ?? undefined,
-    tag: `TEA-${req.executionId}`,
+    // Dhan's correlationId accepts only alphanumerics + hyphen; anything else
+    // (e.g. the ":live" the two-book fan-out adds to the executionId) trips
+    // DH-905 "bad values" and the whole order is refused. Replace every unsafe
+    // char with a hyphen so the tag is always broker-safe whatever the
+    // executionId looks like. Observed 2026-07-24: AI live MARKET orders all
+    // rejected once the fan-out started reaching Dhan.
+    tag: dhanSafeTag(`TEA-${req.executionId}`),
   };
+}
+
+/** Dhan correlationId: alphanumeric + hyphen only. */
+function dhanSafeTag(tag: string): string {
+  return tag.replace(/[^A-Za-z0-9-]/g, "-");
 }
 
 /**

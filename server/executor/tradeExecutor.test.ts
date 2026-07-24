@@ -254,6 +254,19 @@ describe("submitTrade — paper path", () => {
     expect(orderParams.instrument).toBe("55123");
   });
 
+  it("sanitises the broker tag — the fan-out's ':live' must not reach Dhan's correlationId", async () => {
+    // Dhan's correlationId accepts only [A-Za-z0-9-]; a colon trips DH-905 and the
+    // whole order is refused. The two-book fan-out scopes the executionId as
+    // "…:live", so the raw "TEA-…:live" tag rejected every AI live order until the
+    // tag was sanitised (observed 2026-07-24).
+    const req = paperRequest({ executionId: "AI-NIFTY50-123:live", contractSecurityId: "55123" });
+    await tradeExecutor.submitTrade(req);
+    const orderParams = (fillingAdapter.placeOrder as any).mock.calls.at(-1)![0];
+    expect(orderParams.tag).toBe("TEA-AI-NIFTY50-123-live"); // colon → hyphen
+    expect(orderParams.tag).toMatch(/^[A-Za-z0-9-]+$/); // Dhan-safe
+    expect(orderParams.tag.startsWith("TEA-")).toBe(true); // buffer/reconcile still match
+  });
+
   it("rejects an option whose securityId is not in the scrip master (no fallback)", async () => {
     const req = paperRequest({
       instrument: "NIFTY 50",
