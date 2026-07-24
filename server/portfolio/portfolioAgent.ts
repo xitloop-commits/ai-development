@@ -1362,8 +1362,21 @@ class PortfolioAgentImpl {
     // Observed 2026-07-23: Dhan filled at 145.95, app recorded 146.45 — the fill
     // event landed 6ms BEFORE the close persisted, so correctExitFill (which
     // already existed and works) never found the trade to correct.
+    //
+    // REJECTED/CANCELLED/EXPIRED belong here too: a broker RMS/margin/price-band
+    // reject often returns within milliseconds — the SAME race window as a fast
+    // fill — so it can beat the PENDING persist. Before 2026-07-24 those terminal
+    // events fell straight through to `matched:false` and were DROPPED, leaving
+    // the trade stranded on PENDING forever (never flipped to REJECTED, no reason
+    // tooltip). Buffering them lets replayBufferedFills flip PENDING → REJECTED
+    // with the broker's reason once the record exists. applyBrokerOrderEvent is a
+    // no-op if the trade already left PENDING, so replay is safe/idempotent.
     if (
-      (update.status === "FILLED" || update.status === "PARTIALLY_FILLED") &&
+      (update.status === "FILLED" ||
+        update.status === "PARTIALLY_FILLED" ||
+        update.status === "REJECTED" ||
+        update.status === "CANCELLED" ||
+        update.status === "EXPIRED") &&
       (update.correlationId?.startsWith("TEA-") || update.correlationId?.startsWith("EXIT-"))
     ) {
       const now = Date.now();
@@ -1380,8 +1393,8 @@ class PortfolioAgentImpl {
       buf.push({ event: update, at: now });
       this.earlyFills.set(update.orderId, buf);
       log.important(
-        `early app-fill buffered order=${update.orderId} corr=${update.correlationId} ` +
-          `— awaiting trade persist (${buf.length} queued)`,
+        `early app-event buffered order=${update.orderId} status=${update.status} ` +
+          `corr=${update.correlationId} — awaiting trade persist (${buf.length} queued)`,
       );
       return { matched: false };
     }

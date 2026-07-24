@@ -432,6 +432,41 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(written.trades.find((x) => x.id.startsWith("EXT-"))).toBeUndefined(); // no bogus duplicate
   });
 
+  it("race guard (REJECTED) — a broker reject that beats persist is BUFFERED, then flips PENDING → REJECTED with reason", async () => {
+    // The real miss: a margin/RMS reject returns within ms of placement — same
+    // window as a fast fill — so it can beat the PENDING persist. Before this was
+    // buffered the terminal event fell through and was DROPPED, stranding the
+    // trade on PENDING forever with no reason tooltip.
+    getCapitalStateMock.mockResolvedValue(null);
+    getDayRecordMock.mockResolvedValue(null);
+    const early = baseEvent({
+      orderId: "APP-ORD-REJ",
+      status: "REJECTED",
+      reason: "RMS: Insufficient margin",
+      brokerId: "dhan-primary-ac",
+      correlationId: "TEA-UI-rej",
+    });
+    const buffered = await portfolioAgent.applyBrokerOrderEvent(early);
+    expect(buffered.matched).toBe(false); // buffered, not dropped
+    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+
+    // submitTrade persists the PENDING trade, then drains the buffer.
+    const pending = makeTrade({
+      id: "T-REJ",
+      brokerOrderId: "APP-ORD-REJ",
+      status: "PENDING",
+    });
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "live" ? makeState() : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "live" ? makeDay([pending]) : null));
+
+    await portfolioAgent.replayBufferedFills("APP-ORD-REJ");
+
+    const written = upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord;
+    const t = written.trades.find((x) => x.id === "T-REJ")!;
+    expect(t.status).toBe("REJECTED"); // flipped off PENDING
+    expect(t.rejectReason).toBe("RMS: Insufficient margin"); // reason for the tooltip
+  });
+
   it("race guard (EXIT- tag) — an exit fill that beats the close is BUFFERED, then re-books the real price", async () => {
     // Reproduces the live miss on 2026-07-23. Dhan reported the exit FILLED at
     // 145.95 six milliseconds BEFORE exitTrade persisted the close, so no CLOSED
