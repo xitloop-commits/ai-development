@@ -160,6 +160,19 @@ export interface CommonConfig {
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
+  /**
+   * T139 — the default exit strategy each cohort trades with. One signal → one
+   * trade, using its cohort's strategy. This replaced the per-book "race" (N
+   * strategies on = N trades), which could be left with zero enabled and
+   * silently pause a book. A cohort always brings a strategy, so a routed signal
+   * always places.
+   *
+   * System-wide (not per book): a strategy suits a cohort the same way whichever
+   * book runs it. `ma` should stay Glide-family — Glide relies on the MA leg-end
+   * EXIT and would never close on any other cohort (resolveExitStrategy guards
+   * this and falls back to Sprint).
+   */
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StrategyName>;
 }
 
 /** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
@@ -218,6 +231,9 @@ function baseCommon(): CommonConfig {
     // Lubas owns live exits by default — the staged strategies + Glide only work
     // this way. Flip to false in Settings to hand SL/TP back to Dhan legs.
     lubasManagedExit: true,
+    // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
+    // want to run, MA rides to its own EXIT, swing banks at target.
+    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor" },
   };
 }
 
@@ -379,6 +395,14 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   if (!isHHmm(c.squareoff.nseTime)) c.squareoff.nseTime = "15:25";
   if (!isHHmm(c.squareoff.mcxTime)) c.squareoff.mcxTime = "23:25";
   c.lubasManagedExit = !!c.lubasManagedExit;
+  // T139 — every cohort must map to a real strategy. Back-fill from defaults for
+  // an old config that predates the map, and coerce any bad value.
+  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor" } as const;
+  if (!c.cohortStrategy) (c as CommonConfig).cohortStrategy = { ...dflt };
+  for (const k of ["scalp", "trend", "ma", "swing"] as const) {
+    const v = c.cohortStrategy[k];
+    c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide"] as const).includes(v) ? v : dflt[k];
+  }
   return c;
 }
 
@@ -514,53 +538,41 @@ export function strategiesForCohort(
 }
 
 /**
- * The exit strategy a trade should run when the caller did not name one.
+ * The exit strategy a trade runs — ONE per cohort, from the common map (T139).
  *
- * This exists because the old fallback was the bare literal "sprint", and every
- * placement path had to REMEMBER to send a strategy to avoid it. Four manual
- * paths existed; one sent it. A book set to Runway silently ran Sprint and
- * nothing failed loudly. Centralising the decision makes the mistake
- * impossible rather than merely fixed — a new placement button is correct by
- * default.
+ * A signal carries its cohort; that cohort's default strategy (Settings →
+ * "Cohort strategies") is what the trade uses. This replaced the per-book race
+ * (N strategies on = N trades), whose worst failure was leaving a book with zero
+ * enabled — a silent pause where routed signals were rejected, which is exactly
+ * why the live book placed nothing. A cohort always maps to a strategy, so a
+ * routed signal always places.
  *
- * Which block governs:
- *   - MANUAL (origin USER) → the `manual` block on EVERY channel. The AI menu
- *     shows "My Trades · manual" as its own section, independent of the
- *     Paper/Live toggle, so a manual trade follows it whether it lands on
- *     paper or live.
- *   - AI / RCA → the channel's block (paper→paper, live→live). In practice
- *     the RCA fan-out always passes an explicit strategy (one twin per active
- *     strategy), so this is only a backstop for that path.
+ * ⚠️ GLIDE IS MA-ONLY. Glide has no stop and relies on MA-Signal's leg-end EXIT;
+ * mapped to any other cohort nothing would ever close it, so it falls back to
+ * Sprint there.
  *
- * Manual takes ONE strategy per trade — not the race paper runs — so the first
- * enabled pill wins. None enabled → sprint, the safe fixed-stop default.
- *
- * ⚠️ EQUITY IS PINNED TO SPRINT. Runway and Anchor use `defaultSlPct: 25` — a
- * 25% stop. That is ordinary for an option premium and meaningless for a stock,
- * which will not move 25% intraday: the staged stop would never trigger and the
- * trade would run with no effective protection. The staged thresholds are
- * calibrated for premiums; until an equity-specific config exists, stocks keep
- * Sprint's fixed stop.
+ * ⚠️ EQUITY IS PINNED TO SPRINT. Runway/Anchor use a 25% staged stop — ordinary
+ * for an option premium, meaningless for a stock (never moves 25% intraday), so
+ * the staged stop would never trigger. Stocks keep Sprint's fixed stop.
  */
 export function resolveExitStrategy(
-  channel: Channel,
-  origin: "RCA" | "AI" | "USER",
+  _channel: Channel,
+  _origin: "RCA" | "AI" | "USER",
   isEquity: boolean,
   cohort?: string | null,
 ): StrategyName {
   if (isEquity) return "sprint";
-  const active = getActiveStrategies(resolveBook(channel), originKind(origin));
-  // Glide is MA-Signal ONLY, and for an MA-Signal trade it WINS.
-  //
-  // It is the cohort-specific choice, so it takes priority over the general
-  // ones: enabling Glide alongside Runway on a mixed book means "MA trades
-  // glide, everything else runs Runway". Leaving it to the normal first-enabled
-  // order would rank it last and it would never be used.
-  if (cohort === "ma_signal" && active.includes("glide")) return "glide";
-  // Any other cohort (or a trade with none) can never use it: Glide has no stop
-  // and relies on MA-Signal's leg-end EXIT, so attached elsewhere nothing would
-  // ever close it. Skip rather than reject, so the book keeps working.
-  return active.find((s) => s !== "glide") ?? "sprint";
+  const map = getCommonConfig().cohortStrategy;
+  const key =
+    cohort === "ma_signal" ? "ma"
+    : cohort === "scalp" ? "scalp"
+    : cohort === "trend" ? "trend"
+    : cohort === "swing" ? "swing"
+    : null;
+  const strat = key ? map[key] : "sprint";
+  // Glide only ever makes sense on MA-Signal (see above).
+  if (strat === "glide" && cohort !== "ma_signal") return "sprint";
+  return strat ?? "sprint";
 }
 
 /** Deep-merge a patch into one BOOK's exit config; clamp, persist, return it. */

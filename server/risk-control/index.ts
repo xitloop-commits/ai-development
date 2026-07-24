@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, strategiesForCohort, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
+import { resolveExitStrategy, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -397,54 +397,38 @@ class RcaMonitor {
   }> {
     log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
     // Phase 1 pass-through to TEA — APPROVE every well-formed input.
-    // C3 will replace this body with real risk math.
-    // Multi-strategy placement (T84/T85): a signal spawns one FULL-SIZE trade per
-    // ACTIVE exit strategy for this channel's mode (paper/live have independent
-    // strategy toggles in the AI menu). Each twin needs a DISTINCT executionId —
-    // idempotency is keyed on it, else twins collapse to one. Zero active = the
-    // mode is paused: the signal fired but no trade is placed.
+    // T139 — ONE trade per signal, using the strategy mapped to its cohort
+    // (Settings → Cohort strategies). This replaced the per-book race, whose
+    // zero-enabled state silently paused a book — the reason the live book placed
+    // nothing. Whether a book takes a cohort at all is decided upstream (the
+    // cohort filter in discipline/routes); here the cohort simply picks its
+    // strategy, so a routed signal always places.
     const book = resolveBook(input.channel);
     const kind = originKind(input.origin);
-    // Glide is MA-Signal ONLY — see strategiesForCohort. Without this a
-    // Scalp/Trend signal would spawn a Glide twin that rides forever (no
-    // leg-end EXIT ever comes to close it).
-    const strategies = strategiesForCohort(getActiveStrategies(book, kind), input.cohort);
-    if (strategies.length === 0) {
-      log.info(`no strategies enabled for ${book}·${kind} — signal not placed`);
-      return { decision: "REJECT", reason: `No strategies enabled for ${book}·${kind}` };
-    }
+    const strategy = resolveExitStrategy(input.channel, input.origin, false, input.cohort);
     const order = getAiConfig(book, kind).order; // per-block order type / product
-    const placedAt = Date.now();
-    let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
-    for (const strat of strategies) {
-      const r = await tradeExecutor.submitTrade({
-        executionId: strategies.length > 1 ? `${input.executionId}-${strat}` : input.executionId,
-        channel: input.channel,
-        origin: input.origin,
-        instrument: input.instrument,
-        direction: input.direction,
-        quantity: input.quantity,
-        entryPrice: input.entryPrice,
-        stopLoss: input.stopLoss,
-        takeProfit: input.takeProfit,
-        orderType: order.orderType,
-        productType: order.productType,
-        optionType: input.optionType,
-        strike: input.strike,
-        expiry: input.expiry,
-        contractSecurityId: input.contractSecurityId,
-        capitalPercent: input.capitalPercent,
-        cohort: input.cohort,
-        signalSeq: input.signalSeq,
-        exitStrategy: strat,
-        // Option A: the signal already passed the DA gate once; don't re-gate each
-        // twin (would reject twin 2/3 on accumulated exposure). Twins only.
-        skipDisciplinePreCheck: strategies.length > 1,
-        timestamp: placedAt,
-      });
-      if (submitResult === undefined) submitResult = r; // report the sprint twin as the decision
-    }
-    submitResult = submitResult!;
+    const submitResult = await tradeExecutor.submitTrade({
+      executionId: input.executionId,
+      channel: input.channel,
+      origin: input.origin,
+      instrument: input.instrument,
+      direction: input.direction,
+      quantity: input.quantity,
+      entryPrice: input.entryPrice,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit,
+      orderType: order.orderType,
+      productType: order.productType,
+      optionType: input.optionType,
+      strike: input.strike,
+      expiry: input.expiry,
+      contractSecurityId: input.contractSecurityId,
+      capitalPercent: input.capitalPercent,
+      cohort: input.cohort,
+      signalSeq: input.signalSeq,
+      exitStrategy: strategy,
+      timestamp: Date.now(),
+    });
     const decision = submitResult.success ? "APPROVE" : "REJECT";
     rcaEvalTotal.labels({ decision }).inc();
     return {

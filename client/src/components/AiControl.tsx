@@ -49,6 +49,7 @@ interface ModeCfg {
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
 /** T129 — system-wide settings; edited in the Settings menu, not here. */
+type StratName = "sprint" | "runway" | "anchor" | "glide";
 interface CommonCfg {
   revPct: number;
   globalExits: {
@@ -57,6 +58,7 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
 }
 /** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
 type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };
@@ -557,17 +559,28 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                 </Group>
                 )}
 
-                {/* ③ Strategies */}
+                {/* ③ Strategy — one per cohort, set in Settings → Cohort
+                    strategies (T139). Shown read-only here so the book's cohorts
+                    and their strategies are visible together. */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                  {/* Label + toggles share one row to save vertical space. */}
-                  <div className="flex items-center justify-between gap-2">
-                    <SectionLabel>Trade with</SectionLabel>
-                    <div className="flex gap-1">
-                      {STRATEGIES.map((s) => (
-                        <Pill key={s.key} label={s.label} on={!!d.strategies[s.key]}
-                          onClick={() => edit((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
-                      ))}
-                    </div>
+                  <span className="flex items-center gap-1.5">
+                    <SectionLabel>Strategy per cohort</SectionLabel>
+                    <InfoDot text="Each cohort trades with one strategy, set once for the whole platform in Settings → Cohort strategies. A signal places one trade using its cohort's strategy." />
+                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    {COHORTS.filter((c) => d.cohorts[c.key]).map((c) => {
+                      const key = c.key === "ma" ? "ma" : c.key;
+                      const strat = all?.common.cohortStrategy?.[key as "scalp" | "trend" | "ma" | "swing"];
+                      return (
+                        <div key={c.key} className="flex items-center justify-between text-[0.625rem]">
+                          <span className="text-muted-foreground">{c.label}</span>
+                          <span className="font-bold text-info-cyan capitalize">{strat ?? "—"}</span>
+                        </div>
+                      );
+                    })}
+                    {!COHORTS.some((c) => d.cohorts[c.key]) && (
+                      <span className="text-[0.5625rem] text-muted-foreground">No cohorts on — nothing will trade.</span>
+                    )}
                   </div>
                 </div>
 

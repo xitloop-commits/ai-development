@@ -44,87 +44,75 @@ const only = (s: "sprint" | "runway" | "anchor" | "glide") => ({
 
 beforeEach(() => initAiConfig()); // reset to defaults between tests
 
-describe("manual trades follow the AI menu's My Trades block", () => {
-  it("uses the manual block's strategy, not sprint", () => {
-    updateAiConfig("paper", "manual", only("runway"));
-    updateAiConfig("live", "manual", only("runway"));
-    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
+describe("T139 — one strategy per cohort, from the common map", () => {
+  const setMap = (m: Partial<Record<"scalp" | "trend" | "ma" | "swing", string>>) =>
+    updateCommonConfig({ cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor", ...m } });
+
+  it("uses each cohort's mapped strategy", () => {
+    setMap({});
+    expect(resolveExitStrategy("live", "AI", false, "scalp")).toBe("sprint");
+    expect(resolveExitStrategy("live", "AI", false, "trend")).toBe("runway");
+    expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("live", "USER", false, "swing")).toBe("anchor");
   });
 
-  it("follows the manual block on the PAPER channel too", () => {
-    // The AI menu shows "My Trades · manual" as its own section, independent of
-    // the Paper/Live toggle — so a manual trade obeys it wherever it lands.
-    updateAiConfig("paper", "manual", only("anchor"));
-    updateAiConfig("live", "manual", only("anchor"));
-    expect(resolveExitStrategy("paper", "USER", false)).toBe("anchor");
+  it("does NOT depend on channel, origin or book — only the cohort", () => {
+    setMap({ scalp: "runway" });
+    for (const ch of ["paper", "live"] as const)
+      for (const o of ["AI", "RCA", "USER"] as const)
+        expect(resolveExitStrategy(ch, o, false, "scalp")).toBe("runway");
   });
 
-  it("is unaffected by the paper/live blocks", () => {
-    updateAiConfig("paper", "manual", only("anchor"));
-    updateAiConfig("live", "manual", only("anchor"));
-    updateAiConfig("paper", "ai", only("sprint"));
-    updateAiConfig("live", "ai", only("sprint"));
-    expect(resolveExitStrategy("paper", "USER", false)).toBe("anchor");
-    expect(resolveExitStrategy("live", "USER", false)).toBe("anchor");
+  it("falls back to sprint for a missing or unknown cohort", () => {
+    setMap({});
+    expect(resolveExitStrategy("live", "AI", false, null)).toBe("sprint");
+    expect(resolveExitStrategy("live", "AI", false, "weird")).toBe("sprint");
   });
 
-  it("takes the FIRST enabled pill — manual is one strategy, not a race", () => {
-    updateAiConfig("live", "manual", { strategies: { sprint: false, runway: true, anchor: true } });
-    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
-  });
-
-  it("falls back to sprint when nothing is enabled", () => {
-    updateAiConfig("live", "manual", { strategies: { sprint: false, runway: false, anchor: false } });
-    expect(resolveExitStrategy("live", "USER", false)).toBe("sprint");
+  it("reflects a changed mapping immediately", () => {
+    setMap({ ma: "glide" });
+    expect(resolveExitStrategy("live", "AI", false, "ma_signal")).toBe("glide");
+    setMap({ ma: "runway" });
+    expect(resolveExitStrategy("live", "AI", false, "ma_signal")).toBe("runway");
   });
 });
 
-describe("AI trades follow the channel's block", () => {
-  it("paper channel reads the paper block", () => {
-    updateAiConfig("paper", "ai", only("anchor"));
-    updateAiConfig("paper", "manual", only("runway"));
-    updateAiConfig("live", "manual", only("runway"));
-    expect(resolveExitStrategy("paper", "AI", false)).toBe("anchor");
+describe("glide is MA-only", () => {
+  const setMap = (m: Partial<Record<"scalp" | "trend" | "ma" | "swing", string>>) =>
+    updateCommonConfig({ cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor", ...m } });
+
+  it("allows glide on the MA cohort", () => {
+    setMap({});
+    expect(resolveExitStrategy("live", "AI", false, "ma_signal")).toBe("glide");
   });
 
-  it("live channel reads the live block", () => {
-    updateAiConfig("live", "ai", only("runway"));
-    updateAiConfig("paper", "ai", only("anchor"));
-    expect(resolveExitStrategy("live", "AI", false)).toBe("runway");
-  });
-
-  it("RCA is routed the same way as AI", () => {
-    updateAiConfig("live", "ai", only("anchor"));
-    expect(resolveExitStrategy("live", "RCA", false)).toBe("anchor");
+  it("falls back to sprint if glide is mapped to a non-MA cohort", () => {
+    // Glide has no stop and relies on the MA leg-end EXIT; on any other cohort
+    // nothing would ever close it, so it must not run there.
+    setMap({ scalp: "glide" });
+    expect(resolveExitStrategy("live", "AI", false, "scalp")).toBe("sprint");
   });
 });
 
 describe("equity is pinned to sprint", () => {
   /**
-   * Runway and Anchor open with `defaultSlPct: 25`. On an option premium a 25%
-   * stop is ordinary. On a stock it is meaningless — equities do not fall 25%
-   * intraday, so the staged stop would never trigger and the trade would run
-   * with no effective protection. Until an equity-calibrated config exists,
-   * stocks keep Sprint's fixed stop.
+   * Runway/Anchor open with a 25% staged stop — ordinary on an option premium,
+   * meaningless on a stock (never moves 25% intraday), so the stop would never
+   * trigger. Stocks keep Sprint's fixed stop, whatever the cohort maps to.
    */
-  it("ignores the manual block for a stock", () => {
-    updateAiConfig("paper", "manual", only("runway"));
-    updateAiConfig("live", "manual", only("runway"));
-    expect(resolveExitStrategy("live", "USER", true)).toBe("sprint");
+  const setMap = (m: Partial<Record<"scalp" | "trend" | "ma" | "swing", string>>) =>
+    updateCommonConfig({ cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor", ...m } });
+
+  it("ignores the cohort map for a stock", () => {
+    setMap({ scalp: "runway" });
+    expect(resolveExitStrategy("live", "USER", true, "scalp")).toBe("sprint");
+    expect(resolveExitStrategy("paper", "AI", true, "ma_signal")).toBe("sprint");
   });
 
-  it("ignores the channel block for an AI stock trade", () => {
-    updateAiConfig("paper", "ai", only("anchor"));
-    expect(resolveExitStrategy("paper", "AI", true)).toBe("sprint");
-  });
-
-  it("still applies the configured strategy to OPTIONS on the same channel", () => {
-    // Guards against over-broad pinning: the equity rule must not leak into
-    // option trades placed on the same book.
-    updateAiConfig("paper", "manual", only("runway"));
-    updateAiConfig("live", "manual", only("runway"));
-    expect(resolveExitStrategy("live", "USER", false)).toBe("runway");
-    expect(resolveExitStrategy("live", "USER", true)).toBe("sprint");
+  it("still applies the mapped strategy to OPTIONS", () => {
+    setMap({ scalp: "runway" });
+    expect(resolveExitStrategy("live", "USER", false, "scalp")).toBe("runway");
+    expect(resolveExitStrategy("live", "USER", true, "scalp")).toBe("sprint");
   });
 });
 
@@ -180,46 +168,6 @@ describe("sprintOpeningLevels", () => {
  * price. Attached to the wrong cohort it would simply never exit, so these pin
  * that it can only ever be reached deliberately.
  */
-describe("glide is MA-Signal only", () => {
-  it("is used when the cohort is ma_signal", () => {
-    updateAiConfig("live", "manual", only("glide"));
-    expect(resolveExitStrategy("live", "USER", false, "ma_signal")).toBe("glide");
-  });
-
-  it("is SKIPPED for any other cohort", () => {
-    updateAiConfig("live", "manual", only("glide"));
-    for (const cohort of ["scalp", "trend", "swing", null, undefined]) {
-      expect(resolveExitStrategy("live", "USER", false, cohort)).toBe("sprint");
-    }
-  });
-
-  it("falls through to the next enabled strategy rather than blocking the book", () => {
-    // On a mixed book, a non-MA trade should still get a working strategy.
-    // Glide wins for MA-Signal even though it ranks last in the pill order —
-    // it is the cohort-specific choice, so it must not be outranked.
-    updateAiConfig("live", "manual", { strategies: { sprint: false, runway: true, anchor: false, glide: true } });
-    expect(resolveExitStrategy("live", "USER", false, "ma_signal")).toBe("glide");
-    expect(resolveExitStrategy("live", "USER", false, "scalp")).toBe("runway");
-  });
-
-  it("never applies to equity, whatever the cohort", () => {
-    updateAiConfig("live", "manual", only("glide"));
-    expect(resolveExitStrategy("live", "USER", true, "ma_signal")).toBe("sprint");
-  });
-
-  it("works for AI trades on the paper/live blocks too", () => {
-    updateAiConfig("paper", "ai", only("glide"));
-    expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("glide");
-    expect(resolveExitStrategy("paper", "AI", false, "scalp")).toBe("sprint");
-  });
-
-  it("is OFF by default — it must be chosen, never inherited", () => {
-    initAiConfig();
-    // Paper/live ship without it; only the manual block opts in by default.
-    expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("sprint");
-  });
-});
-
 describe("manual cohort defaults to MA-Signal", () => {
   it("resolves ma → ma_signal, the signal engine's name", () => {
     initAiConfig();
@@ -294,25 +242,11 @@ describe("lubasManagedExit (common block)", () => {
 });
 
 /**
- * T137 — while a replay run is open, every resolver uses the `replay` config
- * block instead of the channel's book, so a replay can race a different
- * strategy / size / exit set than paper or live.
+ * T137 — while a replay run is open, the per-BOOK resolvers (exits, cohorts,
+ * sizing) use the `replay` block. Strategy is NOT per-book any more (T139 —
+ * it comes from the common cohort map), so it does not change with replay.
  */
-describe("replay overrides the config while a run is open", () => {
-  it("resolveExitStrategy uses the replay block, not the channel's book", () => {
-    updateAiConfig("paper", "ai", only("sprint"));
-    updateAiConfig("replay", "ai", only("anchor"));
-    let active = false;
-    _setReplayPredicate(() => active);
-    // No run → paper's block.
-    expect(resolveExitStrategy("paper", "AI", false)).toBe("sprint");
-    // Run open → replay's block, whatever channel the trade names.
-    active = true;
-    expect(resolveExitStrategy("paper", "AI", false)).toBe("anchor");
-    expect(resolveExitStrategy("live", "AI", false)).toBe("anchor");
-    _setReplayPredicate(() => false);
-  });
-
+describe("replay overrides the per-book config while a run is open", () => {
   it("getExitConfig returns the replay exits during a run", () => {
     updateExitConfig("live", { sprint: { defaultSL: 7 } });
     updateExitConfig("replay", { sprint: { defaultSL: 21 } });
@@ -320,5 +254,13 @@ describe("replay overrides the config while a run is open", () => {
     expect(getExitConfig("live").sprint.defaultSL).toBe(21);
     _setReplayPredicate(() => false);
     expect(getExitConfig("live").sprint.defaultSL).toBe(7);
+  });
+
+  it("strategy still comes from the cohort map, run or no run", () => {
+    updateCommonConfig({ cohortStrategy: { scalp: "runway", trend: "runway", ma: "glide", swing: "anchor" } });
+    _setReplayPredicate(() => true);
+    expect(resolveExitStrategy("paper", "AI", false, "scalp")).toBe("runway");
+    _setReplayPredicate(() => false);
+    expect(resolveExitStrategy("paper", "AI", false, "scalp")).toBe("runway");
   });
 });

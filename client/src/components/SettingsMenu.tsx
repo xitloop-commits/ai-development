@@ -20,6 +20,7 @@ import { Settings, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { InfoDot } from "./InfoDot";
 
+type StratName = "sprint" | "runway" | "anchor" | "glide";
 interface CommonCfg {
   revPct: number;
   globalExits: {
@@ -28,7 +29,16 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
 }
+
+const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
+  { key: "scalp", label: "Scalp" },
+  { key: "trend", label: "Trend" },
+  { key: "ma", label: "MA-Signal" },
+  { key: "swing", label: "Swing" },
+];
+const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide"];
 
 /** A compact checkbox. `indeterminate` renders the mixed (dash) state. */
 function Check2({ checked, indeterminate, onChange, title }: {
@@ -154,6 +164,25 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
+                <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-only (it rides to the MA leg-end EXIT); set on another cohort it falls back to Sprint.">
+                  {COHORT_ROWS.map((c) => (
+                    <div key={c.key} className="flex items-center justify-between gap-2">
+                      <span className="text-[0.625rem] text-muted-foreground">{c.label}</span>
+                      <select
+                        value={d.cohortStrategy?.[c.key] ?? "sprint"}
+                        onChange={(e) => edit((x) => { x.cohortStrategy[c.key] = e.target.value as StratName; })}
+                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.625rem] font-semibold capitalize focus:outline-none focus:ring-1 focus:ring-info-cyan"
+                      >
+                        {STRATS.map((s) => (
+                          <option key={s} value={s} disabled={s === "glide" && c.key !== "ma"}>
+                            {s}{s === "glide" && c.key !== "ma" ? " (MA only)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </Group>
+
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
