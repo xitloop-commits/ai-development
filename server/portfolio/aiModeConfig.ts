@@ -178,11 +178,40 @@ export interface AiModeConfig {
  *  - `squareoff` — EOD flatten times; an exchange fact, not a book preference.
  *  - `lubasManagedExit` — who owns LIVE exits (app vs Dhan legs); one live book.
  */
+/**
+ * One master exit level. When `enabled`, it OVERRIDES the per-strategy level of
+ * the same kind for EVERY trade (all strategies, all books). `value` is read per
+ * `mode`: percent → % of premium; rupees → net ₹ P&L after charges.
+ */
+export interface MasterLevel {
+  enabled: boolean;
+  mode: ExitLevelMode;
+  value: number;
+}
+
+/**
+ * Master SL / TP / TSL (T141). Live in the COMMON block so they span paper +
+ * live + replay. Each is an independent switch; when on it is THE only level of
+ * that kind for every trade and the matching per-strategy exit is suppressed:
+ *   tp  → replaces every strategy's take-profit
+ *   sl  → replaces every strategy's hard stop (Glide's disaster stop stays as a
+ *         last-resort catastrophe backstop)
+ *   tsl → replaces every strategy's trailing (Sprint trail, Runway trailing
+ *         phase, Glide give-back). percent = trail value% below the peak
+ *         premium; rupees = give back at most value ₹ of net P&L from the peak.
+ */
+export interface MasterExitsConfig {
+  tp: MasterLevel;
+  sl: MasterLevel;
+  tsl: MasterLevel;
+}
+
 export interface CommonConfig {
   revPct: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
+  masterExits: MasterExitsConfig;
   /**
    * T139 — the default exit strategy each cohort trades with. One signal → one
    * trade, using its cohort's strategy. This replaced the per-book "race" (N
@@ -259,6 +288,12 @@ function baseCommon(): CommonConfig {
     // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
     // want to run, MA rides to its own EXIT, swing banks at target.
     cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor" },
+    // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
+    masterExits: {
+      tp: { enabled: false, mode: "percent", value: 10 },
+      sl: { enabled: false, mode: "percent", value: 10 },
+      tsl: { enabled: false, mode: "percent", value: 3 },
+    },
   };
 }
 
@@ -447,6 +482,23 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
     const v = c.cohortStrategy[k];
     c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide"] as const).includes(v) ? v : dflt[k];
   }
+  // T141 — master exits. Back-fill for an old config, then clamp each level by
+  // its own mode (% band vs net-₹ band). TSL % caps at 90 (a >90% giveback is
+  // meaningless); TP/SL % use the usual bands.
+  if (!c.masterExits) {
+    (c as CommonConfig).masterExits = {
+      tp: { enabled: false, mode: "percent", value: 10 },
+      sl: { enabled: false, mode: "percent", value: 10 },
+      tsl: { enabled: false, mode: "percent", value: 3 },
+    };
+  }
+  const m = c.masterExits;
+  m.tp.enabled = !!m.tp.enabled; m.tp.mode = exitMode(m.tp.mode);
+  m.tp.value = clampLevel(m.tp.value, m.tp.mode, 100, 10, 3000);
+  m.sl.enabled = !!m.sl.enabled; m.sl.mode = exitMode(m.sl.mode);
+  m.sl.value = clampLevel(m.sl.value, m.sl.mode, 100, 10, 2000);
+  m.tsl.enabled = !!m.tsl.enabled; m.tsl.mode = exitMode(m.tsl.mode);
+  m.tsl.value = clampLevel(m.tsl.value, m.tsl.mode, 90, 3, 1500);
   return c;
 }
 

@@ -51,6 +51,7 @@ vi.mock("../portfolio/aiModeConfig", () => ({
     lubasManagedExit: true,
   }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
+  getCommonConfig: () => ({ lubasManagedExit: true, masterExits: { tp: { enabled: false, mode: "percent", value: 10 }, sl: { enabled: false, mode: "percent", value: 10 }, tsl: { enabled: false, mode: "percent", value: 3 } } }),
 }));
 
 vi.mock("../broker/tickBus", () => ({ tickBus: { on: vi.fn(), off: vi.fn(), emit: vi.fn() } }));

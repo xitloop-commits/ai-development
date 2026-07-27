@@ -52,7 +52,7 @@ vi.mock("../portfolio/aiModeConfig", () => ({
     glide: { disasterSlPct: 50 },
   }),
   // T129 — lubasManagedExit moved to the common block.
-  getCommonConfig: () => ({ lubasManagedExit }),
+  getCommonConfig: () => ({ lubasManagedExit, masterExits: { tp: { enabled: false, mode: "percent", value: 10 }, sl: { enabled: false, mode: "percent", value: 10 }, tsl: { enabled: false, mode: "percent", value: 3 } } }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
 }));
 

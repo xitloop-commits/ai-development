@@ -13,7 +13,7 @@ vi.mock("fs", () => ({
   existsSync: vi.fn(() => false),
 }));
 
-import { initAiConfig, updateExitConfig, sprintOpeningLevels, getExitConfig } from "./aiModeConfig";
+import { initAiConfig, updateExitConfig, sprintOpeningLevels, getExitConfig, getCommonConfig, updateCommonConfig } from "./aiModeConfig";
 import { resolveNetRsExit, netPnlAtPrice } from "./netRsExit";
 import type { TradeRecord } from "./state";
 import type { ChargeRate } from "./charges";
@@ -76,6 +76,37 @@ describe("glide optional TP config (default off)", () => {
     expect(g.tpEnabled).toBe(true);
     expect(g.tpMode).toBe("rupees");
     expect(g.tp).toBe(5000);
+  });
+});
+
+describe("master exits (common block, T141)", () => {
+  it("default: all three off, percent, back-filled on an old config", () => {
+    initAiConfig();
+    const m = getCommonConfig().masterExits;
+    expect(m.tp.enabled).toBe(false);
+    expect(m.sl.enabled).toBe(false);
+    expect(m.tsl.enabled).toBe(false);
+    expect(m.tp.mode).toBe("percent");
+  });
+
+  it("stores enabled ₹ master levels and clamps into the net-₹ band", () => {
+    updateCommonConfig({ masterExits: {
+      tp: { enabled: true, mode: "rupees", value: 3000 },
+      sl: { enabled: true, mode: "rupees", value: 2000 },
+      tsl: { enabled: true, mode: "rupees", value: 1000 },
+    } });
+    const m = getCommonConfig().masterExits;
+    expect(m.tp).toEqual({ enabled: true, mode: "rupees", value: 3000 });
+    expect(m.sl.value).toBe(2000);
+    expect(m.tsl.value).toBe(1000);
+  });
+
+  it("a partial patch leaves the other master levels intact", () => {
+    updateCommonConfig({ masterExits: { sl: { enabled: true, mode: "percent", value: 8 } } as any });
+    const m = getCommonConfig().masterExits;
+    expect(m.sl.enabled).toBe(true);
+    expect(m.tp).toBeDefined(); // not wiped by the partial patch
+    expect(m.tsl).toBeDefined();
   });
 });
 

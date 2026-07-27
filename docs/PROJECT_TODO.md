@@ -1627,6 +1627,26 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T141 [Execution] — master SL / TP / TSL in Common settings (override all) ✅ DONE 2026-07-27
+A master stop-loss, take-profit, and trailing-stop in the **Common** block. Each
+has its own on/off switch + `%`/`₹` toggle (% of premium, or net ₹ after charges).
+**When on, it OVERRIDES every strategy's own level of that kind for EVERY trade**
+(Option A, Partha's choice) across paper + live + replay.
+
+- config: `common.masterExits.{tp,sl,tsl}` (`{enabled,mode,value}`), all OFF by
+  default, back-filled + mode-aware clamped. TSL `%` = trail below peak premium;
+  `₹` = give back that many ₹ of net P&L from the peak.
+- tickHandler: master block evaluated FIRST each tick (Lubas-managed path); a
+  master switch suppresses the matching per-strategy exit everywhere — Sprint
+  SL/TP/trailing/TP-trail, staged Runway/Anchor SL_HIT/TSL_HIT/TP_HIT, net-₹
+  SL/TP, Glide TP, Glide give-back. Glide's disaster stop always stays as a
+  last-resort backstop. Charge-rate predicate covers master ₹ modes.
+- UI: "Master exits" group at the top of the Settings (gear) menu — MasterRow
+  (enable + %/₹ + value) for TP / SL / Trailing.
+- tests: netRsExit.test.ts now 18 (master config defaults/clamp/partial-patch);
+  four tickHandler mocks gained getCommonConfig (master now read on all
+  channels, not just live). portfolio/executor/discipline/risk-control green (702).
+
 ### T140 [Execution] — SL/TP toggle: % of premium OR net ₹ P&L (after charges) ✅ DONE 2026-07-27
 Each strategy's stop-loss and take-profit can now be set in **% of premium** (as
 before) or **net ₹ P&L on the whole position, after round-trip charges** — an

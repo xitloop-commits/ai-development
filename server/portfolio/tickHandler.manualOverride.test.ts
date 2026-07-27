@@ -35,6 +35,7 @@ vi.mock("../portfolio/aiModeConfig", () => ({
   modeForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
   getExitConfig: () => ({ sprint: aiSprint, runway, anchor: runway }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
+  getCommonConfig: () => ({ lubasManagedExit: true, masterExits: { tp: { enabled: false, mode: "percent", value: 10 }, sl: { enabled: false, mode: "percent", value: 10 }, tsl: { enabled: false, mode: "percent", value: 3 } } }),
 }));
 vi.mock("../broker/tickBus", () => ({ tickBus: { on: vi.fn(), off: vi.fn(), emit: vi.fn() } }));
 vi.mock("../broker/logger", () => ({

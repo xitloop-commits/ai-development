@@ -394,7 +394,16 @@ class TickHandler extends EventEmitter {
     // Net-₹ exits (charge-aware) need the user's charge-rate table. Loaded once
     // per batch (cached ~60s inside), not per tick, and only when some open
     // trade actually uses a ₹-mode SL/TP — no cost for the all-% common case.
-    const anyNetRs = openTrades.some((t) => {
+    // T141 — master SL/TP/TSL (common block). When a switch is on it OVERRIDES
+    // every strategy's own level of that kind for EVERY trade on this channel.
+    const master = getCommonConfig().masterExits;
+    const mTP = master.tp.enabled, mSL = master.sl.enabled, mTSL = master.tsl.enabled;
+    const masterNeedsRates =
+      (mTP && master.tp.mode === "rupees") ||
+      (mSL && master.sl.mode === "rupees") ||
+      (mTSL && master.tsl.mode === "rupees");
+
+    const anyNetRs = masterNeedsRates || openTrades.some((t) => {
       if (resolveNetRsExit(t.exitStrategy, channel) !== null) return true;
       // Glide's optional TP can also be in ₹ mode (its own on/off switch).
       if (t.exitStrategy === "glide") {
@@ -540,6 +549,64 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
+        // ── Master exits (T141) ──────────────────────────────────────────
+        // Common-block master SL/TP/TSL OVERRIDE every strategy's own level of
+        // that kind for EVERY trade. Evaluated FIRST; the matching per-strategy
+        // side is suppressed below via the mTP/mSL/mTSL guards. Runs only on the
+        // Lubas-managed path (after the Dhan-managed early-continue above).
+        if ((mTP || mSL || mTSL) && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0) {
+          const needNet =
+            (mTP && master.tp.mode === "rupees") ||
+            (mSL && master.sl.mode === "rupees") ||
+            (mTSL && master.tsl.mode === "rupees");
+          const curNet = needNet ? netPnlAtPrice(trade, tick.ltp, chargeRates) : 0;
+          const pctLevel = (v: number, favourable: boolean) =>
+            trade.entryPrice * (1 + (isBuy === favourable ? v : -v) / 100);
+
+          let masterHit: { reason: "TP_HIT" | "SL_HIT" | "TSL_HIT"; exitPrice: number } | null = null;
+          // TP first (bank profit), then SL, then TSL.
+          if (mTP) {
+            const hit = master.tp.mode === "rupees"
+              ? curNet >= master.tp.value
+              : (isBuy ? tick.ltp >= pctLevel(master.tp.value, true) : tick.ltp <= pctLevel(master.tp.value, true));
+            if (hit) masterHit = { reason: "TP_HIT", exitPrice: tick.ltp };
+          }
+          if (!masterHit && mSL) {
+            const hit = master.sl.mode === "rupees"
+              ? curNet <= -master.sl.value
+              : (isBuy ? tick.ltp <= pctLevel(master.sl.value, false) : tick.ltp >= pctLevel(master.sl.value, false));
+            if (hit) masterHit = { reason: "SL_HIT", exitPrice: tick.ltp };
+          }
+          if (!masterHit && mTSL) {
+            let hit = false;
+            if (master.tsl.mode === "rupees") {
+              // Give back at most `value` ₹ of net P&L from the peak, once in profit.
+              const peakNet = netPnlAtPrice(trade, newPeak, chargeRates);
+              hit = peakNet > 0 && peakNet - curNet >= master.tsl.value;
+            } else {
+              // Trail `value`% below the peak premium, once the peak is in profit.
+              const peakFavour = isBuy ? newPeak - trade.entryPrice : trade.entryPrice - newPeak;
+              if (peakFavour > 0) {
+                const stop = isBuy ? newPeak * (1 - master.tsl.value / 100) : newPeak * (1 + master.tsl.value / 100);
+                hit = isBuy ? tick.ltp <= stop : tick.ltp >= stop;
+              }
+            }
+            if (hit) masterHit = { reason: "TSL_HIT", exitPrice: tick.ltp };
+          }
+          if (masterHit) {
+            log.important(
+              `[XSYNC-SVR] MASTER-${masterHit.reason} ${channel} trade=${trade.id} ${trade.instrument} ` +
+                `ltp=${tick.ltp} net=${needNet ? Math.round(curNet) : "-"} → emit exit`,
+            );
+            this.peakPrices.delete(peakKey);
+            this.tslArmedAt.delete(trade.id);
+            this.tslActivated.delete(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
+            tradesToExit.push({ trade, ...masterHit });
+            continue;
+          }
+        }
+
         // ── Net-₹ exits (charge-aware) ──────────────────────────────────
         // When a strategy's SL/TP is in rupees mode the exit is a NET ₹ P&L
         // threshold (premium move × qty − round-trip charges), not a premium
@@ -550,9 +617,11 @@ class TickHandler extends EventEmitter {
         const netRs = resolveNetRsExit(trade.exitStrategy, channel);
         if (netRs && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0) {
           const net = netPnlAtPrice(trade, tick.ltp, chargeRates);
+          // A master switch owns that side outright — don't also fire the
+          // per-strategy net-₹ exit for it.
           const hit =
-            netRs.tpMode === "rupees" && net >= netRs.tpRs ? "TP_HIT" as const
-            : netRs.slMode === "rupees" && net <= -netRs.slRs ? "SL_HIT" as const
+            !mTP && netRs.tpMode === "rupees" && net >= netRs.tpRs ? "TP_HIT" as const
+            : !mSL && netRs.slMode === "rupees" && net <= -netRs.slRs ? "SL_HIT" as const
             : null;
           if (hit) {
             log.important(
@@ -629,7 +698,10 @@ class TickHandler extends EventEmitter {
               const ownedByNetRs =
                 (netRs?.slMode === "rupees" && (reason === "SL_HIT" || reason === "TSL_HIT")) ||
                 (netRs?.tpMode === "rupees" && reason === "TP_HIT");
-              if (!ownedByNetRs) {
+              // A master switch of the same kind overrides the staged exit too.
+              const ownedByMaster =
+                (mSL && reason === "SL_HIT") || (mTSL && reason === "TSL_HIT") || (mTP && reason === "TP_HIT");
+              if (!ownedByNetRs && !ownedByMaster) {
                 this.exitingTrades.set(trade.id, Date.now());
                 tradesToExit.push({ trade, reason, exitPrice: out.exitPrice ?? tick.ltp });
               }
@@ -658,7 +730,7 @@ class TickHandler extends EventEmitter {
           // percent = a % move in the premium; rupees = a NET ₹ profit after
           // charges. Sits ABOVE the manualExitOnly guard like the other Glide
           // exits, or it would be configured but never evaluated.
-          if (glideCfg.tpEnabled && trade.qty > 0) {
+          if (glideCfg.tpEnabled && trade.qty > 0 && !mTP) {
             const tpHit =
               glideCfg.tpMode === "rupees"
                 ? netPnlAtPrice(trade, tick.ltp, chargeRates) >= glideCfg.tp
@@ -703,7 +775,7 @@ class TickHandler extends EventEmitter {
           // Also sits ABOVE the manualExitOnly guard, for the same reason the
           // disaster stop does — that guard skips every exit below it.
           const gb = getExitConfig(channel).glide;
-          if (gb.giveBackPct > 0 && trade.entryPrice > 0) {
+          if (gb.giveBackPct > 0 && trade.entryPrice > 0 && !mTSL) {
             const peak = this.peakPrices.get(trade.id) ?? trade.peakLtp ?? trade.entryPrice;
             // Gain measured in the direction the trade profits: a bought option
             // gains as the premium RISES, a sold one as it FALLS.
@@ -760,7 +832,7 @@ class TickHandler extends EventEmitter {
         // drives trailing independently of the workspace switch (which only
         // SEEDS a trade's mode at open). Gating here would silently re-couple
         // them and undo that independence.
-        if (trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
+        if (!mTSL && trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
           const breakeven = trade.breakevenPrice ?? trade.entryPrice;
           const gatePrice = isBuy
             ? breakeven * (1 + tslGatePercent / 100)
@@ -796,7 +868,7 @@ class TickHandler extends EventEmitter {
           }
         }
 
-        if (trade.tslMode !== "manual" && trade.stopLossPrice !== null && this.tslActivated.has(trade.id)) {
+        if (!mTSL && trade.tslMode !== "manual" && trade.stopLossPrice !== null && this.tslActivated.has(trade.id)) {
           const useSignal =
             trailingDistanceSource === "signal" && trade.slDistance != null && trade.slDistance > 0;
           const trailedRaw = useSignal
@@ -819,7 +891,7 @@ class TickHandler extends EventEmitter {
         // ratcheting only in the favorable direction (never retreats when price
         // pulls back). The trailing stop books the actual exit on a reversal;
         // this TP only fires if price gaps past it in a single tick.
-        if (trade.tslMode !== "manual" && !trade.targetDisabled && trade.targetPrice !== null) {
+        if (!mTP && trade.tslMode !== "manual" && !trade.targetDisabled && trade.targetPrice !== null) {
           const candidateTP = isBuy
             ? tick.ltp * (1 + getExitConfig(channel).sprint.tpTrailPercent / 100)
             : tick.ltp * (1 - getExitConfig(channel).sprint.tpTrailPercent / 100);
@@ -836,7 +908,7 @@ class TickHandler extends EventEmitter {
         // Per-trade TP-disabled: suppress the take-profit auto-exit so the trade
         // rides on SL/TSL only (mirror of stopLossDisabled). Also suppressed when
         // TP is in rupees mode — the net-₹ check above owns the upside.
-        if (trade.targetPrice !== null && !trade.targetDisabled && netRs?.tpMode !== "rupees") {
+        if (trade.targetPrice !== null && !trade.targetDisabled && netRs?.tpMode !== "rupees" && !mTP) {
           const tpHit = isBuy
             ? tick.ltp >= trade.targetPrice
             : tick.ltp <= trade.targetPrice;
@@ -856,7 +928,7 @@ class TickHandler extends EventEmitter {
         }
         // SL in rupees mode is owned by the net-₹ check above — skip the
         // premium-price stop entirely for that side.
-        if (trade.stopLossPrice !== null && netRs?.slMode !== "rupees") {
+        if (trade.stopLossPrice !== null && netRs?.slMode !== "rupees" && !mSL) {
           const slHit = isBuy
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;

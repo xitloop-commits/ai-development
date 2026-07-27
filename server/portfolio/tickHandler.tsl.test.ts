@@ -63,6 +63,7 @@ vi.mock("../portfolio/aiModeConfig", () => ({
     anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
   }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
+  getCommonConfig: () => ({ lubasManagedExit: true, masterExits: { tp: { enabled: false, mode: "percent", value: 10 }, sl: { enabled: false, mode: "percent", value: 10 }, tsl: { enabled: false, mode: "percent", value: 3 } } }),
 }));
 
 vi.mock("../broker/tickBus", () => ({

@@ -66,6 +66,11 @@ interface CommonCfg {
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
+  masterExits: {
+    tp: { enabled: boolean; mode: ExitLevelMode; value: number };
+    sl: { enabled: boolean; mode: ExitLevelMode; value: number };
+    tsl: { enabled: boolean; mode: ExitLevelMode; value: number };
+  };
 }
 /** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
 type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };

@@ -21,6 +21,8 @@ import { trpc } from "@/lib/trpc";
 import { InfoDot } from "./InfoDot";
 
 type StratName = "sprint" | "runway" | "anchor" | "glide";
+type ExitLevelMode = "percent" | "rupees";
+interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
 interface CommonCfg {
   revPct: number;
   globalExits: {
@@ -30,6 +32,7 @@ interface CommonCfg {
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
+  masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterLevel };
 }
 
 const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
@@ -103,6 +106,39 @@ function NumRow({ label, value, onChange, step = 1, min, max, unit, check }: {
   );
 }
 
+/** A master SL/TP/TSL row: enable checkbox + % / ₹ toggle + value. */
+function MasterRow({ label, level, onToggle, onMode, onValue }: {
+  label: string; level: MasterLevel;
+  onToggle: () => void; onMode: (m: ExitLevelMode) => void; onValue: (v: number) => void;
+}) {
+  const rs = level.mode === "rupees";
+  const off = !level.enabled;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex items-center gap-1.5 min-w-0">
+        <Check2 checked={level.enabled} onChange={onToggle} title={level.enabled ? "Disable" : "Enable"} />
+        <span className={`text-[0.625rem] ${off ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>{label}</span>
+      </span>
+      <div className={`flex items-center gap-1 ${off ? "opacity-40" : ""}`}>
+        <div className="flex rounded border border-border overflow-hidden">
+          {(["percent", "rupees"] as const).map((m) => (
+            <button key={m} type="button" disabled={off} onClick={() => onMode(m)}
+              className={`px-1.5 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                level.mode === m ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+              }`}>
+              {m === "percent" ? "%" : "₹"}
+            </button>
+          ))}
+        </div>
+        <input type="number" step={rs ? 100 : 0.5} min={rs ? 1 : 0} max={rs ? 1000000 : 100} value={level.value} disabled={off}
+          onChange={(e) => onValue(e.target.value === "" ? 0 : Number(e.target.value))}
+          className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
+        <span className="text-[0.5625rem] text-muted-foreground w-4">{rs ? "₹" : "%"}</span>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<CommonCfg | null>(null);
@@ -164,6 +200,21 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
+                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. % = of premium; ₹ = NET P&L after charges. Trailing: % trails that far below the peak premium, ₹ gives back at most that many ₹ of net profit from the peak. Glide's disaster stop always stays on as a last-resort backstop.">
+                  <MasterRow label="Take-profit" level={d.masterExits.tp}
+                    onToggle={() => edit((x) => { x.masterExits.tp.enabled = !x.masterExits.tp.enabled; })}
+                    onMode={(m) => edit((x) => { x.masterExits.tp.mode = m; })}
+                    onValue={(v) => edit((x) => { x.masterExits.tp.value = v; })} />
+                  <MasterRow label="Stop-loss" level={d.masterExits.sl}
+                    onToggle={() => edit((x) => { x.masterExits.sl.enabled = !x.masterExits.sl.enabled; })}
+                    onMode={(m) => edit((x) => { x.masterExits.sl.mode = m; })}
+                    onValue={(v) => edit((x) => { x.masterExits.sl.value = v; })} />
+                  <MasterRow label="Trailing stop" level={d.masterExits.tsl}
+                    onToggle={() => edit((x) => { x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled; })}
+                    onMode={(m) => edit((x) => { x.masterExits.tsl.mode = m; })}
+                    onValue={(v) => edit((x) => { x.masterExits.tsl.value = v; })} />
+                </Group>
+
                 <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-only (it rides to the MA leg-end EXIT); set on another cohort it falls back to Sprint.">
                   {COHORT_ROWS.map((c) => (
                     <div key={c.key} className="flex items-center justify-between gap-2">
