@@ -43,6 +43,15 @@ import { manualTradeSize, manualStrategyLabel } from '@/lib/manualTradeConfig';
 
 type Side = 'CE' | 'PE';
 
+/** Whole calendar days from today to `ms` (0 = same day, negative = past). */
+function calendarDaysUntil(ms: number): number {
+  const now = new Date();
+  const exp = new Date(ms);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = Date.UTC(exp.getFullYear(), exp.getMonth(), exp.getDate());
+  return Math.round((day - today) / 86_400_000);
+}
+
 interface AtmShape {
   spot_price?: number | null;
   atm_strike?: number | null;
@@ -68,9 +77,12 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
   const ceId = live?.atm_ce_security_id ?? sig?.atm_ce_security_id ?? null;
   const peId = live?.atm_pe_security_id ?? sig?.atm_pe_security_id ?? null;
   const hoursToExp = live?.hours_to_expiry ?? sig?.hours_to_expiry ?? null;
-  const expiryLabel = hoursToExp != null && hoursToExp > 0
-    ? formatCalendarDay(Date.now() + hoursToExp * 3600000)
-    : null;
+  const expiryMs = hoursToExp != null && hoursToExp > 0 ? Date.now() + hoursToExp * 3600000 : null;
+  const expiryLabel = expiryMs != null ? formatCalendarDay(expiryMs) : null;
+  // Whole CALENDAR days to expiry (0 = expires today), so a contract that is
+  // 30h out reads "2d" not "1d". Calendar diff, not hours/24, so the count flips
+  // at midnight like the date does.
+  const daysToExp = expiryMs != null ? calendarDaysUntil(expiryMs) : null;
 
   const contractSecurityId = side === 'CE' ? ceId : peId;
 
@@ -126,10 +138,22 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
   return (
     <>
       <div className="border-b border-border/50 hover:bg-muted/30">
-        {/* Line 1 — underlying */}
+        {/* Line 1 — underlying (name · days-to-expiry badge · spot) */}
         <div className="flex items-center gap-2 px-2.5 pt-1.5">
           <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color }} />
-          <span className="text-xs font-bold flex-1 truncate" style={{ color }}>{label}</span>
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <span className="text-xs font-bold truncate" style={{ color }}>{label}</span>
+            {daysToExp != null && (
+              <span
+                className={`shrink-0 rounded px-1 py-px text-[0.5rem] font-bold tabular-nums ${
+                  daysToExp <= 1 ? 'bg-warning-amber/20 text-warning-amber' : 'bg-muted/60 text-muted-foreground'
+                }`}
+                title={daysToExp === 0 ? 'Expires today' : `${daysToExp} day${daysToExp === 1 ? '' : 's'} to expiry`}
+              >
+                {daysToExp === 0 ? 'expiry' : `${daysToExp}d`}
+              </span>
+            )}
+          </div>
           <span className="text-xs font-bold tabular-nums text-foreground min-w-[64px] text-right">
             {spot > 0
               ? spot.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
