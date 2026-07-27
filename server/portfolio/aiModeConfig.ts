@@ -139,6 +139,15 @@ export interface GlideConfig {
    */
   giveBackArmPct: number;
   giveBackPct: number;
+  /**
+   * OPTIONAL take-profit for Glide (default OFF). Glide normally rides until the
+   * MA EXIT; turn this on to also bank a hard target. `tpMode` reads `tp` as a %
+   * of premium ("percent") or a NET ₹ profit after charges ("rupees"), exactly
+   * like Sprint/Runway/Anchor. When off, Glide behaves as before.
+   */
+  tpEnabled: boolean;
+  tpMode: ExitLevelMode;
+  tp: number;
 }
 
 export interface SharedExitConfig {
@@ -226,7 +235,7 @@ function baseExits(): SharedExitConfig {
       trailingActivationHoldSeconds: 10,
       tpTrailPercent: 1.5,
     },
-    glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50 },
+    glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50, tpEnabled: false, tpMode: "percent", tp: 25 },
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
   };
@@ -393,6 +402,9 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   // 0 = guard OFF. Anything above 0 is clamped into a usable band rather than
   // silently becoming a hair-trigger.
   e.glide.giveBackPct = e.glide.giveBackPct === 0 ? 0 : clampNum(e.glide.giveBackPct, 10, 95, 50);
+  e.glide.tpEnabled = !!e.glide.tpEnabled;
+  e.glide.tpMode = exitMode(e.glide.tpMode);
+  e.glide.tp = clampLevel(e.glide.tp, e.glide.tpMode, 500, 25, 3000);
   for (const st of [e.runway, e.anchor]) {
     st.slMode = exitMode(st.slMode);
     st.tpMode = exitMode(st.tpMode);

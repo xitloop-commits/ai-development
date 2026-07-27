@@ -394,7 +394,15 @@ class TickHandler extends EventEmitter {
     // Net-₹ exits (charge-aware) need the user's charge-rate table. Loaded once
     // per batch (cached ~60s inside), not per tick, and only when some open
     // trade actually uses a ₹-mode SL/TP — no cost for the all-% common case.
-    const anyNetRs = openTrades.some((t) => resolveNetRsExit(t.exitStrategy, channel) !== null);
+    const anyNetRs = openTrades.some((t) => {
+      if (resolveNetRsExit(t.exitStrategy, channel) !== null) return true;
+      // Glide's optional TP can also be in ₹ mode (its own on/off switch).
+      if (t.exitStrategy === "glide") {
+        const g = getExitConfig(channel).glide;
+        return g.tpEnabled && g.tpMode === "rupees";
+      }
+      return false;
+    });
     const chargeRates = anyNetRs ? await loadChargeRates() : [];
 
     let anyUpdated = false;
@@ -642,8 +650,34 @@ class TickHandler extends EventEmitter {
         // the guard below because that guard skips EVERY exit; putting the check
         // after it would leave the stop configured but never evaluated.
         if (trade.exitStrategy === "glide" && trade.entryPrice > 0) {
-          const pct = getExitConfig(channel).glide.disasterSlPct;
+          const glideCfg = getExitConfig(channel).glide;
           const isBuy = trade.type.includes("BUY");
+
+          // OPTIONAL Glide take-profit (own on/off switch, default off). Glide
+          // otherwise has no target — this banks a hard profit if enabled.
+          // percent = a % move in the premium; rupees = a NET ₹ profit after
+          // charges. Sits ABOVE the manualExitOnly guard like the other Glide
+          // exits, or it would be configured but never evaluated.
+          if (glideCfg.tpEnabled && trade.qty > 0) {
+            const tpHit =
+              glideCfg.tpMode === "rupees"
+                ? netPnlAtPrice(trade, tick.ltp, chargeRates) >= glideCfg.tp
+                : (isBuy
+                    ? tick.ltp >= trade.entryPrice * (1 + glideCfg.tp / 100)
+                    : tick.ltp <= trade.entryPrice * (1 - glideCfg.tp / 100));
+            if (tpHit) {
+              log.important(
+                `[XSYNC-SVR] GLIDE-TP ${channel} trade=${trade.id} ${trade.instrument} ` +
+                  `ltp=${tick.ltp} mode=${glideCfg.tpMode} tp=${glideCfg.tp} → emit exit`,
+              );
+              this.peakPrices.delete(peakKey);
+              this.exitingTrades.set(trade.id, Date.now());
+              tradesToExit.push({ trade, reason: "TP_HIT", exitPrice: tick.ltp });
+              continue;
+            }
+          }
+
+          const pct = glideCfg.disasterSlPct;
           // Mirror for a short: a sold option loses when the premium RISES.
           const limit = trade.entryPrice * (1 + (isBuy ? -pct : pct) / 100);
           const breached = isBuy ? tick.ltp <= limit : tick.ltp >= limit;

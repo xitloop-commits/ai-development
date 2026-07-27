@@ -43,7 +43,10 @@ interface SprintCfg {
 }
 /** SHARED across paper / live / manual. */
 /** Glide has no trading levels — only the disaster stop. See GlideConfig. */
-interface GlideCfg { disasterSlPct: number; giveBackArmPct: number; giveBackPct: number }
+interface GlideCfg {
+  disasterSlPct: number; giveBackArmPct: number; giveBackPct: number;
+  tpEnabled: boolean; tpMode: ExitLevelMode; tp: number;
+}
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
@@ -269,6 +272,8 @@ const HELP = {
   // Strategy-level: what the whole strategy does.
   glide:
     "MA-Signal only. No stop, no target, no trailing — the trade rides until MA-Signal sends its own EXIT. Two safety nets sit under it: a wide disaster stop for the case where that exit never arrives, and a give-back guard for the case where it arrives too late.",
+  glideTp:
+    "Optional hard take-profit for Glide (off by default — Glide normally rides to the MA EXIT). On = also bank a target: % of premium, or a NET ₹ profit after charges. Off = pure Glide, no target.",
   glideDisaster:
     "Last line of defence, NOT a trading stop. Only fires if the MA EXIT never comes at all (SEA restarted and lost its leg map, or a manual Glide trade was forgotten). Keep it wide enough that ordinary MA behaviour never reaches it — a 40% swing in an option premium is normal inside one leg.",
   glideArm:
@@ -701,6 +706,13 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                   </Group>
 
                   <Group title="Glide" help={HELP.glide} collapsible>
+                    <Row label="Take-profit" help={HELP.glideTp}>
+                      <Pill label={ed.glide.tpEnabled ? "ON" : "OFF"} on={ed.glide.tpEnabled}
+                        onClick={() => editExits((x) => { x.glide.tpEnabled = !x.glide.tpEnabled; })} />
+                    </Row>
+                    {ed.glide.tpEnabled && (
+                      <LevelNum help={HELP.glideTp} label="TP level" value={ed.glide.tp} mode={ed.glide.tpMode} onValue={(v) => editExits((x) => { x.glide.tp = v; })} onMode={(m) => editExits((x) => { x.glide.tpMode = m; })} />
+                    )}
                     <Num help={HELP.glideDisaster} label="Disaster stop" value={ed.glide.disasterSlPct} step={5} min={5} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.disasterSlPct = v; })} />
                     <Num help={HELP.glideArm} label="Guard arms at" value={ed.glide.giveBackArmPct} step={1} min={0} max={200} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackArmPct = v; })} />
                     <Num help={HELP.glideGiveBack} label="Give-back exit" value={ed.glide.giveBackPct} step={5} min={0} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackPct = v; })} />
