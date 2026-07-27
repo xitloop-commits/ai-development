@@ -1354,7 +1354,7 @@ function buildTradeRecord(
   // get null: their engine recomputes both from entry on the first tick.
   const cfgLevels =
     strategy === "sprint" && req.entryPrice > 0
-      ? sprintOpeningLevels(req.channel, req.entryPrice, isLong)
+      ? sprintOpeningLevels(req.channel, req.entryPrice, isLong, req.quantity)
       : null;
   const cfgStop = cfgLevels?.stopLoss ?? null;
   const cfgTarget = cfgLevels?.takeProfit ?? null;

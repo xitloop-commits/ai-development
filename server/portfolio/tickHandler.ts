@@ -26,6 +26,7 @@ import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig, getCommonConfig } from "./aiModeConfig";
+import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -390,6 +391,12 @@ class TickHandler extends EventEmitter {
     const tslGatePercent = sprintCfg.trailingActivationGatePercent;
     const tslHoldMs = sprintCfg.trailingActivationHoldSeconds * 1000;
 
+    // Net-₹ exits (charge-aware) need the user's charge-rate table. Loaded once
+    // per batch (cached ~60s inside), not per tick, and only when some open
+    // trade actually uses a ₹-mode SL/TP — no cost for the all-% common case.
+    const anyNetRs = openTrades.some((t) => resolveNetRsExit(t.exitStrategy, channel) !== null);
+    const chargeRates = anyNetRs ? await loadChargeRates() : [];
+
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT" | "TSL_HIT"; exitPrice: number }> = [];
 
@@ -525,6 +532,34 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
+        // ── Net-₹ exits (charge-aware) ──────────────────────────────────
+        // When a strategy's SL/TP is in rupees mode the exit is a NET ₹ P&L
+        // threshold (premium move × qty − round-trip charges), not a premium
+        // price. Evaluated HERE — before the strategy's own price branches — so
+        // it OWNS that side; the matching price exit below is suppressed for a
+        // ₹-mode side (see `netRs?` guards). entryPending trades have no real
+        // fill yet, so skip until the first live tick lands.
+        const netRs = resolveNetRsExit(trade.exitStrategy, channel);
+        if (netRs && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0) {
+          const net = netPnlAtPrice(trade, tick.ltp, chargeRates);
+          const hit =
+            netRs.tpMode === "rupees" && net >= netRs.tpRs ? "TP_HIT" as const
+            : netRs.slMode === "rupees" && net <= -netRs.slRs ? "SL_HIT" as const
+            : null;
+          if (hit) {
+            log.important(
+              `[XSYNC-SVR] NET-${hit === "TP_HIT" ? "TP" : "SL"} ${channel} trade=${trade.id} ` +
+                `${trade.instrument} net=${Math.round(net)} vs ${hit === "TP_HIT" ? netRs.tpRs : -netRs.slRs} → emit exit`,
+            );
+            this.peakPrices.delete(peakKey);
+            this.tslArmedAt.delete(trade.id);
+            this.tslActivated.delete(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
+            tradesToExit.push({ trade, reason: hit, exitPrice: tick.ltp });
+            continue;
+          }
+        }
+
         // T84 — pluggable exit strategy. runway/anchor trades run the staged
         // engine (cooling → 12.5% → breakeven → ride/bank) instead of the legacy
         // TP/SL/TSL below. Sprint (or undefined) falls through unchanged. Uses the
@@ -574,17 +609,22 @@ class TickHandler extends EventEmitter {
             }
             anyUpdated = true;
             if (out.exit) {
-              this.exitingTrades.set(trade.id, Date.now());
-              tradesToExit.push({
-                trade,
-                // Runway's "trailing" phase rides the peak — an exit there is a
-                // trailing-stop exit, not the staged/original stop.
-                reason:
-                  out.phase === "target-bank" ? "TP_HIT"
-                  : out.phase === "trailing" ? "TSL_HIT"
-                  : "SL_HIT",
-                exitPrice: out.exitPrice ?? tick.ltp,
-              });
+              // Runway's "trailing" phase rides the peak — an exit there is a
+              // trailing-stop exit, not the staged/original stop.
+              const reason =
+                out.phase === "target-bank" ? "TP_HIT" as const
+                : out.phase === "trailing" ? "TSL_HIT" as const
+                : "SL_HIT" as const;
+              // A ₹-mode side is owned by the net-₹ check above — drop the
+              // staged engine's price-based exit for that side so the two can't
+              // both fire (downside = SL_HIT/TSL_HIT, upside = TP_HIT).
+              const ownedByNetRs =
+                (netRs?.slMode === "rupees" && (reason === "SL_HIT" || reason === "TSL_HIT")) ||
+                (netRs?.tpMode === "rupees" && reason === "TP_HIT");
+              if (!ownedByNetRs) {
+                this.exitingTrades.set(trade.id, Date.now());
+                tradesToExit.push({ trade, reason, exitPrice: out.exitPrice ?? tick.ltp });
+              }
             }
           }
           continue; // the strategy owns the exit — skip legacy TP/SL/TSL
@@ -760,8 +800,9 @@ class TickHandler extends EventEmitter {
         }
 
         // Per-trade TP-disabled: suppress the take-profit auto-exit so the trade
-        // rides on SL/TSL only (mirror of stopLossDisabled).
-        if (trade.targetPrice !== null && !trade.targetDisabled) {
+        // rides on SL/TSL only (mirror of stopLossDisabled). Also suppressed when
+        // TP is in rupees mode — the net-₹ check above owns the upside.
+        if (trade.targetPrice !== null && !trade.targetDisabled && netRs?.tpMode !== "rupees") {
           const tpHit = isBuy
             ? tick.ltp >= trade.targetPrice
             : tick.ltp <= trade.targetPrice;
@@ -779,7 +820,9 @@ class TickHandler extends EventEmitter {
             continue; // Don't check SL if TP hit
           }
         }
-        if (trade.stopLossPrice !== null) {
+        // SL in rupees mode is owned by the net-₹ check above — skip the
+        // premium-price stop entirely for that side.
+        if (trade.stopLossPrice !== null && netRs?.slMode !== "rupees") {
           const slHit = isBuy
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;

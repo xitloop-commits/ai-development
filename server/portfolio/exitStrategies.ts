@@ -28,10 +28,20 @@
 
 export type ExitStrategyName = "sprint" | "runway" | "anchor" | "glide";
 
+/** See ExitLevelMode in aiModeConfig — "percent" (premium %) or "rupees" (net ₹
+ *  P&L after charges). Duplicated as a bare union here to avoid a config→engine
+ *  import cycle. */
+export type ExitLevelMode = "percent" | "rupees";
+
 export interface ExitStrategyConfig {
+  /** How defaultSlPct / defaultTargetPct are read. In "rupees" mode the staged
+   *  stop collapses to a single flat net-₹ stop and the target to a net-₹ target
+   *  (a running % stop makes no sense once the level is money, not price). */
+  slMode: ExitLevelMode;
+  tpMode: ExitLevelMode;
   /** Cooling window (seconds) the wide 25% stop holds before tightening. */
   coolingSec: number;
-  /** Wide default stop (% below entry) during cooling. */
+  /** Wide default stop: % below entry (percent mode) OR net ₹ loss (rupees). */
   defaultSlPct: number;
   /** Tightened stop (% below entry) after cooling. */
   cooledSlPct: number;
@@ -47,6 +57,8 @@ export interface ExitStrategyConfig {
 
 /** Backtest sweet spot: cooling 5 min, trail 15%. Cooling is a live input (T84). */
 export const DEFAULT_EXIT_CFG: ExitStrategyConfig = {
+  slMode: "percent",
+  tpMode: "percent",
   coolingSec: 300,
   defaultSlPct: 25,
   cooledSlPct: 12.5,

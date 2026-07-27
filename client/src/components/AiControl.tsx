@@ -26,11 +26,15 @@ import { useChannel } from "@/contexts/CapitalContext";
 import { useSignalEpoch } from "@/stores/liveSignals";
 
 // ── Local mirror of the server AiModeConfig (client has no router-output type) ──
+/** "percent" = % of premium; "rupees" = net ₹ P&L (after charges) on the position. */
+type ExitLevelMode = "percent" | "rupees";
 interface ExitCfg {
+  slMode: ExitLevelMode; tpMode: ExitLevelMode;
   coolingSec: number; defaultSlPct: number; cooledSlPct: number;
   breakevenAtFrac: number; nearTargetFrac: number; trailPct: number; defaultTargetPct: number;
 }
 interface SprintCfg {
+  slMode: ExitLevelMode; tpMode: ExitLevelMode;
   defaultSL: number; defaultTP: number; dailyTargetPercent: number;
   trailingStopEnabled: boolean; trailingStopPercent: number;
   trailingDistanceSource: "config" | "signal";
@@ -148,6 +152,40 @@ function Num({ label, value, onChange, step = 1, min, max, unit, help }: {
   );
 }
 
+/**
+ * An SL/TP row with a % / ₹ mode toggle. In "%" the number is a premium %; in
+ * "₹" it is a NET rupee P&L (after charges) on the whole position — the engine
+ * exits when live net P&L crosses it. Bounds + unit switch with the mode.
+ */
+function LevelNum({ label, help, value, mode, onValue, onMode }: {
+  label: string; help?: string; value: number; mode: ExitLevelMode;
+  onValue: (v: number) => void; onMode: (m: ExitLevelMode) => void;
+}) {
+  const rs = mode === "rupees";
+  return (
+    <Row label={label} help={help}>
+      <div className="flex items-center gap-1">
+        <div className="flex rounded border border-border overflow-hidden mr-0.5">
+          {(["percent", "rupees"] as const).map((m) => (
+            <button key={m} type="button" onClick={() => onMode(m)}
+              className={`px-1.5 py-0.5 text-[0.625rem] font-bold transition-colors ${
+                mode === m ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+              }`}>
+              {m === "percent" ? "%" : "₹"}
+            </button>
+          ))}
+        </div>
+        <input
+          type="number" step={rs ? 100 : 0.5} min={rs ? 1 : 0} max={rs ? 1000000 : 100} value={value}
+          onChange={(e) => onValue(e.target.value === "" ? 0 : Number(e.target.value))}
+          className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan"
+        />
+        <span className="text-[0.5625rem] text-muted-foreground w-6">{rs ? "₹" : "%"}</span>
+      </div>
+    </Row>
+  );
+}
+
 function Seg<T extends string>({ label, value, options, onChange, help }: {
   label: string; value: T; options: readonly T[]; onChange: (v: T) => void; help?: string;
 }) {
@@ -246,8 +284,8 @@ const HELP = {
     "Same staged stops as Runway, but banks the profit AT the target instead of riding past it. Use when you'd rather take the sure gain than risk giving it back.",
 
   // Sprint-only.
-  sprintSL: "Opening stop, as a % below entry. Applied once when the trade opens.",
-  sprintTP: "Opening target, as a % above entry. Applied once when the trade opens.",
+  sprintSL: "Stop-loss. % = a % move below entry premium. ₹ = a NET rupee loss (after round-trip charges) on the whole position — exits the moment live net P&L drops to −₹ this, whatever the lot size.",
+  sprintTP: "Take-profit. % = a % move above entry premium. ₹ = a NET rupee profit (after round-trip charges) on the whole position — banks the moment live net P&L reaches +₹ this.",
   dailyTarget:
     "Day's profit goal as a % of capital. Once the book reaches it, no new trades are taken for the rest of the day.",
   trailingOn:
@@ -267,13 +305,13 @@ const HELP = {
   cooling:
     "How long after entry the wide stop holds before tightening. Gives a new trade room to breathe through the initial noise instead of being stopped out by it.",
   wideStop:
-    "The stop during the cooling window, as a % below entry. Deliberately loose — it's there so the trade is never naked, not to be hit.",
+    "The stop during the cooling window, as a % below entry. Deliberately loose — it's there so the trade is never naked, not to be hit. Switch to ₹ to make it a FLAT net-rupee stop (after charges) instead — the staged tightening/cooling then no longer applies.",
   cooledStop:
     "The tighter stop that replaces the wide one once cooling ends, as a % below entry.",
   breakevenAt:
     "Once the peak reaches this fraction of the target gain, the stop moves up to your entry price — from that point the trade can't lose. 0.5 = halfway to target.",
   target:
-    "Target gain as a % of entry. This is the ONLY source of the target: the signal's own target is ignored, so changing this moves the target on open trades too.",
+    "Target gain as a % of entry. This is the ONLY source of the target: the signal's own target is ignored, so changing this moves the target on open trades too. Switch to ₹ for a NET rupee profit target (after charges) on the whole position instead.",
 
   // Runway-only.
   trailAt:
@@ -630,8 +668,8 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                   </div>
 
                   <Group title="Sprint" help={HELP.sprint} collapsible>
-                    <Num help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />
-                    <Num help={HELP.sprintTP} label="Take-profit" value={ed.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultTP = v; })} />
+                    <LevelNum help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} mode={ed.sprint.slMode} onValue={(v) => editExits((x) => { x.sprint.defaultSL = v; })} onMode={(m) => editExits((x) => { x.sprint.slMode = m; })} />
+                    <LevelNum help={HELP.sprintTP} label="Take-profit" value={ed.sprint.defaultTP} mode={ed.sprint.tpMode} onValue={(v) => editExits((x) => { x.sprint.defaultTP = v; })} onMode={(m) => editExits((x) => { x.sprint.tpMode = m; })} />
                     <Num help={HELP.dailyTarget} label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
                     <Row label="Trailing" help={HELP.trailingOn}>
                       <Pill label={ed.sprint.trailingStopEnabled ? "ON" : "OFF"} on={ed.sprint.trailingStopEnabled}
@@ -646,20 +684,20 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
 
                   <Group title="Runway" help={HELP.runway} collapsible>
                     <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
-                    <Num help={HELP.wideStop} label="Wide stop" value={ed.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} />
+                    <LevelNum help={HELP.wideStop} label="Wide stop" value={ed.runway.defaultSlPct} mode={ed.runway.slMode} onValue={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} onMode={(m) => editExits((x) => { x.runway.slMode = m; })} />
                     <Num help={HELP.cooledStop} label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
                     <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.breakevenAtFrac = v; })} />
                     <Num help={HELP.trailAt} label="Trail at" value={ed.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.nearTargetFrac = v; })} />
                     <Num help={HELP.runwayTrailPct} label="Trail %" value={ed.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.trailPct = v; })} />
-                    <Num help={HELP.target} label="Target" value={ed.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} />
+                    <LevelNum help={HELP.target} label="Target" value={ed.runway.defaultTargetPct} mode={ed.runway.tpMode} onValue={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} onMode={(m) => editExits((x) => { x.runway.tpMode = m; })} />
                   </Group>
 
                   <Group title="Anchor" help={HELP.anchor} collapsible>
                     <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
-                    <Num help={HELP.wideStop} label="Wide stop" value={ed.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} />
+                    <LevelNum help={HELP.wideStop} label="Wide stop" value={ed.anchor.defaultSlPct} mode={ed.anchor.slMode} onValue={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} onMode={(m) => editExits((x) => { x.anchor.slMode = m; })} />
                     <Num help={HELP.cooledStop} label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
                     <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
-                    <Num help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
+                    <LevelNum help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} mode={ed.anchor.tpMode} onValue={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} onMode={(m) => editExits((x) => { x.anchor.tpMode = m; })} />
                   </Group>
 
                   <Group title="Glide" help={HELP.glide} collapsible>

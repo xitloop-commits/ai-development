@@ -1627,6 +1627,27 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T140 [Execution] — SL/TP toggle: % of premium OR net ₹ P&L (after charges) ✅ DONE 2026-07-27
+Each strategy's stop-loss and take-profit can now be set in **% of premium** (as
+before) or **net ₹ P&L on the whole position, after round-trip charges** — an
+independent toggle per field (Sprint, Runway, Anchor; Glide unchanged). Applies
+to every book/origin via the shared exit config.
+
+**How it works:** % is unchanged (a premium price level). ₹ mode is evaluated
+**per tick** — `netPnlAtPrice` = `(ltp−entry)×qty×dir − entry+exit charges`
+([charges.ts](../../server/portfolio/charges.ts) rates) — and exits when net P&L
+crosses `−slRs` / `+tpRs`. New [netRsExit.ts](../../server/portfolio/netRsExit.ts)
+(resolver + net-P&L + 60s charge-rate cache); the tick engine runs the check
+before the price-based branches and **suppresses the matching price side** for a
+₹-mode field (staged Runway/Anchor stop collapses to a flat net-₹ stop).
+`sprintOpeningLevels` is mode-aware (₹ → entry ∓ ₹/qty for the gate + TradeBar;
+wide 50% placeholder when qty unknown so it never front-runs the net check).
+Config carries `slMode`/`tpMode` (default `percent`, back-filled) with mode-aware
+clamps. UI: a `% / ₹` toggle beside each SL/TP in the AI-menu Strategy exits.
+Net-of-charges is **gross premium move minus estimated round-trip charges**;
+default stays `percent` so nothing changes until a toggle is flipped. Tests:
+netRsExit.test.ts (12) + full portfolio/executor/discipline suites green.
+
 ### T124 [Execution] 🔴 — three settings fixes from the 22–23 Jul paper data ✅ DONE 2026-07-23
 
 **1. Sprint's trailing stop fired on the FIRST tick.** On tick one the peak IS

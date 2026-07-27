@@ -60,10 +60,24 @@ export interface OrderConfig {
   productType: "INTRADAY" | "CNC";
 }
 
+/**
+ * How an SL / TP number is read:
+ *   "percent" — a % move in the option PREMIUM price (the original behaviour).
+ *   "rupees"  — a NET ₹ P&L on the whole position, AFTER round-trip charges.
+ *               The tick engine computes live net P&L (premium move × qty −
+ *               entry+exit charges) and exits when it crosses the ₹ threshold,
+ *               so one figure means the same money on any lot size.
+ */
+export type ExitLevelMode = "percent" | "rupees";
+
 /** Sprint (fixed SL/TP + trailing). Part of the SHARED exit config. */
 export interface SprintConfig {
-  defaultSL: number; // % below entry
-  defaultTP: number; // % above entry
+  // Interpreted per slMode / tpMode: percent → % of entry premium; rupees → net
+  // ₹ P&L (after charges) on the whole position.
+  slMode: ExitLevelMode;
+  tpMode: ExitLevelMode;
+  defaultSL: number; // % below entry (percent) OR net ₹ loss (rupees)
+  defaultTP: number; // % above entry (percent) OR net ₹ profit (rupees)
   dailyTargetPercent: number;
   trailingStopEnabled: boolean;
   trailingStopPercent: number;
@@ -200,6 +214,8 @@ export interface AllAiConfig {
 function baseExits(): SharedExitConfig {
   return {
     sprint: {
+      slMode: "percent",
+      tpMode: "percent",
       defaultSL: 2.0,
       defaultTP: 5.0,
       dailyTargetPercent: 5.0,
@@ -347,9 +363,22 @@ const clampNum = (v: unknown, lo: number, hi: number, fallback: number): number 
 const isHHmm = (s: unknown): s is string => typeof s === "string" && /^\d{2}:\d{2}$/.test(s);
 
 /** Clamp the shared exit config to safe ranges. */
+/** Only "percent" or "rupees"; anything else (old config, bad edit) → percent. */
+function exitMode(m: unknown): ExitLevelMode {
+  return m === "rupees" ? "rupees" : "percent";
+}
+/** Clamp an SL/TP value by its mode: a % band, or a wide net-₹ band. */
+function clampLevel(value: number, mode: ExitLevelMode, pctMax: number, pctDef: number, rsDef: number): number {
+  return mode === "rupees"
+    ? clampNum(value, 1, 10_00_000, rsDef) // net ₹ up to 10 lakh
+    : clampNum(value, 0, pctMax, pctDef);
+}
+
 function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
-  e.sprint.defaultSL = clampNum(e.sprint.defaultSL, 0, 50, 2);
-  e.sprint.defaultTP = clampNum(e.sprint.defaultTP, 0, 100, 5);
+  e.sprint.slMode = exitMode(e.sprint.slMode);
+  e.sprint.tpMode = exitMode(e.sprint.tpMode);
+  e.sprint.defaultSL = clampLevel(e.sprint.defaultSL, e.sprint.slMode, 50, 2, 2000);
+  e.sprint.defaultTP = clampLevel(e.sprint.defaultTP, e.sprint.tpMode, 100, 5, 3000);
   e.sprint.dailyTargetPercent = clampNum(e.sprint.dailyTargetPercent, 1, 20, 5);
   e.sprint.trailingStopEnabled = !!e.sprint.trailingStopEnabled;
   e.sprint.trailingStopPercent = clampNum(e.sprint.trailingStopPercent, 0.1, 50, 2);
@@ -365,13 +394,16 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   // silently becoming a hair-trigger.
   e.glide.giveBackPct = e.glide.giveBackPct === 0 ? 0 : clampNum(e.glide.giveBackPct, 10, 95, 50);
   for (const st of [e.runway, e.anchor]) {
+    st.slMode = exitMode(st.slMode);
+    st.tpMode = exitMode(st.tpMode);
     st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
-    st.defaultSlPct = clampNum(st.defaultSlPct, 1, 90, 25);
+    // In rupees mode defaultSlPct / defaultTargetPct hold a net ₹ figure, not a %.
+    st.defaultSlPct = clampLevel(st.defaultSlPct, st.slMode, 90, 25, 2000);
     st.cooledSlPct = clampNum(st.cooledSlPct, 1, 90, 12.5);
     st.breakevenAtFrac = clampNum(st.breakevenAtFrac, 0, 1, 0.5);
     st.nearTargetFrac = clampNum(st.nearTargetFrac, 0, 1, 0.9);
     st.trailPct = clampNum(st.trailPct, 1, 90, 15);
-    st.defaultTargetPct = clampNum(st.defaultTargetPct, 0.1, 50, 2.3);
+    st.defaultTargetPct = clampLevel(st.defaultTargetPct, st.tpMode, 50, 2.3, 3000);
   }
   return e;
 }
@@ -496,12 +528,26 @@ export function sprintOpeningLevels(
   channel: Channel,
   entry: number,
   isLong: boolean,
+  qty?: number,
 ): { stopLoss: number; takeProfit: number } {
-  const { defaultSL, defaultTP } = state[resolveBook(channel)].exits.sprint;
+  const s = state[resolveBook(channel)].exits.sprint;
   const round2 = (x: number) => Math.round(x * 100) / 100;
-  const move = (pct: number, favourable: boolean) =>
-    round2(entry * (1 + (isLong === favourable ? pct : -pct) / 100));
-  return { stopLoss: move(defaultSL, false), takeProfit: move(defaultTP, true) };
+  // The premium distance for a side, from its own mode:
+  //   percent → % of entry;
+  //   rupees  → the net ₹ figure spread over the position (₹ / qty). Charges
+  //             shift the TRUE net level slightly — the per-tick net check
+  //             (netRsExit) is the exact authority; this price only has to be
+  //             sane for the discipline gate + TradeBar. With qty unknown, fall
+  //             back to a wide 50% so it never front-runs the net check.
+  const q = qty && qty > 0 ? qty : 0;
+  const dist = (value: number, mode: ExitLevelMode) =>
+    mode === "rupees" ? (q > 0 ? value / q : entry * 0.5) : entry * (value / 100);
+  const slDist = dist(s.defaultSL, s.slMode);
+  const tpDist = dist(s.defaultTP, s.tpMode);
+  return {
+    stopLoss: round2(isLong ? entry - slDist : entry + slDist),
+    takeProfit: round2(isLong ? entry + tpDist : entry - tpDist),
+  };
 }
 
 /** The Sprint / Runway / Anchor / Glide config for a channel's book (T134 —
