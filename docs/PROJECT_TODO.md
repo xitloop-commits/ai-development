@@ -1654,12 +1654,11 @@ toggle. Config: `glide.tpEnabled/tpMode/tp`; the tick engine checks it in the
 Glide branch above the manualExitOnly guard (₹ via netPnlAtPrice, % via a premium
 level). UI: TP on/off Pill + LevelNum in the Glide group.
 
-**OPEN (pending decision):** reframe every exit % as **net-% of capital invested
-per trade** (fold charges into ALL levels — trail, wide/cooled/disaster stop,
-activation gate, TP trail, give-back arm/exit — not just SL/TP). Awaiting A/B:
-(A) replace the ₹ toggle with net-% of capital everywhere; (B) keep both. Note:
-for one option leg %-of-premium already ≡ %-of-capital gross; the real change is
-folding charges into every level.
+**Declined 2026-07-27:** the "reframe every exit % as net-% of capital invested"
+idea (fold charges into ALL levels) was considered and dropped — Partha said
+"leave it". Current model stands: SL/TP support %/₹ (net after charges); the
+other knobs (trail, wide/cooled/disaster stop, activation gate, TP trail,
+give-back) stay % of premium. Don't reopen without a fresh ask.
 
 ### T124 [Execution] 🔴 — three settings fixes from the 22–23 Jul paper data ✅ DONE 2026-07-23
 
