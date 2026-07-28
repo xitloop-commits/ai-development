@@ -605,6 +605,31 @@ class TickHandler extends EventEmitter {
             tradesToExit.push({ trade, ...masterHit });
             continue;
           }
+
+          // Not exiting — write the master levels onto the trade so the TradeBar
+          // DRAWS them (the strategy's markers are overridden). ₹ levels use the
+          // gross ₹/qty distance for display (charges shift the true level a hair;
+          // the exit check above is the exact authority). TSL shows the trailing
+          // stop only once the peak is in profit.
+          const r2 = (x: number) => Math.round(x * 100) / 100;
+          // premium price for a net-₹ or % distance on the given side.
+          const toPrice = (v: number, mode: string, favourable: boolean) =>
+            mode === "rupees"
+              ? trade.entryPrice + (isBuy === favourable ? 1 : -1) * (v / trade.qty)
+              : pctLevel(v, favourable);
+          if (mTP) { trade.targetPrice = r2(toPrice(master.tp.value, master.tp.mode, true)); anyUpdated = true; }
+          // Downside display = the tighter of the master hard-SL and the armed TSL.
+          let stopDisp: number | null = mSL ? toPrice(master.sl.value, master.sl.mode, false) : null;
+          if (mTSL) {
+            const peakFav = isBuy ? newPeak - trade.entryPrice : trade.entryPrice - newPeak;
+            if (peakFav > 0) {
+              const tslStop = master.tsl.mode === "rupees"
+                ? newPeak - (isBuy ? 1 : -1) * (master.tsl.value / trade.qty)
+                : (isBuy ? newPeak * (1 - master.tsl.value / 100) : newPeak * (1 + master.tsl.value / 100));
+              stopDisp = stopDisp == null ? tslStop : (isBuy ? Math.max(stopDisp, tslStop) : Math.min(stopDisp, tslStop));
+            }
+          }
+          if (stopDisp != null) { trade.stopLossPrice = r2(stopDisp); anyUpdated = true; }
         }
 
         // ── Net-₹ exits (charge-aware) ──────────────────────────────────
@@ -674,14 +699,16 @@ class TickHandler extends EventEmitter {
             const stopIsTrail = out.phase === "trailing";
             const stopImproves = isBuy ? out.stop > (trade.stopLossPrice ?? -Infinity)
                                        : out.stop < (trade.stopLossPrice ?? Infinity);
-            if (!trade.slOverridden || (stopIsTrail && stopImproves)) {
+            // Don't let the staged stop overwrite the master stop's visible level
+            // (the master owns downside when mSL/mTSL is on).
+            if ((!trade.slOverridden || (stopIsTrail && stopImproves)) && !(mSL || mTSL)) {
               trade.stopLossPrice = out.stop; // ratchet the visible stop
             }
             // Target follows the config too, so retuning Runway/Anchor moves the
             // TradeBar's TP on open trades — not just the stop. A manual target
             // is left alone entirely; there is no trailing-TP phase here to
             // ratchet from.
-            if (!trade.tpOverridden) {
+            if (!trade.tpOverridden && !mTP) {
               trade.targetPrice = Math.round(out.target * 100) / 100;
             }
             anyUpdated = true;

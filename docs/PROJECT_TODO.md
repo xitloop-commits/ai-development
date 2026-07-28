@@ -1643,6 +1643,13 @@ has its own on/off switch + `%`/`₹` toggle (% of premium, or net ₹ after cha
   last-resort backstop. Charge-rate predicate covers master ₹ modes.
 - UI: "Master exits" group at the top of the Settings (gear) menu — MasterRow
   (enable + %/₹ + value) for TP / SL / Trailing.
+- **Fix 2026-07-27:** the TradeBar markers weren't following the master levels —
+  master overrode the exit LOGIC but never wrote `stopLossPrice`/`targetPrice`,
+  which the bar draws from. Now, on a non-exit tick, the master writes its
+  equivalent price onto the trade (% → entry×(1±v/100); ₹ → entry∓v/qty gross;
+  TSL → trailing stop once peak in profit; downside shows the tighter of hard-SL
+  and armed TSL), and the staged Runway/Anchor level-writes are gated so they
+  can't overwrite it.
 - tests: netRsExit.test.ts now 18 (master config defaults/clamp/partial-patch);
   four tickHandler mocks gained getCommonConfig (master now read on all
   channels, not just live). portfolio/executor/discipline/risk-control green (702).
