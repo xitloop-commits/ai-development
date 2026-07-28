@@ -21,7 +21,21 @@ export type DirectionFilter = 'LONG' | 'SHORT';
 export type OutcomeFilter = 'WIN' | 'LOSS';
 export type SourceFilter = 'ai' | 'my';
 
+/** IST calendar date "YYYY-MM-DD" from an epoch-ms timestamp. */
+export function istDateOf(ms: number): string {
+  const d = new Date(ms + 5.5 * 3600000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "2026-07-27" → "27 Jul" for the dropdown. */
+function dateLabel(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d} ${MONTHS[(m ?? 1) - 1]}`;
+}
+
 export interface TradeFilter {
+  /** IST date "YYYY-MM-DD" (matched on openedAt), or null = all dates. */
+  date: string | null;
   /** Exact `trade.instrument` value, or null = all instruments. */
   instrument: string | null;
   status: StatusFilter | null;
@@ -40,6 +54,7 @@ export interface TradeFilter {
 }
 
 export const EMPTY_TRADE_FILTER: TradeFilter = {
+  date: null,
   instrument: null,
   status: null,
   side: null,
@@ -53,12 +68,18 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.instrument && !f.status && !f.side && !f.direction && !f.outcome
+  return !f.date && !f.instrument && !f.status && !f.side && !f.direction && !f.outcome
     && !f.exitReason && !f.cohort && !f.exitStrategy && !f.source;
 }
 
 /** Does a trade pass the active filter? Empty axes are ignored. */
 export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
+  // Date is matched on the ENTRY time (openedAt), so a trade belongs to the day
+  // it was opened. The current view can hold trades from several calendar dates
+  // (the day-record doesn't roll over per calendar day), which is exactly why
+  // this axis exists.
+  if (f.date && (!t.openedAt || istDateOf(t.openedAt) !== f.date)) return false;
+
   if (f.instrument && t.instrument !== f.instrument) return false;
 
   if (f.status) {
@@ -147,6 +168,9 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 export interface TradeFilterBarProps {
   value: TradeFilter;
   onChange: (next: TradeFilter) => void;
+  /** Distinct IST dates (YYYY-MM-DD) present in the loaded trades; the group is
+   *  hidden when there is only one date (nothing to narrow). */
+  dates?: string[];
   /** Distinct `trade.instrument` values present in the current day (dropdown options). */
   instruments: string[];
   /** Distinct `trade.cohort` values present in the current day (toggle pills);
@@ -176,7 +200,7 @@ const EXIT_REASON_LABEL: Record<string, string> = {
   EXPIRY: 'Expiry',
 };
 
-function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies, exitReasons }: TradeFilterBarProps) {
+function _TradeFilterBar({ value, onChange, dates = [], instruments, cohorts, strategies, exitReasons }: TradeFilterBarProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -201,7 +225,7 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies, ex
 
   const dirty = !isEmptyTradeFilter(value);
   const activeCount =
-    (value.instrument ? 1 : 0) + (value.status ? 1 : 0) + (value.side ? 1 : 0) +
+    (value.date ? 1 : 0) + (value.instrument ? 1 : 0) + (value.status ? 1 : 0) + (value.side ? 1 : 0) +
     (value.outcome ? 1 : 0) + (value.source ? 1 : 0) + (value.cohort ? 1 : 0) +
     (value.exitStrategy ? 1 : 0);
 
@@ -243,6 +267,22 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies, ex
               </button>
             )}
           </div>
+
+          {dates.length > 1 && (
+            <Group label="Date">
+              <select
+                value={value.date ?? ''}
+                onChange={(e) => onChange({ ...value, date: e.target.value || null })}
+                title="Filter by trade date"
+                className="max-w-[8rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+              >
+                <option value="">All dates</option>
+                {dates.map((d) => (
+                  <option key={d} value={d}>{dateLabel(d)}</option>
+                ))}
+              </select>
+            </Group>
+          )}
 
           <Group label="Instr.">
             <select

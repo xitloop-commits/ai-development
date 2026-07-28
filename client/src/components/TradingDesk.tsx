@@ -12,7 +12,7 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
 import { TodayPnlBar } from './TodayPnlBar';
-import { TradeFilterBar, EMPTY_TRADE_FILTER, type TradeFilter } from './TradeFilterBar';
+import { TradeFilterBar, EMPTY_TRADE_FILTER, istDateOf, type TradeFilter } from './TradeFilterBar';
 import { AiControl } from './AiControl';
 import { MyTradesControl } from './MyTradesControl';
 import { SettingsMenu } from './SettingsMenu';
@@ -158,7 +158,7 @@ export default function TradingDesk({
 
   // Distinct instruments + cohorts traded today — populate the filter's options.
   // MUST stay above the early returns below so hook order never changes.
-  const { todayInstruments, todayCohorts, todayStrategies, todayExitReasons } = useMemo(() => {
+  const { todayInstruments, todayCohorts, todayStrategies, todayExitReasons, todayDates } = useMemo(() => {
     const t = allDays.find((d) => d.dayIndex === capital?.currentDayIndex)?.trades ?? [];
     // Only surface the strategy filter once the race is actually running (>1
     // distinct strategy today) — a single-strategy day keeps the bar clean.
@@ -172,6 +172,9 @@ export default function TradingDesk({
         new Set(t.map((x) => x.cohort).filter((c): c is string => !!c)),
       ),
       todayStrategies: strats.length > 1 ? strats : [],
+      // Distinct IST dates present (newest first). The current-day record can hold
+      // several calendar dates, so this powers the Date filter axis.
+      todayDates: Array.from(new Set(t.map((x) => (x.openedAt ? istDateOf(x.openedAt) : null)).filter((d): d is string => !!d))).sort().reverse(),
       // Exit reasons actually seen today — ordered most-common first so the
       // reason you're most likely to filter on sits leftmost.
       todayExitReasons: Object.entries(
@@ -219,6 +222,7 @@ export default function TradingDesk({
           <TradeFilterBar
             value={tradeFilter}
             onChange={setTradeFilter}
+            dates={todayDates}
             instruments={todayInstruments}
             cohorts={todayCohorts}
             strategies={todayStrategies}

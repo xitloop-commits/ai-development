@@ -46,6 +46,16 @@ describe('tradeMatchesFilter', () => {
     expect(tradeMatchesFilter(trade({ instrument: 'BANK NIFTY' }), f({ instrument: 'NIFTY 50' }))).toBe(false);
   });
 
+  it('date — matches the IST day of openedAt', () => {
+    const jul27 = Date.UTC(2026, 6, 27, 10, 0); // 15:30 IST on 27 Jul
+    const jul23 = Date.UTC(2026, 6, 23, 10, 0);
+    expect(tradeMatchesFilter(trade({ openedAt: jul27 }), f({ date: '2026-07-27' }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ openedAt: jul23 }), f({ date: '2026-07-27' }))).toBe(false);
+    // A near-midnight-UTC trade still lands on the correct IST day (+5:30).
+    const lateNight = Date.UTC(2026, 6, 26, 20, 0); // 01:30 IST on 27 Jul
+    expect(tradeMatchesFilter(trade({ openedAt: lateNight }), f({ date: '2026-07-27' }))).toBe(true);
+  });
+
   it('status — OPEN vs CLOSED (EXITED counts as closed)', () => {
     expect(tradeMatchesFilter(trade({ status: 'OPEN' }), f({ status: 'OPEN' }))).toBe(true);
     expect(tradeMatchesFilter(trade({ status: 'CLOSED' }), f({ status: 'OPEN' }))).toBe(false);
