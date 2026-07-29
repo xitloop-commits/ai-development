@@ -501,25 +501,35 @@ export function TradeBar({
             );
           })}
 
-          {/* Travel BEYOND the current price, anchored at the LTP pointer: dark
-              GREEN from the LTP up to the peak (how much higher it ran than it
-              is/exited), dark RED from the LTP down to the trough (how far it
-              dipped below). Frozen on close → stays on past trades; the red side
-              needs troughLtp, which is absent on pre-field trades. */}
-          {peakPos != null && peakPos - ltpPos > 0.3 && (
-            <div
-              className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
-              style={{ left: `${ltpPos}%`, width: `${peakPos - ltpPos}%`, background: DARK_GREEN }}
-              title={peakTip}
-            />
-          )}
-          {troughPos != null && ltpPos - troughPos > 0.3 && (
-            <div
-              className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
-              style={{ left: `${troughPos}%`, width: `${ltpPos - troughPos}%`, background: DARK_RED }}
-              title={troughTip}
-            />
-          )}
+          {/* Travel BEYOND the current price: dark GREEN from the LTP up to the
+              peak (how much higher it ran than it is/exited), dark RED from the
+              LTP down to the trough (how far it dipped below). Each is CLAMPED at
+              entry so green never crosses onto the loss side and red never crosses
+              onto the profit side — on a losing trade the green starts at entry,
+              on a winning trade the red stops at entry. Frozen on close; red needs
+              troughLtp (absent on pre-field trades). */}
+          {(() => {
+            const greenFrom = Math.max(ltpPos, entryPos); // never left of entry
+            const redTo = Math.min(ltpPos, entryPos);      // never right of entry
+            return (
+              <>
+                {peakPos != null && peakPos - greenFrom > 0.3 && (
+                  <div
+                    className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
+                    style={{ left: `${greenFrom}%`, width: `${peakPos - greenFrom}%`, background: DARK_GREEN }}
+                    title={peakTip}
+                  />
+                )}
+                {troughPos != null && redTo - troughPos > 0.3 && (
+                  <div
+                    className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
+                    style={{ left: `${troughPos}%`, width: `${redTo - troughPos}%`, background: DARK_RED }}
+                    title={troughTip}
+                  />
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* Zone arrows: stop→entry (risk), then one arrow per reward gap
