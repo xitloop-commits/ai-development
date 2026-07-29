@@ -21,10 +21,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 def _load_scorecard(base: Path, instrument: str, model_version: str, date: str) -> dict | None:
-    path = base / instrument / model_version / date / "scorecard.json"
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    # Scored backtests write under a gate/ subdir; older runs wrote at the
+    # date level. Accept both.
+    for sub in ("gate", "."):
+        path = base / instrument / model_version / date / sub / "scorecard.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    return None
 
 
 def _find_versions(base: Path, instrument: str) -> list[str]:
