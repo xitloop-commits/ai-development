@@ -129,6 +129,11 @@ export interface TradeRecord {
    *  ratchet anchor. Persisted via position_state so the trail survives a
    *  server restart; absent on trades that pre-date the field. */
   peakLtp?: number;
+  /** MOST-ADVERSE LTP seen since entry — the mirror of peakLtp: lowest (BUY) /
+   *  highest (SELL). Together they give the trade's full peak↔trough travel
+   *  (max favourable + max adverse excursion), drawn on the TradeBar and frozen
+   *  on close. Persisted; absent on trades that pre-date the field. */
+  troughLtp?: number;
   /** Epoch ms when the trailing stop ACTIVATED (gate held). Stamped once and
    *  persisted so the UI can show a "TSL running" stopwatch that survives a
    *  reload. Absent until the TSL arms; never reset for the trade's life. */
@@ -375,6 +380,7 @@ export const tradeRecordSchema = new Schema(
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
     peakLtp: { type: Number, default: null },
+    troughLtp: { type: Number, default: null },
     breakevenPrice: { type: Number, default: null },
     slDistance: { type: Number, default: null },
     stopLossDisabled: { type: Boolean, default: false },
@@ -1291,6 +1297,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       exitPrice: t.exitPrice ?? null,
       ltp: t.ltp ?? 0,
       peakLtp: t.peakLtp ?? undefined,
+      troughLtp: t.troughLtp ?? undefined,
       qty: t.qty,
       lotSize: t.lotSize ?? undefined,
       productType: (t.productType as "INTRADAY" | "CNC" | undefined) ?? undefined,

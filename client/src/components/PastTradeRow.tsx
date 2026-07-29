@@ -216,6 +216,8 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
                       trade.entryPrice) * 100
                   : undefined
               }
+              peakLtp={trade.peakLtp}
+              troughLtp={trade.troughLtp}
               units={trade.qty}
               roundTripCharges={trade.charges}
             />

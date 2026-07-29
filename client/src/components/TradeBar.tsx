@@ -61,6 +61,12 @@ export interface TradeBarProps {
    *  stop sits deliberately wide; when it lapses the stop tightens. Only Runway /
    *  Anchor have one — pass null for Sprint (no cooling window). */
   coolingEndsAt?: number | null;
+  /** Peak (max-favourable) LTP reached during the trade — draws the upside of the
+   *  travel band. Persisted + frozen on close, so it stays on past trades. */
+  peakLtp?: number | null;
+  /** Trough (max-adverse) LTP reached — draws the downside of the travel band.
+   *  Absent on trades that pre-date the field (then only the upside shows). */
+  troughLtp?: number | null;
   /** Position size in units (lots × lot size) — used to show ₹ P&L at markers. */
   units?: number;
   /** Round-trip charges (₹) — subtracted from the ₹ P&L shown at markers. */
@@ -129,6 +135,8 @@ export function TradeBar({
   tslHoldSeconds,
   tslActivatedAt,
   coolingEndsAt,
+  peakLtp,
+  troughLtp,
   units,
   roundTripCharges = 0,
   compact = false,
@@ -307,6 +315,22 @@ export function TradeBar({
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
+
+  // ── Peak↔trough travel (max favourable + max adverse excursion) ─────────
+  // How far the price actually reached EACH way over the trade's life. The
+  // server tracks peakLtp (favourable) + troughLtp (adverse) and freezes both on
+  // close, so this stays on past trades. troughLtp is absent on pre-field trades
+  // → only the upside shows then.
+  const peakFav = peakLtp != null && peakLtp > 0 ? toFav(peakLtp) : null;
+  const troughFav = troughLtp != null && troughLtp > 0 ? toFav(troughLtp) : null;
+  const peakPos = peakFav != null ? pos(peakFav) : null;
+  const troughPos = troughFav != null ? pos(troughFav) : null;
+  const peakTip = peakFav != null
+    ? `Ran up to ${formatPrice(peakLtp as number)} (${fmtSign(peakFav)})${profitAtFav(peakFav) != null ? ` · best ${fmtMoney(profitAtFav(peakFav) as number)}` : ""}`
+    : "";
+  const troughTip = troughFav != null
+    ? `Dipped to ${formatPrice(troughLtp as number)} (${fmtSign(troughFav)})${profitAtFav(troughFav) != null ? ` · worst ${fmtMoney(profitAtFav(troughFav) as number)}` : ""}`
+    : "";
 
   const Tick = ({ at, color, tip, z }: { at: number; color: string; tip: string; z?: number }) => (
     <div
@@ -535,6 +559,37 @@ export function TradeBar({
           />
         </div>
       </div>
+
+      {/* Peak↔trough TRAVEL strip — how far the price actually reached each way
+          (max favourable + max adverse excursion). Same horizontal scale as the
+          bar above, so the low water-mark lines up under the SL and the high
+          water-mark under the TP. Frozen on close → stays on past trades; upside
+          -only on trades that pre-date troughLtp. */}
+      {(peakPos != null || troughPos != null) && (
+        <div className={`relative w-full ${compact ? "h-1 mt-0.5" : "h-1.5 mt-1"}`} title="How far the price travelled: red = worst it dipped, green = best it ran">
+          <div className="absolute inset-0 rounded-full bg-muted-foreground/10 overflow-hidden">
+            {troughPos != null && Math.abs(entryPos - troughPos) > 0.3 && (
+              <div className="absolute top-0 bottom-0 pointer-events-auto cursor-help"
+                style={{ left: `${Math.min(troughPos, entryPos)}%`, width: `${Math.abs(entryPos - troughPos)}%`, background: `${RED}66` }}
+                title={troughTip} />
+            )}
+            {peakPos != null && Math.abs(peakPos - entryPos) > 0.3 && (
+              <div className="absolute top-0 bottom-0 pointer-events-auto cursor-help"
+                style={{ left: `${Math.min(entryPos, peakPos)}%`, width: `${Math.abs(peakPos - entryPos)}%`, background: `${GREEN}66` }}
+                title={peakTip} />
+            )}
+          </div>
+          {/* End-caps at the two water-marks. */}
+          {troughPos != null && (
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none"
+              style={{ left: `${troughPos}%`, width: "2px", height: "7px", background: RED, borderRadius: "1px" }} />
+          )}
+          {peakPos != null && (
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none"
+              style={{ left: `${peakPos}%`, width: "2px", height: "7px", background: GREEN, borderRadius: "1px" }} />
+          )}
+        </div>
+      )}
 
       {/* Marker labels below the bar: option price under each marker. In full
           mode the SL/E/TP/TSL letter sits above the price; compact mode shows the

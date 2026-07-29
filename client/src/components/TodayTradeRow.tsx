@@ -396,6 +396,8 @@ function _TodayTradeRow({
                   const g = tslGatePercent ?? 2;
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
+                peakLtp={trade.peakLtp}
+                troughLtp={trade.troughLtp}
                 units={trade.qty}
                 roundTripCharges={charges}
                 compact

@@ -549,6 +549,20 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
+        // Mirror of the peak: the MOST-ADVERSE price seen (lowest for a BUY,
+        // highest for a SELL). Together peak↔trough are the trade's full travel
+        // (max favourable + max adverse excursion) drawn on the TradeBar and
+        // frozen on close. Seeded at entry so a trade that only ever moves in its
+        // favour keeps a trough of exactly the entry.
+        const currentTrough = trade.troughLtp ?? trade.entryPrice;
+        const newTrough = isBuy
+          ? Math.min(currentTrough, tick.ltp)
+          : Math.max(currentTrough, tick.ltp);
+        if (newTrough !== currentTrough) {
+          trade.troughLtp = newTrough;
+          anyUpdated = true;
+        }
+
         // ── Master exits (T141) ──────────────────────────────────────────
         // Common-block master SL/TP/TSL OVERRIDE every strategy's own level of
         // that kind for EVERY trade. Evaluated FIRST; the matching per-strategy

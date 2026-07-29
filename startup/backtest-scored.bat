@@ -3,6 +3,8 @@ REM ================================================================
 REM   lubas -- Scored Backtest
 REM
 REM   Usage:  startup\backtest-scored.bat nifty50 2026-04-16
+REM           startup\backtest-scored.bat nifty50 2026-04-16 20260418_002808
+REM           (3rd arg = model version; default = LATEST)
 REM ================================================================
 
 setlocal EnableDelayedExpansion
@@ -12,13 +14,15 @@ cd /d "%ROOT%"
 
 set INSTRUMENT=%~1
 set BT_DATE=%~2
+set MODEL_VERSION=%~3
 
 if "%INSTRUMENT%"=="" (
     echo.
-    echo   Usage:  startup\backtest-scored.bat ^<instrument^> ^<date^>
+    echo   Usage:  startup\backtest-scored.bat ^<instrument^> ^<date^> [model_version]
     echo.
     echo   Instruments: nifty50, banknifty, crudeoil, naturalgas
     echo   Date:        YYYY-MM-DD
+    echo   Model:       optional version dir e.g. 20260705_214016 ^(default LATEST^)
     echo.
     pause
     exit /b 1

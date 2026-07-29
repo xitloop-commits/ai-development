@@ -10,7 +10,7 @@ Output:
 
 Usage:
     py backtest_scored.py nifty50 2026-04-16
-    py backtest_scored.py nifty50 2026-04-16 --models-dir models/nifty50/20260418_002808
+    py backtest_scored.py nifty50 2026-04-16 --model-version 20260418_002808
 """
 
 from __future__ import annotations
@@ -89,6 +89,7 @@ def run_scored_backtest(
     features_root: Path = Path("data/features"),
     output_root: Path = Path("data/backtests"),
     config_dir: Path = Path("config/sea_thresholds"),
+    model_version: str | None = None,
 ) -> dict:
     """Run scored backtest, return scorecard dict."""
 
@@ -99,7 +100,7 @@ def run_scored_backtest(
 
     # Load models
     if models is None:
-        models = load_models(instrument)
+        models = load_models(instrument, version=model_version)
 
     model_version = models.version
 
@@ -808,6 +809,11 @@ def main() -> int:
         default="config/sea_thresholds",
         help="Per-instrument SEA thresholds JSON dir",
     )
+    p.add_argument(
+        "--model-version",
+        default=None,
+        help="Model version dir to score (default: LATEST pointer)",
+    )
     args = p.parse_args()
 
     try:
@@ -817,6 +823,7 @@ def main() -> int:
             features_root=Path(args.features_root),
             output_root=Path(args.output_root),
             config_dir=Path(args.config_dir),
+            model_version=args.model_version,
         )
     except KeyboardInterrupt:
         print("\n  Stopped by user.")
