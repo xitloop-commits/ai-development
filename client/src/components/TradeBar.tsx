@@ -104,6 +104,7 @@ const APPROACH = 5; // "approaching the max" = within 5% of it
 const RED = "#dc2626";
 const GREEN = "#22c55e";
 const DARK_GREEN = "rgba(21, 128, 61, 0.85)";
+const DARK_RED = "rgba(153, 27, 27, 0.85)"; // adverse travel (LTP → trough)
 const LIGHT_GREEN = "rgba(187, 247, 208, 0.85)";
 const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → LTP buffer
 const GREY = "rgba(148, 163, 184, 0.35)";
@@ -499,6 +500,26 @@ export function TradeBar({
               />
             );
           })}
+
+          {/* Travel BEYOND the current price, anchored at the LTP pointer: dark
+              GREEN from the LTP up to the peak (how much higher it ran than it
+              is/exited), dark RED from the LTP down to the trough (how far it
+              dipped below). Frozen on close → stays on past trades; the red side
+              needs troughLtp, which is absent on pre-field trades. */}
+          {peakPos != null && peakPos - ltpPos > 0.3 && (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
+              style={{ left: `${ltpPos}%`, width: `${peakPos - ltpPos}%`, background: DARK_GREEN }}
+              title={peakTip}
+            />
+          )}
+          {troughPos != null && ltpPos - troughPos > 0.3 && (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
+              style={{ left: `${troughPos}%`, width: `${ltpPos - troughPos}%`, background: DARK_RED }}
+              title={troughTip}
+            />
+          )}
         </div>
 
         {/* Zone arrows: stop→entry (risk), then one arrow per reward gap
@@ -559,37 +580,6 @@ export function TradeBar({
           />
         </div>
       </div>
-
-      {/* Peak↔trough TRAVEL strip — how far the price actually reached each way
-          (max favourable + max adverse excursion). Same horizontal scale as the
-          bar above, so the low water-mark lines up under the SL and the high
-          water-mark under the TP. Frozen on close → stays on past trades; upside
-          -only on trades that pre-date troughLtp. */}
-      {(peakPos != null || troughPos != null) && (
-        <div className={`relative w-full ${compact ? "h-1 mt-0.5" : "h-1.5 mt-1"}`} title="How far the price travelled: red = worst it dipped, green = best it ran">
-          <div className="absolute inset-0 rounded-full bg-muted-foreground/10 overflow-hidden">
-            {troughPos != null && Math.abs(entryPos - troughPos) > 0.3 && (
-              <div className="absolute top-0 bottom-0 pointer-events-auto cursor-help"
-                style={{ left: `${Math.min(troughPos, entryPos)}%`, width: `${Math.abs(entryPos - troughPos)}%`, background: `${RED}66` }}
-                title={troughTip} />
-            )}
-            {peakPos != null && Math.abs(peakPos - entryPos) > 0.3 && (
-              <div className="absolute top-0 bottom-0 pointer-events-auto cursor-help"
-                style={{ left: `${Math.min(entryPos, peakPos)}%`, width: `${Math.abs(peakPos - entryPos)}%`, background: `${GREEN}66` }}
-                title={peakTip} />
-            )}
-          </div>
-          {/* End-caps at the two water-marks. */}
-          {troughPos != null && (
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none"
-              style={{ left: `${troughPos}%`, width: "2px", height: "7px", background: RED, borderRadius: "1px" }} />
-          )}
-          {peakPos != null && (
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none"
-              style={{ left: `${peakPos}%`, width: "2px", height: "7px", background: GREEN, borderRadius: "1px" }} />
-          )}
-        </div>
-      )}
 
       {/* Marker labels below the bar: option price under each marker. In full
           mode the SL/E/TP/TSL letter sits above the price; compact mode shows the
