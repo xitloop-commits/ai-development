@@ -1625,6 +1625,16 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 - **Blocker (operator action):** add `ANTHROPIC_API_KEY` to the server `.env`; end-to-end test needs it + a live broker during market hours.
 - **Next:** later switch the trigger from manual click to a ~1-minute scheduler (notebook logic already supports it); optional "earlier-today" summary of rolled-off pages; tighten endpoint to `protectedProcedure` once auth is on.
 
+### T143 [UI] — persistent per-trade serial number (DEFERRED, revisit) 🅿️
+Partha's model: the row "#" should be a **trade** number assigned at creation,
+persisted, continuous (never resets/repeats), immutable for life. Today the row
+shows `signalSeq` (per-IST-day SIGNAL counter, matches tray card) for AI trades,
+falling back to a positional `indexOf+1` for manual — neither is a continuous
+per-trade serial. Plan when resumed: add a stored `tradeSeq` stamped at
+`appendTrade` (per-book counter, paper/live separate — TBC), backfill existing
+trades in openedAt order, show it on the row (keep signal # secondary?). Partha
+"will come back to this later" (2026-07-29).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 ### T142 [Portfolio] 🔴 — trades scattered across cycles / hidden from desk ✅ FIXED 2026-07-29
