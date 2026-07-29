@@ -48,6 +48,10 @@ set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 set PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%
 
-%PYTHON_CMD% backtest_scored.py %INSTRUMENT% %BT_DATE%
+if "%MODEL_VERSION%"=="" (
+    %PYTHON_CMD% backtest_scored.py %INSTRUMENT% %BT_DATE%
+) else (
+    %PYTHON_CMD% backtest_scored.py %INSTRUMENT% %BT_DATE% --model-version %MODEL_VERSION%
+)
 
 pause

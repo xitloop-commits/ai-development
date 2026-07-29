@@ -104,7 +104,11 @@ const APPROACH = 5; // "approaching the max" = within 5% of it
 const RED = "#dc2626";
 const GREEN = "#22c55e";
 const DARK_GREEN = "rgba(21, 128, 61, 0.85)";
-const DARK_RED = "rgba(153, 27, 27, 0.85)"; // adverse travel (LTP → trough)
+// Travel fills (LTP → peak / LTP → trough). Deliberately OFF the green/red band
+// palette so the excursion reads as its own layer: teal for the up-travel (pops
+// over the profit greens), bright magenta-red for the down-travel.
+const TRAVEL_UP = "#0d9488";   // teal
+const TRAVEL_DOWN = "#be123c"; // rose/crimson
 const LIGHT_GREEN = "rgba(187, 247, 208, 0.85)";
 const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → LTP buffer
 const GREY = "rgba(148, 163, 184, 0.35)";
@@ -516,14 +520,14 @@ export function TradeBar({
                 {peakPos != null && peakPos - greenFrom > 0.3 && (
                   <div
                     className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
-                    style={{ left: `${greenFrom}%`, width: `${peakPos - greenFrom}%`, background: DARK_GREEN }}
+                    style={{ left: `${greenFrom}%`, width: `${peakPos - greenFrom}%`, background: TRAVEL_UP }}
                     title={peakTip}
                   />
                 )}
                 {troughPos != null && redTo - troughPos > 0.3 && (
                   <div
                     className="absolute top-0 bottom-0 pointer-events-auto cursor-help transition-[left,width] duration-300 ease-out"
-                    style={{ left: `${troughPos}%`, width: `${redTo - troughPos}%`, background: DARK_RED }}
+                    style={{ left: `${troughPos}%`, width: `${redTo - troughPos}%`, background: TRAVEL_DOWN }}
                     title={troughTip}
                   />
                 )}
