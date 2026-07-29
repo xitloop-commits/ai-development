@@ -1360,6 +1360,57 @@ def _single_date_picker(title: str, available: list[str], default: str = "") -> 
             selected = (selected + 1) % len(dates)
 
 
+def _model_versions(instrument: str) -> list[str]:
+    """All trained model version dirs for `instrument`, newest first."""
+    inst_dir = ROOT / "models" / instrument
+    if not inst_dir.exists():
+        return []
+    return sorted(
+        (d.name for d in inst_dir.iterdir() if d.is_dir()), reverse=True,
+    )
+
+
+def _model_version_picker(
+    instrument: str, versions: list[str], latest: str | None,
+) -> str | None:
+    """Vertical single-select over model versions. Returns the chosen
+    version, or None on Esc. Cursor starts on `latest` so Enter keeps
+    today's default behaviour."""
+    selected = versions.index(latest) if latest in versions else 0
+    while True:
+        _clear()
+        cols = _term_cols()
+        W = min(cols - 4, 160)
+        print()
+        print(f"  {'═' * W}")
+        print(f"    {BOLD(f'Scored Backtest  —  pick model version for {instrument}')}")
+        print(f"  {'═' * W}")
+        print()
+        for i, v in enumerate(versions):
+            suffix = DIM("  (latest)") if v == latest else ""
+            if i == selected:
+                print(f"    {CYAN('▶')} {GREEN('[')}{v}{GREEN(']')}{suffix}")
+            else:
+                print(f"       {DIM(v)}{suffix}")
+        print()
+        print(f"  {DIM('─' * W)}")
+        print(f"  " + _hk_line(
+            ("↑↓", "move"),
+            ("Enter", "select"),
+            ("Esc", "cancel"),
+        ))
+        print()
+        key = _getkey()
+        if key == "esc":
+            return None
+        if key == "enter":
+            return versions[selected]
+        if key in ("left", "up"):
+            selected = (selected - 1) % len(versions)
+        elif key in ("right", "down"):
+            selected = (selected + 1) % len(versions)
+
+
 def act_sbt() -> None:
     while True:
         d1, _d2 = compute_walk_forward_dates()
@@ -1420,11 +1471,31 @@ def act_sbt() -> None:
             if ch == "esc":
                 continue
 
+        # Per-instrument model version pick (2026-07-30): instruments with
+        # 2+ trained versions get a picker so older models can be scored
+        # for Compare. Enter keeps the LATEST default; value stays None
+        # unless the user picks a non-latest version.
+        picked_version: dict[str, str | None] = {}
+        pick_cancelled = False
+        for inst in res.selected:
+            versions = _model_versions(inst)
+            if len(versions) < 2:
+                picked_version[inst] = None
+                continue
+            latest = last_model_info(inst).version
+            ver = _model_version_picker(inst, versions, latest)
+            if ver is None:
+                pick_cancelled = True
+                break
+            picked_version[inst] = None if ver == latest else ver
+        if pick_cancelled:
+            continue
+
         # Skip-if-scorecard-exists guard (ported from legacy launcher.py).
         # Split selected instruments into (already-scored, fresh) so the user
         # decides whether to re-score the duplicates or skip them.
         duplicates: list[str] = [inst for inst in res.selected
-                                 if _has_scorecard(inst, date)]
+                                 if _has_scorecard(inst, date, picked_version[inst])]
         fresh: list[str] = [inst for inst in res.selected
                             if inst not in duplicates]
         if duplicates:
@@ -1456,7 +1527,13 @@ def act_sbt() -> None:
 
         print()
         for inst in targets:
-            _launch_no_pause(f"SBT: {inst} on {date}", "backtest-scored.bat", inst, date)
+            ver = picked_version.get(inst)
+            if ver:
+                _launch_no_pause(f"SBT: {inst} on {date} ({ver})",
+                                 "backtest-scored.bat", inst, date, ver)
+            else:
+                _launch_no_pause(f"SBT: {inst} on {date}",
+                                 "backtest-scored.bat", inst, date)
         if not targets:
             print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()
@@ -2668,16 +2745,24 @@ def _has_compare_report(instrument: str, date: str) -> bool:
     return False
 
 
-def _has_scorecard(instrument: str, date: str) -> bool:
-    """True if any scorecard for `instrument` exists on `date` (any model version)."""
+def _has_scorecard(instrument: str, date: str, version: str | None = None) -> bool:
+    """True if a scorecard for `instrument` exists on `date`.
+
+    `version` restricts the check to one model version dir; None checks all.
+    Scored backtests write date/gate/scorecard.json; older runs wrote at the
+    date level — both layouts count.
+    """
     bt_root = ROOT / "data" / "backtests" / instrument
     if not bt_root.exists():
         return False
-    for vdir in bt_root.iterdir():
-        if not vdir.is_dir():
-            continue
-        if (vdir / date / "scorecard.json").exists():
-            return True
+    if version is not None:
+        vdirs = [bt_root / version]
+    else:
+        vdirs = [d for d in bt_root.iterdir() if d.is_dir()]
+    for vdir in vdirs:
+        for sub in ("gate", "."):
+            if (vdir / date / sub / "scorecard.json").exists():
+                return True
     return False
 
 
