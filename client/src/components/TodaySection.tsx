@@ -102,7 +102,15 @@ export function TodaySection({
     );
   }, [updateTradeMutation, channel, utils]);
 
-  const trades = day.trades ?? [];
+  // Always render in ENTRY-TIME order (oldest → newest, newest at the bottom).
+  // The stored array is usually insertion-order, but not guaranteed — a data
+  // repair can append out-of-order rows (T142 moved trades between cycles), so
+  // sort here rather than trust array position. This also drives tradeNo, so the
+  // "#N" is the Nth trade of the day chronologically.
+  const trades = useMemo(
+    () => [...(day.trades ?? [])].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)),
+    [day.trades],
+  );
   // Rows honour the P&L-bar filter; the summary + feed subs below stay on the
   // full day so the day's P&L/exposure and live ticks are never hidden.
   const visibleTrades = filter ? trades.filter((t) => tradeMatchesFilter(t, filter)) : trades;
