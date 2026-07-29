@@ -1067,6 +1067,22 @@ export async function getDayRecord(
   return doc ? docToDayRecord(doc) : null;
 }
 
+/**
+ * The channel's ACTIVE trading cycle — the day trades belong to and the desk
+ * shows. Resolved by status, NOT by `currentDayIndex`, because the compounding
+ * clawback (processClawback) rolls `currentDayIndex` BACKWARD onto COMPLETED
+ * cycles on a losing day; filing trades by that cursor scatters them onto old
+ * days and hides them from the desk (2026-07-29 incident). The active cycle is
+ * always the highest-index ACTIVE record (there should be exactly one). Returns
+ * null only when no ACTIVE day exists yet (the caller then creates one).
+ */
+export async function getActiveDayRecord(channel: Channel): Promise<DayRecord | null> {
+  const doc = await DayRecordModel.findOne({ channel, status: "ACTIVE" })
+    .sort({ dayIndex: -1 })
+    .lean();
+  return doc ? docToDayRecord(doc) : null;
+}
+
 /** All trades recorded on a given IST calendar date (YYYY-MM-DD) for a channel.
  *  Used by the option-strike chart overlay to plot that day's entries/exits.
  *  Empty when no day record exists for that date. */

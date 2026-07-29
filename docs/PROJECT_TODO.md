@@ -1627,6 +1627,32 @@ A per-instrument panel in the InstrumentCard left sidebar with an "Ask Claude" b
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
+### T142 [Portfolio] 🔴 — trades scattered across cycles / hidden from desk ✅ FIXED 2026-07-29
+Only 4 of today's 96 paper trades showed on the desk. Root cause: `currentDayIndex`
+does DOUBLE DUTY — the compounding projection cursor AND the pointer for "which
+day-record trades append to / the desk shows." On a losing day the compounding
+**clawback** (`processClawback` → `newDayIndex = max(1, lowestConsumed)`) rolls
+that cursor BACKWARD onto COMPLETED cycles, so new trades filed onto an old day
+and the desk showed it. Today's −₹176k clawed the cursor back to day 1 (COMPLETED)
+while day 3 was ACTIVE → 96 trades split 4/62/30 across cycles 1/2/3.
+
+**Fix — decouple the two jobs:** trade storage + the desk now resolve the ACTIVE
+cycle by STATUS, not by the clawback-movable cursor.
+- server: new `getActiveDayRecord(channel)`; `ensureCurrentDay` uses it (falls
+  back to `currentDayIndex` when no ACTIVE day exists).
+- client: `pickActiveDay(days, currentDayIndex)` helper; used in CapitalContext
+  `currentDay`, TradingDesk today-filters/openCount, and the `isToday` marker.
+- data repair: `scripts/repair_day_cycle_20260729.ts` consolidated today's 96
+  trades into the ACTIVE cycle (idx3) and set currentDayIndex=3. No trade lost —
+  P&L conserved exactly (+₹55,072.49 moved idx1+idx2 → idx3); pool untouched;
+  backed up to `*_bak_20260729`.
+- tests: portfolio+executor green (457).
+
+**Still open (separate, larger):** a compounding "cycle" ≠ a calendar day — one
+cycle still mixes several dates (use the new Date filter to isolate a day). The
+day P&L bar shows the whole cycle, not one calendar day. Deeper cleanup TBD.
+
+
 ### T141 [Execution] — master SL / TP / TSL in Common settings (override all) ✅ DONE 2026-07-27
 A master stop-loss, take-profit, and trailing-stop in the **Common** block. Each
 has its own on/off switch + `%`/`₹` toggle (% of premium, or net ₹ after charges).

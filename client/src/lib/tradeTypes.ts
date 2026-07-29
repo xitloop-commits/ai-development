@@ -285,3 +285,20 @@ export interface ResolvedInstrument {
   exchange: string;
   mode: string;
 }
+
+/**
+ * The ACTIVE trading cycle to show on the desk. Resolved by status (highest
+ * dayIndex among ACTIVE), NOT by `currentDayIndex` — the compounding clawback
+ * can roll that cursor backward onto a COMPLETED cycle on a losing day, which
+ * would otherwise show an old day (2026-07-29 incident). Falls back to the
+ * cursor when nothing is ACTIVE.
+ */
+export function pickActiveDay<T extends { dayIndex: number; status: string }>(
+  days: T[],
+  currentDayIndex: number,
+): T | null {
+  const active = days
+    .filter((d) => d.status === 'ACTIVE')
+    .sort((a, b) => b.dayIndex - a.dayIndex)[0];
+  return active ?? days.find((d) => d.dayIndex === currentDayIndex) ?? null;
+}

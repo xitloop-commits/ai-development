@@ -18,7 +18,7 @@ import { MyTradesControl } from './MyTradesControl';
 import { SettingsMenu } from './SettingsMenu';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import type { ResolvedInstrument } from '@/lib/tradeTypes';
-import { channelToWorkspace } from '@/lib/tradeTypes';
+import { channelToWorkspace, pickActiveDay } from '@/lib/tradeTypes';
 import { supportsManualControls } from '@/lib/tradeThemes';
 import { fmt } from '@/lib/tradeFormatters';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -159,7 +159,7 @@ export default function TradingDesk({
   // Distinct instruments + cohorts traded today — populate the filter's options.
   // MUST stay above the early returns below so hook order never changes.
   const { todayInstruments, todayCohorts, todayStrategies, todayExitReasons, todayDates } = useMemo(() => {
-    const t = allDays.find((d) => d.dayIndex === capital?.currentDayIndex)?.trades ?? [];
+    const t = pickActiveDay(allDays, capital?.currentDayIndex ?? 0)?.trades ?? [];
     // Only surface the strategy filter once the race is actually running (>1
     // distinct strategy today) — a single-strategy day keeps the bar clean.
     const STRAT_ORDER = ['sprint', 'runway', 'anchor', 'glide'];
@@ -194,7 +194,10 @@ export default function TradingDesk({
     return <ErrorState message="Failed to load capital data" onRetry={refetchAll} />;
   }
 
-  const openTradeCount = allDays.find(d => d.dayIndex === capital.currentDayIndex)?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
+  const openTradeCount = pickActiveDay(allDays, capital.currentDayIndex)?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
+  // Which cycle is "today" (renders the live TodaySection) — the ACTIVE one, not
+  // the clawback-movable currentDayIndex.
+  const activeDayIdx = pickActiveDay(viewDays, viewCapital.currentDayIndex)?.dayIndex ?? viewCapital.currentDayIndex;
 
   return (
     <div className="flex flex-col h-full">
@@ -328,7 +331,7 @@ export default function TradingDesk({
               </thead>
               <tbody>
                 {viewDays.map((day) => {
-                  const isToday = day.dayIndex === viewCapital.currentDayIndex;
+                  const isToday = day.dayIndex === activeDayIdx;
                   const isDay250 = day.dayIndex === 250;
 
                   if (isToday) {

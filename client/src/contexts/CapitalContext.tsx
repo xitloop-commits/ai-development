@@ -19,7 +19,7 @@ import {
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { useLiveDay, useCapitalEpoch } from '@/stores/portfolioLiveStore';
-import { type Channel, type Workspace, type Mode, channelOf, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
+import { type Channel, type Workspace, type Mode, channelOf, DEFAULT_LANDING_CHANNEL, pickActiveDay } from '@/lib/tradeTypes';
 
 // ─── Types ──────────────────────────────────────────────────────
 type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
@@ -433,7 +433,7 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   }, [allDaysQuery.data, channel, liveDay]);
 
   const currentDay = useMemo(() => {
-    return allDays.find((d) => d.dayIndex === capital.currentDayIndex) ?? null;
+    return pickActiveDay(allDays, capital.currentDayIndex);
   }, [allDays, capital.currentDayIndex]);
 
   // ─── Mutation wrappers ──────────────────────────────────────

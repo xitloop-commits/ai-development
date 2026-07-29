@@ -25,6 +25,7 @@ import {
   channelToSource,
   getCapitalState,
   getDayRecord,
+  getActiveDayRecord,
   getDayRecords,
   upsertDayRecord,
   patchTradeInDay,
@@ -262,7 +263,14 @@ class PortfolioAgentImpl {
     if (checkSessionReset(state)) {
       await updateCapitalState(channel, resetSession(state));
     }
-    let day = await getDayRecord(channel, state.currentDayIndex);
+    // Trades belong to the ACTIVE cycle, resolved by status — NOT by
+    // `currentDayIndex`. The compounding clawback rolls that cursor BACKWARD onto
+    // COMPLETED cycles on a losing day (processClawback), which used to file new
+    // trades on an old completed day and hide them from the desk (2026-07-29).
+    // The cursor stays for the capital projection only. Fall back to the cursor
+    // when no ACTIVE day exists yet (first trade of a fresh cycle).
+    let day = await getActiveDayRecord(channel);
+    if (!day) day = await getDayRecord(channel, state.currentDayIndex);
     if (!day) {
       const config = await getActiveBrokerConfig();
       const targetPercent = config?.settings?.dailyTargetPercent ?? state.targetPercent ?? 5;
