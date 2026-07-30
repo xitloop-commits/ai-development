@@ -47,6 +47,9 @@ export interface TradeBarProps {
   mslPercent?: number;
   /** Take-profit %. TP = entry + tpPercent% (BUY). */
   tpPercent?: number;
+  /** Label for the take-profit marker (default "TP"). Ladder passes "MTP" — its
+   *  target is the Max-TP exit at ×R of the initial risk. */
+  tpLabel?: string;
   /** Trailing enabled (global). When on but the stop hasn't trailed into profit
    *  yet, a thin "pending" TSL marker is drawn at the activation gate. */
   trailingEnabled?: boolean;
@@ -141,6 +144,7 @@ export function TradeBar({
   slPercent,
   mslPercent,
   tpPercent,
+  tpLabel = "TP",
   trailingEnabled = false,
   tslGatePrice,
   tslHoldSeconds,
@@ -334,7 +338,7 @@ export function TradeBar({
     ? `Max stop-loss ${formatPrice(mslPrice as number)} (${fmtSign(mslFav)}) — the Ladder safety net; the stop can never cross it.`
     : "";
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
-  const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
+  const tpTip = `${tpLabel} ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
 
   // ── Peak↔trough travel (max favourable + max adverse excursion) ─────────
@@ -622,7 +626,7 @@ export function TradeBar({
         {mslPos != null && <Label at={mslPos} color={MSL_COLOR} text="MSL" price={mslPrice ?? undefined} hideText={compact} align="left" />}
         {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
-        {hasTp && <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />}
+        {hasTp && <Label at={tpPos} color={TP_COLOR} text={tpLabel} price={tpPrice} hideText={compact} />}
       </div>
     </div>
   );

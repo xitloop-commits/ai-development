@@ -401,6 +401,7 @@ function _TodayTradeRow({
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
                 mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
+                tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
                 peakLtp={trade.peakLtp}
                 troughLtp={trade.troughLtp}
                 units={trade.qty}
