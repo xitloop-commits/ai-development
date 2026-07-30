@@ -74,6 +74,32 @@ describe("TradeBar — MSL safety-net marker (Ladder)", () => {
 });
 
 /**
+ * T147 (Ladder) — TTP (Trailing-TP) is a VISUAL-ONLY marker at the running peak,
+ * distinct from the MTP exit. Two upside markers: TTP (peak) + MTP (target).
+ */
+describe("TradeBar — TTP trailing-TP marker (Ladder)", () => {
+  function ttpMarker() {
+    return screen.queryByTitle(/^TTP /);
+  }
+  function mtpMarker() {
+    return screen.queryByTitle(/^MTP /);
+  }
+  it("draws BOTH TTP (at the peak) and MTP when showTtp + a peak are given", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} tpLabel="MTP" showTtp peakLtp={107} />);
+    expect(ttpMarker()).not.toBeNull();
+    expect(mtpMarker()).not.toBeNull(); // both upside markers, not one
+  });
+  it("draws NO TTP when showTtp is off (non-Ladder)", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} peakLtp={107} />);
+    expect(ttpMarker()).toBeNull();
+  });
+  it("draws NO TTP when the trade never went into profit (no peak above entry)", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} showTtp peakLtp={100} />);
+    expect(ttpMarker()).toBeNull();
+  });
+});
+
+/**
  * Cooling-window countdown — the mirror of the TSL stopwatch, sitting left of
  * the SL marker. Runway/Anchor hold a deliberately wide stop for coolingSec
  * after entry; the countdown says how long until it tightens.

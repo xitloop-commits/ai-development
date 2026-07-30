@@ -402,6 +402,7 @@ function _TodayTradeRow({
                 })()}
                 mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
+                showTtp={trade.exitStrategy === "ladder"}
                 peakLtp={trade.peakLtp}
                 troughLtp={trade.troughLtp}
                 units={trade.qty}

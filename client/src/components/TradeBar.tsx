@@ -50,6 +50,10 @@ export interface TradeBarProps {
   /** Label for the take-profit marker (default "TP"). Ladder passes "MTP" — its
    *  target is the Max-TP exit at ×R of the initial risk. */
   tpLabel?: string;
+  /** T147 (Ladder) — draw the TTP (Trailing-TP) marker: a VISUAL-ONLY tick at the
+   *  running peak (high-water mark). It ratchets up with new highs and never
+   *  exits (MTP is the exit). Needs peakLtp; absent for non-Ladder trades. */
+  showTtp?: boolean;
   /** Trailing enabled (global). When on but the stop hasn't trailed into profit
    *  yet, a thin "pending" TSL marker is drawn at the activation gate. */
   trailingEnabled?: boolean;
@@ -125,6 +129,7 @@ const MSL_COLOR = "#7f1d1d"; // dark crimson — the Ladder hard-floor safety ne
 const ENTRY_COLOR = "#2563eb"; // blue — visible on dark rows
 const TSL_COLOR = "#eab308"; // stop colour once it has trailed into profit
 const TP_COLOR = "#22c55e"; // green
+const TTP_COLOR = "#14b8a6"; // teal — Ladder's visual trailing-TP at the peak (distinct from the MTP green)
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
@@ -145,6 +150,7 @@ export function TradeBar({
   mslPercent,
   tpPercent,
   tpLabel = "TP",
+  showTtp = false,
   trailingEnabled = false,
   tslGatePrice,
   tslHoldSeconds,
@@ -352,6 +358,11 @@ export function TradeBar({
   const troughPos = troughFav != null ? pos(troughFav) : null;
   const peakTip = peakFav != null
     ? `Ran up to ${formatPrice(peakLtp as number)} (${fmtSign(peakFav)})${profitAtFav(peakFav) != null ? ` · best ${fmtMoney(profitAtFav(peakFav) as number)}` : ""}`
+    : "";
+  // TTP (Ladder): the trailing-TP marker sits at the peak — visual only.
+  const showTtpMarker = showTtp && peakFav != null && peakFav > 0 && peakPos != null;
+  const ttpTip = peakFav != null
+    ? `TTP (trailing TP) ${formatPrice(peakLtp as number)} (${fmtSign(peakFav)}) — the high-water mark; visual only, never exits.`
     : "";
   const troughTip = troughFav != null
     ? `Dipped to ${formatPrice(troughLtp as number)} (${fmtSign(troughFav)})${profitAtFav(troughFav) != null ? ` · worst ${fmtMoney(profitAtFav(troughFav) as number)}` : ""}`
@@ -569,6 +580,7 @@ export function TradeBar({
           {mslPos != null && <Tick at={mslPos} color={MSL_COLOR} tip={mslTip} z={9} />}
           {hasStop && <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />}
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />
+          {showTtpMarker && <Tick at={peakPos as number} color={TTP_COLOR} tip={ttpTip} z={8} />}
           {hasTp && <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />}
         </div>
 
@@ -626,6 +638,7 @@ export function TradeBar({
         {mslPos != null && <Label at={mslPos} color={MSL_COLOR} text="MSL" price={mslPrice ?? undefined} hideText={compact} align="left" />}
         {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
+        {showTtpMarker && <Label at={peakPos as number} color={TTP_COLOR} text="TTP" price={peakLtp ?? undefined} hideText={compact} align="left" />}
         {hasTp && <Label at={tpPos} color={TP_COLOR} text={tpLabel} price={tpPrice} hideText={compact} />}
       </div>
     </div>
