@@ -52,6 +52,7 @@ interface LadderCfg {
   mslEnabled: boolean; mslPct: number;
   slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
+  ttpStartPct: number; ttpTrailPct: number;
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
@@ -364,6 +365,10 @@ const HELP = {
     "How the trailing stop follows the winner. 'peak' = a fixed % below the highest price seen. 'giveback' = hand back a % of the peak GAIN from entry (default). Never drops below breakeven.",
   ladderTslPct:
     "The trailing distance — a % below the peak ('peak' mode), or the % of the peak gain handed back ('giveback' mode).",
+  ladderTtpStart:
+    "Where the trailing take-profit LINE starts, as a % above entry. TTP is VISUAL ONLY — it never exits (MTP is the exit). It marks 'where the ride is pointing'.",
+  ladderTtpTrail:
+    "Once price runs up, the TTP line floats this % ABOVE the running high — as new highs print, it climbs to keep the gap. It never drops. Drawn at max(entry+start%, peak+trail%).",
   ladderMtpR:
     "The take-profit exit (MTP). Basis ×risk = a multiple of the initial risk ('SL start'), so 2× with a 5% start banks at +10%. Basis % = a plain % above entry you type directly (e.g. 25 = bank at +25%), independent of the SL.",
   ladderEsHonour:
@@ -806,6 +811,9 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
                     <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
                     <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
+                    {/* TTP — trailing take-profit line (visual only, never exits) */}
+                    <Num help={HELP.ladderTtpStart} label="TTP start" value={ed.ladder.ttpStartPct} step={0.5} min={0.5} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpStartPct = v; })} />
+                    <Num help={HELP.ladderTtpTrail} label="TTP trail" value={ed.ladder.ttpTrailPct} step={0.5} min={0.5} max={200} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpTrailPct = v; })} />
                     {/* MTP — the take-profit exit. Basis: a multiple of the risk
                         (×), or a plain % of entry. */}
                     <Row label="MTP (Max TP) basis" help={HELP.ladderMtpR}>

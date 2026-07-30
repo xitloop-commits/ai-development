@@ -74,8 +74,8 @@ describe("TradeBar — MSL safety-net marker (Ladder)", () => {
 });
 
 /**
- * T147 (Ladder) — TTP (Trailing-TP) is a VISUAL-ONLY marker at the running peak,
- * distinct from the MTP exit. Two upside markers: TTP (peak) + MTP (target).
+ * T147 (Ladder) — TTP (Trailing-TP) is a VISUAL-ONLY line the parent positions
+ * via ttpPercent (max(start, peakFav + trail)). Two upside markers: TTP + MTP.
  */
 describe("TradeBar — TTP trailing-TP marker (Ladder)", () => {
   function ttpMarker() {
@@ -84,18 +84,19 @@ describe("TradeBar — TTP trailing-TP marker (Ladder)", () => {
   function mtpMarker() {
     return screen.queryByTitle(/^MTP /);
   }
-  it("draws BOTH TTP (at the peak) and MTP when showTtp + a peak are given", () => {
-    render(<TradeBar {...base} slPercent={5} tpPercent={10} tpLabel="MTP" showTtp peakLtp={107} />);
+  it("draws BOTH TTP and MTP when ttpPercent is given", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} tpLabel="MTP" ttpPercent={12} />);
     expect(ttpMarker()).not.toBeNull();
     expect(mtpMarker()).not.toBeNull(); // both upside markers, not one
   });
-  it("draws NO TTP when showTtp is off (non-Ladder)", () => {
-    render(<TradeBar {...base} slPercent={5} tpPercent={10} peakLtp={107} />);
+  it("draws NO TTP when ttpPercent is absent (non-Ladder)", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} />);
     expect(ttpMarker()).toBeNull();
   });
-  it("draws NO TTP when the trade never went into profit (no peak above entry)", () => {
-    render(<TradeBar {...base} slPercent={5} tpPercent={10} showTtp peakLtp={100} />);
-    expect(ttpMarker()).toBeNull();
+  it("positions the TTP at its ttpPercent (its own tooltip shows that level)", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} ttpPercent={12} />);
+    // entry 100, +12% → 112
+    expect(screen.queryByTitle(/^TTP .*112/)).not.toBeNull();
   });
 });
 

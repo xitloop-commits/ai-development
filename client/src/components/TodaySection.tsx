@@ -99,6 +99,12 @@ export function TodaySection({
     const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
     return l && l.mslEnabled ? (l.mslPct ?? null) : null;
   }, [aiConfigQuery.data, exitBook]);
+  // T147 — Ladder's TTP (trailing-TP line) params: start % + trail %. The row
+  // draws the marker at max(start, peakFav + trail). null when unavailable.
+  const ladderTtp = useMemo(() => {
+    const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
+    return l ? { start: l.ttpStartPct ?? 5, trail: l.ttpTrailPct ?? 5 } : null;
+  }, [aiConfigQuery.data, exitBook]);
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -286,6 +292,7 @@ export function TodaySection({
           tslHoldSeconds={tslHoldSeconds}
           coolingSecByStrategy={coolingSecByStrategy}
           ladderMslPct={ladderMslPct}
+          ladderTtp={ladderTtp}
           tradeNo={trades.indexOf(trade) + 1}
         />
       ))}

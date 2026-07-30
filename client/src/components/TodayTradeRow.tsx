@@ -60,6 +60,9 @@ export interface TodayTradeRowProps {
   /** T147 — Ladder's hard-floor (MSL) % from entry, or null when MSL is off.
    *  Drives the safety-net marker on a Ladder trade's bar. */
   ladderMslPct?: number | null;
+  /** T147 — Ladder's TTP (trailing-TP line) start % + trail %. The row draws the
+   *  marker at max(start, peakFav + trail). null when unavailable. */
+  ladderTtp?: { start: number; trail: number } | null;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
 }
@@ -83,6 +86,7 @@ function _TodayTradeRow({
   tslHoldSeconds,
   coolingSecByStrategy,
   ladderMslPct,
+  ladderTtp,
   tradeNo,
   liveLtp,
 }: RenderProps) {
@@ -402,7 +406,15 @@ function _TodayTradeRow({
                 })()}
                 mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
-                showTtp={trade.exitStrategy === "ladder"}
+                ttpPercent={
+                  trade.exitStrategy === "ladder" && ladderTtp && trade.entryPrice > 0
+                    ? (() => {
+                        const peak = trade.peakLtp ?? trade.entryPrice;
+                        const peakFav = Math.max(0, ((isBuy ? peak - trade.entryPrice : trade.entryPrice - peak) / trade.entryPrice) * 100);
+                        return Math.max(ladderTtp.start, peakFav + ladderTtp.trail); // float above the high
+                      })()
+                    : undefined
+                }
                 peakLtp={trade.peakLtp}
                 troughLtp={trade.troughLtp}
                 units={trade.qty}
@@ -691,6 +703,7 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.tslGatePercent === b.tslGatePercent &&
     a.tslHoldSeconds === b.tslHoldSeconds &&
     a.ladderMslPct === b.ladderMslPct &&
+    a.ladderTtp === b.ladderTtp &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&
     // By-value compare neutralises the per-poll reference + undefined/absent churn.

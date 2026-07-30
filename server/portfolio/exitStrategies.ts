@@ -227,6 +227,12 @@ export interface LadderConfig {
   tslTrailMode: LadderTrailMode;
   tslTrailPct: number; // % (below peak, or of peak-gain given back)
 
+  // TTP — trailing take-profit line. VISUAL ONLY (never exits); drawn by the
+  // client as max(entry + ttpStartPct, peak + ttpTrailPct). The engine ignores
+  // these — they live here so the config has one home.
+  ttpStartPct: number; // initial TTP distance above entry
+  ttpTrailPct: number; // gap the TTP keeps ahead of the running peak
+
   // MTP — the take-profit exit
   mtpMode: "R" | "percent"; // "R" = a multiple of the initial risk; "percent" = a plain % of entry
   mtpR: number; // exit at mtpR × initial risk (slStartPct) — used in "R" mode
@@ -248,6 +254,8 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   tslArmSec: 30,
   tslTrailMode: "giveback",
   tslTrailPct: 50,
+  ttpStartPct: 5,
+  ttpTrailPct: 5,
   mtpMode: "R",
   mtpR: 2,
   mtpPct: 25,
