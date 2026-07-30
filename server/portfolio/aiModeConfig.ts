@@ -497,7 +497,9 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.tslArmSec = Math.round(clampNum(l.tslArmSec, 0, 600, 30));
   l.tslTrailMode = l.tslTrailMode === "peak" ? "peak" : "giveback";
   l.tslTrailPct = clampNum(l.tslTrailPct, 1, 95, 50);
+  l.mtpMode = l.mtpMode === "percent" ? "percent" : "R";
   l.mtpR = clampNum(l.mtpR, 1, 10, 2);
+  l.mtpPct = clampNum(l.mtpPct, 1, 500, 25);
   l.esHonour = !!l.esHonour;
   return e;
 }

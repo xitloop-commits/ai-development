@@ -52,7 +52,7 @@ interface LadderCfg {
   mslEnabled: boolean; mslPct: number;
   slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
-  mtpR: number; esHonour: boolean;
+  mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -365,7 +365,7 @@ const HELP = {
   ladderTslPct:
     "The trailing distance — a % below the peak ('peak' mode), or the % of the peak gain handed back ('giveback' mode).",
   ladderMtpR:
-    "The take-profit, as a multiple of the initial risk ('SL start'). 2× with a 5% start = bank at +10%. This is the exit that caps a winner.",
+    "The take-profit exit (MTP). Basis ×risk = a multiple of the initial risk ('SL start'), so 2× with a 5% start banks at +10%. Basis % = a plain % above entry you type directly (e.g. 25 = bank at +25%), independent of the SL.",
   ladderEsHonour:
     "Whether to ACT on SEA's exit signal. Off (default) = the signal is shown on the bar but the trade keeps running — you watch where the model said 'get out' vs where the price markers actually exited, to build proof. On = close the trade immediately on the signal.",
 } as const;
@@ -806,8 +806,19 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
                     <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
                     <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
-                    {/* MTP — the take-profit exit (× the initial risk) */}
-                    <Num help={HELP.ladderMtpR} label="MTP (Max TP) ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
+                    {/* MTP — the take-profit exit. Basis: a multiple of the risk
+                        (×), or a plain % of entry. */}
+                    <Row label="MTP (Max TP) basis" help={HELP.ladderMtpR}>
+                      <div className="flex gap-1">
+                        <Pill label="×risk" on={ed.ladder.mtpMode === "R"} onClick={() => editExits((x) => { x.ladder.mtpMode = "R"; })} />
+                        <Pill label="%" on={ed.ladder.mtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.mtpMode = "percent"; })} />
+                      </div>
+                    </Row>
+                    {ed.ladder.mtpMode === "R" ? (
+                      <Num help={HELP.ladderMtpR} label="MTP ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
+                    ) : (
+                      <Num help={HELP.ladderMtpR} label="MTP %" value={ed.ladder.mtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.mtpPct = v; })} />
+                    )}
                     {/* ES — honour the model's exit signal */}
                     <Row label="Honour exit signal" help={HELP.ladderEsHonour}>
                       <Pill label={ed.ladder.esHonour ? "ON" : "OFF"} on={ed.ladder.esHonour}

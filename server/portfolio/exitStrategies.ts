@@ -228,7 +228,9 @@ export interface LadderConfig {
   tslTrailPct: number; // % (below peak, or of peak-gain given back)
 
   // MTP — the take-profit exit
-  mtpR: number; // exit at mtpR × initial risk (slStartPct) of profit
+  mtpMode: "R" | "percent"; // "R" = a multiple of the initial risk; "percent" = a plain % of entry
+  mtpR: number; // exit at mtpR × initial risk (slStartPct) — used in "R" mode
+  mtpPct: number; // exit at this % above entry — used in "percent" mode
 
   // ES — honour SEA's exit signal (visual-only when off, the default)
   esHonour: boolean;
@@ -246,7 +248,9 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   tslArmSec: 30,
   tslTrailMode: "giveback",
   tslTrailPct: 50,
+  mtpMode: "R",
   mtpR: 2,
+  mtpPct: 25,
   esHonour: false,
 };
 
@@ -268,7 +272,8 @@ export interface LadderState {
 export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): ExitOutput {
   const d = sign(i);
   const risk = i.entry * (c.slStartPct / 100); // premium points of the initial stop
-  const targetGain = c.mtpR * risk; // MTP distance in favour
+  // MTP distance in favour: a multiple of the risk ("R"), or a plain % of entry.
+  const targetGain = c.mtpMode === "percent" ? i.entry * (c.mtpPct / 100) : c.mtpR * risk;
   const target = i.entry + d * targetGain;
 
   const tslArmed = s.inFavourSince != null && i.now - s.inFavourSince >= c.tslArmSec * 1000;

@@ -308,6 +308,11 @@ describe("LADDER — MSL floor and MTP exit", () => {
     const o = ladderDecide({ ...lbase, ltp: 100, peak: 100, now: at(0) }, { ...lcfg, mtpR: 3 }, noFav);
     expect(o.target).toBeCloseTo(115, 5); // entry + 3 × 5
   });
+
+  it("MTP percent mode: a plain % above entry, independent of the SL (25% → 125)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 100, peak: 100, now: at(0) }, { ...lcfg, mtpMode: "percent", mtpPct: 25 }, noFav);
+    expect(o.target).toBeCloseTo(125, 5); // entry + 25%, NOT tied to slStartPct
+  });
 });
 
 describe("LADDER — SHORT mirrors around entry", () => {
