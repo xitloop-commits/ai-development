@@ -784,7 +784,12 @@ class TickHandler extends EventEmitter {
               now: Date.now(),
             },
             lcfg,
-            { inFavourSince: this.ladderFavSince.get(trade.id) ?? null },
+            {
+              inFavourSince: this.ladderFavSince.get(trade.id) ?? null,
+              // The stop's current level is the ratchet floor — so the stepping
+              // SL holds but never loosens (moves backward) as price dips.
+              prevStop: trade.stopLossPrice ?? null,
+            },
           );
           // Write the visible stop each tick (SL steps in / TSL trails), unless a
           // master switch owns downside or a manual override stands (a manual

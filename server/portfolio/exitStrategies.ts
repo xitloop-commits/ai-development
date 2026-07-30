@@ -256,6 +256,11 @@ export interface LadderState {
    *  cross back. null while at-or-against entry. Drives TSL arming (held for
    *  tslArmSec). The tick engine tracks this per trade, like peakLtp. */
   inFavourSince: number | null;
+  /** The Ladder stop's current price (its last-written level). Used as the
+   *  ratchet floor so the stepping SL can HOLD but never LOOSEN (move backward)
+   *  when the self-close guard bites or price dips. null before the first tick
+   *  (then it seeds from the start level). */
+  prevStop: number | null;
 }
 
 /** LADDER — see the block comment above. `s` carries the continuous-in-favour
@@ -286,13 +291,22 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
     const elapsed = i.now - i.openedAt - c.slDelaySec * 1000;
     const steps = elapsed > 0 ? Math.floor(elapsed / (c.slStepSec * 1000)) : 0;
     const slPct = Math.max(c.slFloorPct, c.slStartPct - steps * c.slStepPct);
-    let sl = i.entry * (1 - d * (slPct / 100));
-    // Self-close guard: keep the stop at least slLtpGapPct of the LIVE price away
-    // (against side). If a step would tighten it inside that gap, HOLD it at the
-    // gap edge so it never rises into the price and self-closes.
-    const gap = i.ltp * (c.slLtpGapPct / 100);
-    const cappedFavour = favour(i, i.ltp) - gap; // SL favour must not exceed this
-    if (favour(i, sl) > cappedFavour) sl = i.ltp - d * gap;
+    const steppedStop = i.entry * (1 - d * (slPct / 100));
+    // Self-close guard: never let the stop sit within slLtpGapPct of the LIVE
+    // price — that close, a tightening step would trip it. So the tightest the
+    // stop may go THIS tick is a gap short of the price; past that it's capped.
+    const holdStop = i.ltp - d * (i.ltp * (c.slLtpGapPct / 100));
+    let sl = favour(i, steppedStop) > favour(i, holdStop) ? holdStop : steppedStop;
+    // Ratchet — the stop only ever tightens or holds, NEVER loosens (moves
+    // backward). Its floor is the TIGHTER of where it already sits (prevStop) and
+    // the start level. Two things fall out of that:
+    //   • a dip in price can't drag the stop down — it HOLDS at prevStop; and
+    //   • the stop is never looser than the start level, so a gap straight THROUGH
+    //     it fires there (a real stop hit) instead of the stop chasing price down.
+    const startStop = i.entry * (1 - d * (c.slStartPct / 100));
+    const floorStop =
+      s.prevStop != null && favour(i, s.prevStop) > favour(i, startStop) ? s.prevStop : startStop;
+    if (favour(i, sl) < favour(i, floorStop)) sl = floorStop;
     stop = sl;
     phase = elapsed <= 0 ? "cooling" : "wide";
   }
