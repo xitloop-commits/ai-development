@@ -571,6 +571,7 @@ def submenu(
     initial_all_days: bool = True,
     train_end_date: str = "",
     bottom_actions: list[str] | None = None,
+    row_label: str = "Instruments",
 ) -> SubmenuResult:
     """Render a submenu and return the user's selections.
     `bottom_actions` is a list of action labels shown at the bottom; this
@@ -600,7 +601,7 @@ def submenu(
                   f"{DIM('[D] toggle')}")
             print()
 
-        print(f"    Instruments:                                     "
+        print(f"    {row_label}:                                     "
               f"{GREEN('✓green')}={GREEN('processed')}  {DIM('grey')}={DIM('pending')}")
         print()
         for i, row in enumerate(rows):
@@ -1372,18 +1373,20 @@ def _model_versions(instrument: str) -> list[str]:
 
 def _model_version_picker(
     instrument: str, versions: list[str], latest: str | None,
+    title: str | None = None,
 ) -> str | None:
     """Vertical single-select over model versions. Returns the chosen
     version, or None on Esc. Cursor starts on `latest` so Enter keeps
-    today's default behaviour."""
+    today's default behaviour. `title` overrides the header line."""
     selected = versions.index(latest) if latest in versions else 0
+    header = title or f"Scored Backtest  —  pick model version for {instrument}"
     while True:
         _clear()
         cols = _term_cols()
         W = min(cols - 4, 160)
         print()
         print(f"  {'═' * W}")
-        print(f"    {BOLD(f'Scored Backtest  —  pick model version for {instrument}')}")
+        print(f"    {BOLD(header)}")
         print(f"  {'═' * W}")
         print()
         for i, v in enumerate(versions):
@@ -1411,20 +1414,101 @@ def _model_version_picker(
             selected = (selected + 1) % len(versions)
 
 
-def act_sbt() -> None:
+def _multi_date_picker(title: str, available: list[str], defaults: set[str]) -> list[str] | None:
+    """Multi-select date picker (reuses the checkbox submenu). Returns the
+    checked dates, or None on cancel. Reserved holdout dates are marked."""
+    if not available:
+        print()
+        print(f"  {YELLOW('!')} {title}: no dates available.")
+        _pause_briefly()
+        return None
+    reserved = set(resolve_holdout_dates(
+        features_root=ROOT / "data" / "features",
+        raw_root=ROOT / "data" / "raw",
+    ))
+    rows = [
+        InstrumentRow(
+            instrument=d,
+            checked=(d in defaults),
+            enabled=True,
+            status_line=(MAGENTA("[R] holdout") if d in reserved else DIM("in-sample")),
+        )
+        for d in sorted(available, reverse=True)
+    ]
+    res = submenu(
+        title=title,
+        rows=rows,
+        show_date_mode_toggle=False,
+        bottom_actions=["Continue"],
+        row_label="Dates",
+    )
+    if res.cancelled:
+        return None
+    return res.selected
+
+
+def _pick_two_versions(instrument: str) -> tuple[str, str] | None:
+    """Pick the two model versions to compare for `instrument`: the NEWER
+    (challenger) then the OLDER (incumbent). Returns (older, newer) to match
+    backtest_compare's (run1=older, run2=newer), or None on cancel / when
+    fewer than two versions exist."""
+    versions = _model_versions(instrument)  # newest first
+    if len(versions) < 2:
+        print()
+        print(f"  {YELLOW('!')} {instrument}: only {len(versions)} model version — need 2 to compare.")
+        _pause_briefly()
+        return None
+    newer = _model_version_picker(
+        instrument, versions, versions[0],
+        title=f"Compare {instrument}  —  pick the NEWER version (challenger)",
+    )
+    if newer is None:
+        return None
+    rest = [v for v in versions if v != newer]
+    older = _model_version_picker(
+        instrument, rest, rest[0],
+        title=f"Compare {instrument}  —  pick the OLDER version (incumbent)",
+    )
+    if older is None:
+        return None
+    return (older, newer)
+
+
+def _run_bat_sync(title: str, *bat_args: str) -> bool:
+    """Run startup\\<bat> and WAIT for it (unlike _launch_no_pause). Output
+    streams into this console so the operator sees progress. Returns True on
+    exit code 0."""
+    if not bat_args:
+        return False
+    bat_path = str(ROOT / "startup" / bat_args[0])
+    print(f"  {DIM('· ' + title)} …", flush=True)
+    r = subprocess.run(["cmd", "/c", bat_path, *bat_args[1:]], cwd=str(ROOT))
+    ok = r.returncode == 0
+    print(f"  {GREEN('✓') if ok else YELLOW('✗')} {title}"
+          f"{'' if ok else f' (exit {r.returncode})'}")
+    return ok
+
+
+def act_evaluate() -> None:
+    """Single 'Evaluate & compare' flow (supersedes the old Backtest + Compare
+    menus). Per instrument: pick 2 model versions, pick held-out date(s), score
+    any missing (version × date), then compare. Step ① spawns a compare window
+    per instrument × date; the inline aggregated verdict table is step ②."""
     while True:
         d1, _d2 = compute_walk_forward_dates()
+        # ── step 1: pick instruments (need ≥2 versions to compare) ──
         items: list[InstrumentRow] = []
         for inst in _INSTRUMENTS:
-            info = last_model_info(inst)
+            n = len(_model_versions(inst))
             items.append(InstrumentRow(
                 instrument=inst,
-                checked=bool(info.version),
-                enabled=bool(info.version),
-                status_line=f"  {DIM('model:')} {DIM(info.version or 'none')}",
+                checked=n >= 2,
+                enabled=n >= 2,
+                status_line=(DIM(f"{n} versions") if n >= 2
+                             else DIM(f"{n} versions — need ≥2")),
             ))
         res = submenu(
-            title="Scored Backtest  —  step 1 of 2: pick instruments",
+            title="Evaluate & compare  —  step 1 of 3: pick instruments",
             rows=items,
             show_date_mode_toggle=False,
             bottom_actions=["Continue"],
@@ -1436,155 +1520,57 @@ def act_sbt() -> None:
             print(f"  {YELLOW('!')} Nothing selected.")
             _pause_briefly()
             continue
-        # Phase 1b follow-up (2026-06-21): per-selected-instrument
-        # availability + calibration-date union, so single-instrument
-        # backtests aren't blocked by missing parquets on the others
-        # and the model's own cal dates are always candidates.
-        available = _scan_backtestable_dates(list(res.selected))
-        reserved = set(resolve_holdout_dates(
-            features_root=ROOT / "data" / "features",
-            raw_root=ROOT / "data" / "raw",
-        ))
-        # Per-selected calibration dates (intersection) so the picker can
-        # mark them distinctly -- they're the "ideal" backtest candidates.
-        cal_for_selected: set[str] | None = None
-        for inst in res.selected:
-            cal = set(last_model_info(inst).calibration_dates)
-            cal_for_selected = cal if cal_for_selected is None else cal_for_selected & cal
-        cal_for_selected = cal_for_selected or set()
-        default_label = (f"reserved holdout = {d1}" if d1 and d1 in reserved
-                         else f"D-1 = {d1 or '--'}")
-        date = _single_date_picker(
-            f"Scored Backtest  —  step 2 of 2: pick test date (default {default_label})",
-            available,
-            default=d1,
-        )
-        if not date:
-            continue
-        if reserved and date not in reserved:
-            print()
-            print(f"  {YELLOW('Note:')} {date} is NOT in the reserved holdout "
-                  f"({', '.join(sorted(reserved)) or 'empty'}).")
-            print(f"  Backtest results may be in-sample. Continue anyway?  (Enter=yes, Esc=cancel)")
-            print()
-            ch = _getkey()
-            if ch == "esc":
-                continue
 
-        # Per-instrument model version pick (2026-07-30): instruments with
-        # 2+ trained versions get a picker so older models can be scored
-        # for Compare. Enter keeps the LATEST default; value stays None
-        # unless the user picks a non-latest version.
-        picked_version: dict[str, str | None] = {}
-        pick_cancelled = False
+        # ── step 2a: pick the 2 versions per instrument ──
+        pairs: dict[str, tuple[str, str]] = {}   # inst → (older, newer)
+        cancelled = False
         for inst in res.selected:
-            versions = _model_versions(inst)
-            if len(versions) < 2:
-                picked_version[inst] = None
-                continue
-            latest = last_model_info(inst).version
-            ver = _model_version_picker(inst, versions, latest)
-            if ver is None:
-                pick_cancelled = True
+            pair = _pick_two_versions(inst)
+            if pair is None:
+                cancelled = True
                 break
-            picked_version[inst] = None if ver == latest else ver
-        if pick_cancelled:
+            pairs[inst] = pair
+        if cancelled or not pairs:
             continue
 
-        # Skip-if-scorecard-exists guard (ported from legacy launcher.py).
-        # Split selected instruments into (already-scored, fresh) so the user
-        # decides whether to re-score the duplicates or skip them.
-        duplicates: list[str] = [inst for inst in res.selected
-                                 if _has_scorecard(inst, date, picked_version[inst])]
-        fresh: list[str] = [inst for inst in res.selected
-                            if inst not in duplicates]
-        if duplicates:
-            print()
-            print(f"  {YELLOW('!')} Scorecard for {date} already exists for:")
-            for inst in duplicates:
-                print(f"      - {BOLD(inst)}")
-            print()
-            print(f"  {GREEN('Y')} re-score all   "
-                  f"{CYAN('S')} skip duplicates ({len(fresh)} fresh only)   "
-                  f"{DIM('N / Esc')} cancel")
-            print()
-            chosen: list[str] | None = None
-            while chosen is None:
-                k = _getkey()
-                if k in ("y", "Y", "enter"):
-                    chosen = list(res.selected)
-                elif k in ("s", "S"):
-                    chosen = fresh
-                elif k in ("n", "N", "esc"):
-                    print(f"  {DIM('Cancelled.')}")
-                    _pause_briefly()
-                    chosen = []
-            if not chosen:
-                continue
-            targets = chosen
-        else:
-            targets = list(res.selected)
-
-        print()
-        for inst in targets:
-            ver = picked_version.get(inst)
-            if ver:
-                _launch_no_pause(f"SBT: {inst} on {date} ({ver})",
-                                 "backtest-scored.bat", inst, date, ver)
-            else:
-                _launch_no_pause(f"SBT: {inst} on {date}",
-                                 "backtest-scored.bat", inst, date)
-        if not targets:
-            print(f"  {YELLOW('!')} Nothing launched.")
-        _pause_briefly()
-
-
-def act_compare() -> None:
-    while True:
-        d1, _d2 = compute_walk_forward_dates()
-        items: list[InstrumentRow] = []
-        for inst in _INSTRUMENTS:
-            inst_dir = ROOT / "models" / inst
-            n_versions = (
-                sum(1 for v in inst_dir.iterdir() if v.is_dir()) if inst_dir.exists() else 0
-            )
-            items.append(InstrumentRow(
-                instrument=inst,
-                checked=n_versions >= 2,
-                enabled=n_versions >= 2,
-                status_line=(
-                    f"  {DIM(f'{n_versions} versions')}"
-                    if n_versions >= 2
-                    else f"  {DIM(f'{n_versions} versions — need ≥2 to compare')}"
-                ),
-            ))
-        res = submenu(
-            title="Compare  —  step 1 of 2: pick instruments",
-            rows=items,
-            show_date_mode_toggle=False,
-            bottom_actions=["Continue"],
+        # ── step 2b: pick held-out date(s), multi-select ──
+        available = _scan_backtestable_dates(list(pairs.keys()))
+        default_dates = {d1} if d1 in available else set()
+        dates = _multi_date_picker(
+            "Evaluate & compare  —  step 3 of 3: pick test date(s)",
+            available, default_dates,
         )
-        if res.cancelled:
-            return
-        if not res.selected:
+        if dates is None:
+            continue
+        if not dates:
             print()
-            print(f"  {YELLOW('!')} Nothing selected.")
+            print(f"  {YELLOW('!')} No dates selected.")
             _pause_briefly()
             continue
-        # Phase 1b follow-up (2026-06-21): per-selected-instrument
-        # availability + calibration union, matching act_sbt above.
-        available = _scan_backtestable_dates(list(res.selected))
-        date = _single_date_picker(
-            f"Compare  —  step 2 of 2: pick test date (default D-1 = {d1 or '--'})",
-            available,
-            default=d1,
-        )
-        if not date:
-            continue
+
+        # ── score any missing (instrument × version × date), synchronously,
+        #    so the compare below always has a scorecard to read ──
         print()
-        for inst in res.selected:
-            _launch_no_pause(f"Compare: {inst} on {date}", "backtest-compare.bat", inst, date)
+        print(f"  {BOLD('Scoring any missing backtests…')}")
+        for inst, (older, newer) in pairs.items():
+            for date in sorted(dates):
+                for ver in (older, newer):
+                    if _has_scorecard(inst, date, ver):
+                        continue
+                    _run_bat_sync(f"score {inst} {date} {ver[:8]}",
+                                  "backtest-scored.bat", inst, date, ver)
+
+        # ── compare (step ①: one window per instrument × date, with the
+        #    chosen versions). Inline aggregated table lands in step ②. ──
+        print()
+        for inst, (older, newer) in pairs.items():
+            for date in sorted(dates):
+                _launch_no_pause(
+                    f"Compare {inst} {date}: {newer[:8]} vs {older[:8]}",
+                    "backtest-compare.bat", inst, date, older, newer,
+                )
         _pause_briefly()
+
 
 
 def act_watch() -> None:
@@ -2963,8 +2949,7 @@ def main() -> None:
         RootItem("Record       (ticks → data/raw/)",       "Q", act_record),
         RootItem("Replay       (raw → data/features/)",    "F", act_replay),
         RootItem("Train        (features → models/)",      "T", act_train),
-        RootItem("Backtest     (scored on D-1)",           "B", act_sbt),
-        RootItem("Compare      (model vs prior on D-1)",   "P", act_compare),
+        RootItem("Evaluate     (score + compare 2 model versions)", "B", act_evaluate),
         RootItem("Run SEA      (live features → signals/)", "I", act_sea),
         RootItem("Live Sim     (SEA for replay: auto-trade + no stale guard)", "S", act_live_sim),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
