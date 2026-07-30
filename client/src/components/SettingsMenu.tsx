@@ -41,7 +41,7 @@ const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] 
   { key: "ma", label: "MA-Signal" },
   { key: "swing", label: "Swing" },
 ];
-const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide"];
+const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
 
 /** A compact checkbox. `indeterminate` renders the mixed (dash) state. */
 function Check2({ checked, indeterminate, onChange, title }: {
