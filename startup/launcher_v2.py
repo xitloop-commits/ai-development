@@ -1528,6 +1528,26 @@ def _run_bat_sync(title: str, *bat_args: str) -> bool:
     return ok
 
 
+def _show_compare_inline(instrument: str, older: str, newer: str, dates: list[str]) -> None:
+    """Render the existing scorecards for (instrument, older vs newer) on each
+    date, INLINE in the launcher console — no spawned window. Reuses
+    backtest_compare.compare (light: reads scorecard.json only)."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        import backtest_compare  # noqa: E402  (json-only, safe to import here)
+    except Exception as e:
+        print(f"  {YELLOW('!')} Could not load backtest_compare: {e}")
+        return
+    bt_root = ROOT / "data" / "backtests"
+    for date in sorted(dates):
+        try:
+            backtest_compare.compare(instrument, date, run1=older, run2=newer,
+                                     backtests_root=bt_root)
+        except Exception as e:
+            print(f"  {YELLOW('!')} {instrument} {date}: compare failed — {e}")
+
+
 def act_evaluate() -> None:
     """Single 'Evaluate & compare' flow (supersedes the old Backtest + Compare
     menus). Per instrument: pick 2 model versions, pick held-out date(s), score
@@ -1601,16 +1621,14 @@ def act_evaluate() -> None:
                     _run_bat_sync(f"score {inst} {date} {ver[:8]}",
                                   "backtest-scored.bat", inst, date, ver)
 
-        # ── compare (step ①: one window per instrument × date, with the
-        #    chosen versions). Inline aggregated table lands in step ②. ──
-        print()
+        # ── show the comparison INLINE (reads the scorecards ensured above) ──
+        _clear()
         for inst, (older, newer) in pairs.items():
-            for date in sorted(dates):
-                _launch_no_pause(
-                    f"Compare {inst} {date}: {newer[:8]} vs {older[:8]}",
-                    "backtest-compare.bat", inst, date, older, newer,
-                )
-        _pause_briefly()
+            _show_compare_inline(inst, older, newer, dates)
+        print()
+        print(f"  {DIM('─' * 60)}")
+        print(f"  {DIM('Press any key to return to the menu…')}")
+        _getkey()
 
 
 
