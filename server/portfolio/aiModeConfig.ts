@@ -469,7 +469,13 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
     st.defaultSlPct = clampLevel(st.defaultSlPct, st.slMode, 90, 25, 2000);
     st.cooledSlPct = clampNum(st.cooledSlPct, 1, 90, 12.5);
     st.breakevenAtFrac = clampNum(st.breakevenAtFrac, 0, 1, 0.5);
-    st.nearTargetFrac = clampNum(st.nearTargetFrac, 0, 1, 0.9);
+    // MIN 0.5, not 0: Runway's trailing floor sits at entry + 0.5×target
+    // (runwayDecide). If trailing arms before the peak reaches that floor
+    // (nearTargetFrac < 0.5), the floor is already ABOVE the price, so the trade
+    // "banks" half the target on the FIRST tick without the price ever moving —
+    // a fake instant win (paper Runway did exactly this, 2026-07-30). Keep
+    // activation at or past the floor.
+    st.nearTargetFrac = clampNum(st.nearTargetFrac, 0.5, 1, 0.9);
     st.trailPct = clampNum(st.trailPct, 1, 90, 15);
     st.defaultTargetPct = clampLevel(st.defaultTargetPct, st.tpMode, 50, 2.3, 3000);
   }

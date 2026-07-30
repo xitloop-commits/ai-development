@@ -1635,6 +1635,24 @@ per-trade serial. Plan when resumed: add a stored `tradeSeq` stamped at
 trades in openedAt order, show it on the row (keep signal # secondary?). Partha
 "will come back to this later" (2026-07-29).
 
+### T146 [Execution] 🔴 — Runway instant-exit (nearTargetFrac=0) fake wins ✅ FIXED 2026-07-30
+Paper Runway hit "target" ~1s after placing all morning. Cause: paper runway
+`nearTargetFrac` was set to **0**. Runway's trailing floor is `entry + 0.5×target`
+(runwayDecide); with nearTargetFrac=0 trailing arms on tick 1, the floor is
+already ABOVE the price, so `stopBreached` fires immediately and the trade exits
+at entry+0.5×target — a **fake +5% win with zero price movement** (proof: every
+fake exit = entry×1.05 for the 10% target). Live was fine (nearTargetFrac=1).
+- **Guard:** sanitize now clamps `nearTargetFrac` to **[0.5, 1]** (was [0,1]) so
+  it can never sit below the floor fraction again. Test added.
+- **Config:** paper runway nearTargetFrac pinned to 0.9. **Needs server restart**
+  for the guard to re-sanitize the live process.
+- **Scrub:** `scripts/scrub_fake_runway_20260730.ts` removed 5 fake 7-30 Runway
+  trades (all exit = entry×1.05, 1–2s holds, +₹32,806 fake profit) and rolled
+  that out of the pool. Backed up to `*_bak_scrub_20260730`.
+- Separate/secondary: a stale-entry gap also fakes rare instant exits on other
+  days (entry ≠ first live tick); left for a follow-up (re-anchor entry to first
+  tick / first-tick sanity guard).
+
 ### T145 [Portfolio] 🔴 — clawback rewound the trade cursor → trades vanished ✅ FIXED 2026-07-30
 Recurrence of the day-cycle bug (T142 only half-fixed it). On a losing day whose
 loss ≥ the daily target, `completeOrClawbackSingle` rolled `currentDayIndex`

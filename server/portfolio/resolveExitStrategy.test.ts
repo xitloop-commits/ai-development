@@ -138,6 +138,19 @@ describe("glide is MA-only", () => {
   });
 });
 
+describe("nearTargetFrac floor guard (T146)", () => {
+  it("clamps nearTargetFrac up to 0.5 — never 0 (the instant-fake-win bug)", () => {
+    updateExitConfig("live", { runway: { nearTargetFrac: 0 } });
+    expect(getExitConfig("live").runway.nearTargetFrac).toBe(0.5);
+    updateExitConfig("live", { anchor: { nearTargetFrac: 0.2 } });
+    expect(getExitConfig("live").anchor.nearTargetFrac).toBe(0.5);
+  });
+  it("leaves a sane nearTargetFrac untouched", () => {
+    updateExitConfig("live", { runway: { nearTargetFrac: 0.9 } });
+    expect(getExitConfig("live").runway.nearTargetFrac).toBe(0.9);
+  });
+});
+
 describe("equity is pinned to sprint", () => {
   /**
    * Runway/Anchor open with a 25% staged stop — ordinary on an option premium,
