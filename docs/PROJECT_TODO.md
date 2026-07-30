@@ -1689,7 +1689,7 @@ lesson); Glide is MA-only. Extra trades = extra charges (accepted, paper-test).
 - tests: resolveExitStrategy.test (7 race cases), inbound.test (N strategies →
   N trades, distinct exec ids). Money-path suites green (715).
 
-### T147 [Execution] — "Ladder" exit strategy (DESIGN LOCKED, build pending) 🚧
+### T147 [Execution] — "Ladder" exit strategy (Phase 1 BUILT; ES marker + partial-booking pending) 🚧
 A new exit strategy that fixes the R:R 0.67 disease (cut losers, ride winners) —
 added as a 5th strategy that RACES the existing four (does NOT replace them;
 Glide stays for the MA cohort because Ladder has no model-signal exit).
@@ -1738,9 +1738,38 @@ PB tranches (only when PB=ON).
 **Coverage:** Sprint ✅, Anchor ✅, Runway ✅ (gradual SL tighten = its staged
 stop). Glide ✅ once ES honour is turned ON (visual-only until then).
 
-**Build pending:** new engine path (like decideExit's runway/anchor), config block
-(~10 knobs), TradeBar markers (MSL/SL/TSL/TTP/MTP), register in the cohort race,
-tests. Do the Rule-5 three-step analysis before coding.
+**Phase 1 — BUILT & shipped 2026-07-30 (inert until a cohort toggles Ladder on):**
+- Engine: [exitStrategies.ts](../server/portfolio/exitStrategies.ts) `ladderDecide`
+  + `LadderConfig`/`LadderState`/`DEFAULT_LADDER_CFG`. MSL hard floor, SL that
+  steps tighter over time with the self-close LTP-gap guard, TSL that arms after
+  holding in favour (SL dies, snaps to breakeven, trails peak/give-back), MTP
+  exit at `mtpR × initial risk`. Direction-aware. 16 unit tests.
+- Config: `exits.ladder` block (14 knobs) + sanitize clamps; `"ladder"` added to
+  `StrategyName`, the flat map, per-cohort race rows (OFF by default),
+  `enabledStrategiesForCohort`. Deep-merge back-fills old configs.
+- Tick engine: Ladder branch mirroring runway/anchor + the TSL-arm favour clock;
+  honours master SL/TP/TSL suppression. RCA age/stale/vol exemption joins
+  runway/anchor.
+- UI: Ladder appears in the per-cohort race grid (`AiControl`) + a full **Ladder
+  settings panel** (all 14 knobs, %/₹ where relevant, MSL & ES on/off).
+  TradeBar gains the **MSL** safety-net marker (SL→TSL and MTP already render
+  from the trade fields). Ladder pill colour = violet. Row strategy-cycle
+  includes Ladder. 2 new TradeBar tests.
+- Defaults: SL 5%→1% (step 0.5%/30s), TSL give-back 50% arm 30s, MTP 2×, MSL 8%.
+
+**Phase 2 — pending:** the **ES exit-signal marker** — drop a timestamped dot on
+the bar the moment SEA sends that trade's EXIT/reversal (visual-only; close only
+when `esHonour` is on, which the config + toggle already carry). Needs the SEA
+exit signal routed to the open Ladder trade.
+
+**Phase 3 — pending:** **partial / profit booking.** BLOCKED on new execution
+plumbing — `closeTrade` only closes the WHOLE position today; PB needs multi-leg
+exits (or trade-splitting) touching close logic, P&L, charges, day aggregates,
+TradeBar. PB is OFF by default, so it was deliberately deferred. Design (locked
+above): dynamic whole-lot legs, ×R or % levels, leftover lot to the runner.
+
+**Deferred polish:** MSL marker on CLOSED (past) rows (config may have changed
+since); a distinct TTP tick (peak travel already shows the high-water line).
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 

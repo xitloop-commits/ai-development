@@ -148,6 +148,7 @@ export const STRATEGY_COLORS: Record<string, string> = {
   sprint: '#38BDF8', // sky blue   — the legacy TP/SL/TSL engine (default)
   runway: '#34D399', // emerald    — staged stops then ride the winner
   anchor: '#F59E0B', // amber      — staged stops, bank at fixed target
+  ladder: '#A78BFA', // violet     — T147: stepped SL, TSL ride, MTP at ×R (cut losers / ride winners)
 };
 
 const FALLBACK_STRATEGY_COLOR = '#94A3B8'; // slate-400

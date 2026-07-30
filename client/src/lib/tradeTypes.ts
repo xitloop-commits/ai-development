@@ -166,7 +166,7 @@ export interface TradeRecord {
    *  togglable. The trade still exits on EOD square-off or a manual ✕. */
   manualExitOnly?: boolean;
   /** Which pluggable exit strategy runs this trade (T84): sprint/runway/anchor. */
-  exitStrategy?: 'sprint' | 'runway' | 'anchor' | 'glide';
+  exitStrategy?: 'sprint' | 'runway' | 'anchor' | 'glide' | 'ladder';
   openedAt: number;
   closedAt: number | null;
   /**

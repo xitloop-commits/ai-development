@@ -41,6 +41,10 @@ export interface TradeBarProps {
    *  Derived by the parent from the trade's actual stop price, so it follows
    *  edits and server-side trailing. Goes negative once the stop is in profit. */
   slPercent?: number;
+  /** T147 (Ladder) — the hard-floor MSL distance as a % of entry (the safety net
+   *  the stop can never cross). Drawn as a static tick on the loss side, further
+   *  out than the moving SL. Absent for every non-Ladder trade. */
+  mslPercent?: number;
   /** Take-profit %. TP = entry + tpPercent% (BUY). */
   tpPercent?: number;
   /** Trailing enabled (global). When on but the stop hasn't trailed into profit
@@ -114,6 +118,7 @@ const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → L
 const GREY = "rgba(148, 163, 184, 0.35)";
 
 const SL_COLOR = "#dc2626";
+const MSL_COLOR = "#7f1d1d"; // dark crimson — the Ladder hard-floor safety net (distinct from the bright SL red)
 const ENTRY_COLOR = "#2563eb"; // blue — visible on dark rows
 const TSL_COLOR = "#eab308"; // stop colour once it has trailed into profit
 const TP_COLOR = "#22c55e"; // green
@@ -134,6 +139,7 @@ export function TradeBar({
   entryPrice,
   ltp,
   slPercent,
+  mslPercent,
   tpPercent,
   trailingEnabled = false,
   tslGatePrice,
@@ -167,6 +173,9 @@ export function TradeBar({
   const hasTp = tpPercent != null;
   const slPct = slPercent ?? 5; // scale-only fallback — never drawn as a marker
   const tpPct = tpPercent ?? 10; // scale-only fallback — never drawn as a marker
+  // Ladder hard floor (MSL): a static tick on the loss side, further out than SL.
+  const hasMsl = mslPercent != null && mslPercent > 0;
+  const mslFav = hasMsl ? -(mslPercent as number) : null; // below entry (loss side)
 
   // Favourable-% of the stop. Negative when the stop is below entry (at risk);
   // positive once it has trailed into profit ("locked").
@@ -253,11 +262,14 @@ export function TradeBar({
   // Lower plotted bound sits LEFT_PAD below the stop (or below entry, whichever
   // is lower), so entry stays visible even when the stop has trailed into profit.
   const EDGE = 4;
-  const lowFav = Math.min(stopFav, 0) - LEFT_PAD;
+  // Include the MSL floor in the lower bound so the safety-net tick stays on-scale
+  // even when it sits further out than the (tightening) SL.
+  const lowFav = Math.min(stopFav, mslFav ?? stopFav, 0) - LEFT_PAD;
   const span = maxFav - lowFav;
   const pos = (fav: number) => clamp(EDGE + ((fav - lowFav) / span) * (100 - 2 * EDGE));
 
   const stopPos = pos(stopFav);
+  const mslPos = mslFav != null ? pos(mslFav) : null;
   const entryPos = pos(0);
   const tpPos = pos(tpPct);
   const ltpPos = pos(ltpFav);
@@ -317,6 +329,10 @@ export function TradeBar({
   const stopText = trailingEnabled ? "TSL" : "SL";
   const stopProfit = profitAtFav(stopFav);
   const stopTip = `${trailingEnabled ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
+  const mslPrice = mslFav != null ? favToPrice(mslFav) : null;
+  const mslTip = mslFav != null
+    ? `Max stop-loss ${formatPrice(mslPrice as number)} (${fmtSign(mslFav)}) — the Ladder safety net; the stop can never cross it.`
+    : "";
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
@@ -546,6 +562,7 @@ export function TradeBar({
         {/* Marker ticks — each its own hover tooltip. The stop/TSL marker is
             lifted above the gap arrows + bands so it's never obscured. */}
         <div className="absolute inset-0 pointer-events-none">
+          {mslPos != null && <Tick at={mslPos} color={MSL_COLOR} tip={mslTip} z={9} />}
           {hasStop && <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />}
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />
           {hasTp && <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />}
@@ -602,6 +619,7 @@ export function TradeBar({
         {/* Stop: SL centred; once trailed into profit (TSL) it crowds Entry, so
             its price sits to the RIGHT of the marker. Entry's price sits to the
             LEFT of its marker so the two never overlap. */}
+        {mslPos != null && <Label at={mslPos} color={MSL_COLOR} text="MSL" price={mslPrice ?? undefined} hideText={compact} align="left" />}
         {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
         {hasTp && <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />}

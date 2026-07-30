@@ -57,6 +57,9 @@ export interface TodayTradeRowProps {
   /** Cooling-window seconds per staged-exit strategy (Runway / Anchor), from the
    *  AI menu. Sprint has no cooling window and is absent. */
   coolingSecByStrategy?: { runway: number | null; anchor: number | null };
+  /** T147 — Ladder's hard-floor (MSL) % from entry, or null when MSL is off.
+   *  Drives the safety-net marker on a Ladder trade's bar. */
+  ladderMslPct?: number | null;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
 }
@@ -79,6 +82,7 @@ function _TodayTradeRow({
   tslGatePercent,
   tslHoldSeconds,
   coolingSecByStrategy,
+  ladderMslPct,
   tradeNo,
   liveLtp,
 }: RenderProps) {
@@ -101,7 +105,7 @@ function _TodayTradeRow({
     onSuccess: () => { void utils.portfolio.invalidate(); },
     onError: (e) => window.alert(`Could not change strategy: ${e.message}`),
   });
-  const STRATEGY_CYCLE = (['sprint', 'runway', 'anchor', 'glide'] as const)
+  const STRATEGY_CYCLE = (['sprint', 'runway', 'anchor', 'glide', 'ladder'] as const)
     .filter((x) => x !== 'glide' || trade.cohort === 'ma_signal');
   const nextStrategy = () => {
     const cur = (trade.exitStrategy ?? 'sprint') as typeof STRATEGY_CYCLE[number];
@@ -396,6 +400,7 @@ function _TodayTradeRow({
                   const g = tslGatePercent ?? 2;
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
+                mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
                 peakLtp={trade.peakLtp}
                 troughLtp={trade.troughLtp}
                 units={trade.qty}
@@ -683,6 +688,7 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.globalTrailingEnabled === b.globalTrailingEnabled &&
     a.tslGatePercent === b.tslGatePercent &&
     a.tslHoldSeconds === b.tslHoldSeconds &&
+    a.ladderMslPct === b.ladderMslPct &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&
     // By-value compare neutralises the per-poll reference + undefined/absent churn.

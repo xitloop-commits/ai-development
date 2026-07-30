@@ -93,6 +93,12 @@ export function TodaySection({
     }),
     [aiConfigQuery.data, exitBook],
   );
+  // T147 — Ladder's hard-floor (MSL) %, so a Ladder row can draw the safety-net
+  // marker. null when MSL is switched off (then no marker is drawn).
+  const ladderMslPct = useMemo(() => {
+    const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
+    return l && l.mslEnabled ? (l.mslPct ?? null) : null;
+  }, [aiConfigQuery.data, exitBook]);
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -279,6 +285,7 @@ export function TodaySection({
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
           coolingSecByStrategy={coolingSecByStrategy}
+          ladderMslPct={ladderMslPct}
           tradeNo={trades.indexOf(trade) + 1}
         />
       ))}

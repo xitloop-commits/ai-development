@@ -55,6 +55,25 @@ describe("TradeBar — markers draw only when the real level exists (T86 ④)", 
 });
 
 /**
+ * T147 (Ladder) — the MSL safety-net marker draws only when mslPercent is given,
+ * sits further out than the moving SL, and is independent of it.
+ */
+describe("TradeBar — MSL safety-net marker (Ladder)", () => {
+  function mslMarker() {
+    return screen.queryByTitle(/^Max stop-loss /);
+  }
+  it("draws the MSL marker when mslPercent is given, alongside the SL", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} mslPercent={8} />);
+    expect(mslMarker()).not.toBeNull();
+    expect(stopMarker()).not.toBeNull(); // the moving SL is still its own marker
+  });
+  it("draws NO MSL marker when mslPercent is absent (non-Ladder trade)", () => {
+    render(<TradeBar {...base} slPercent={5} tpPercent={10} />);
+    expect(mslMarker()).toBeNull();
+  });
+});
+
+/**
  * Cooling-window countdown — the mirror of the TSL stopwatch, sitting left of
  * the SL marker. Runway/Anchor hold a deliberately wide stop for coolingSec
  * after entry; the countdown says how long until it tightens.
