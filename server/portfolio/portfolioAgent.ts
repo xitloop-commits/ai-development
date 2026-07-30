@@ -974,7 +974,7 @@ class PortfolioAgentImpl {
       tslMode?: "auto" | "manual";
       manualExitOnly?: boolean;
       /** Roll the exit strategy on an OPEN trade (the desk's strategy pill). */
-      exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
+      exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
     const day = await this.ensureCurrentDay(channel);

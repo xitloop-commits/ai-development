@@ -20,7 +20,7 @@ import { Settings, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { InfoDot } from "./InfoDot";
 
-type StratName = "sprint" | "runway" | "anchor" | "glide";
+type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 type ExitLevelMode = "percent" | "rupees";
 interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
 interface CommonCfg {

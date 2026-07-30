@@ -23,7 +23,7 @@ import {
 } from "./state";
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates, createDayRecord } from "./compounding";
-import { decideExit } from "./exitStrategies";
+import { decideExit, ladderDecide } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig, getCommonConfig } from "./aiModeConfig";
 import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
@@ -193,6 +193,10 @@ class TickHandler extends EventEmitter {
   /** Trailing-stop activated set: tradeIds whose gate held long enough. Once in,
    *  the stop trails (floored at breakeven) for the rest of the trade's life. */
   private tslActivated = new Set<string>();
+  /** LADDER (T147) TSL-arm clock: tradeId → the ms epoch price last crossed into
+   *  favour and has since stayed there (cleared the moment it drops back to
+   *  at-or-against entry). ladderDecide arms the TSL after tslArmSec of it. */
+  private ladderFavSince = new Map<string, number>();
   /** LIVE only — last time we emitted a broker TP-ratchet for a trade. Throttles
    *  the emit so we don't flood TEA (which also enforces the per-order modify cap). */
   private lastTpEmitAt = new Map<string, number>();
@@ -226,7 +230,7 @@ class TickHandler extends EventEmitter {
       manualExitOnly?: boolean;
       /** Operator rolled the strategy on an OPEN trade. Must be mirrored here or
        *  the per-tick persist writes the cached trade back and reverts it. */
-      exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
+      exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
     },
   ): void {
     const cached = this.stateCache.get(channel);
@@ -563,6 +567,18 @@ class TickHandler extends EventEmitter {
           anyUpdated = true;
         }
 
+        // LADDER (T147) TSL-arm clock. Start it the first tick price is in favour;
+        // clear it the moment price falls back to at-or-against entry, so the
+        // "held in favour for X sec" arming only counts a continuous run.
+        if (trade.exitStrategy === "ladder") {
+          const inFavour = isBuy ? tick.ltp > trade.entryPrice : tick.ltp < trade.entryPrice;
+          if (inFavour) {
+            if (!this.ladderFavSince.has(trade.id)) this.ladderFavSince.set(trade.id, Date.now());
+          } else {
+            this.ladderFavSince.delete(trade.id);
+          }
+        }
+
         // ── Master exits (T141) ──────────────────────────────────────────
         // Common-block master SL/TP/TSL OVERRIDE every strategy's own level of
         // that kind for EVERY trade. Evaluated FIRST; the matching per-strategy
@@ -749,6 +765,56 @@ class TickHandler extends EventEmitter {
             }
           }
           continue; // the strategy owns the exit — skip legacy TP/SL/TSL
+        }
+
+        // LADDER (T147) — its own staged engine (MSL/SL/TSL/MTP), like Runway/
+        // Anchor above but with a different config shape and the TSL-arm clock.
+        // Owns the exit and skips the legacy path. ES / partial-booking are later
+        // phases (esHonour is read but not acted on yet).
+        if (trade.exitStrategy === "ladder") {
+          const lcfg = getExitConfig(channel).ladder;
+          const out = ladderDecide(
+            {
+              entry: trade.entryPrice,
+              isBuy,
+              ltp: tick.ltp,
+              peak: newPeak,
+              target: trade.originalTargetPrice ?? null,
+              openedAt: trade.openedAt,
+              now: Date.now(),
+            },
+            lcfg,
+            { inFavourSince: this.ladderFavSince.get(trade.id) ?? null },
+          );
+          // Write the visible stop each tick (SL steps in / TSL trails), unless a
+          // master switch owns downside or a manual override stands (a manual
+          // level still yields to the genuine trailing phase when it improves).
+          const stopIsTrail = out.phase === "trailing";
+          const stopImproves = isBuy
+            ? out.stop > (trade.stopLossPrice ?? -Infinity)
+            : out.stop < (trade.stopLossPrice ?? Infinity);
+          if ((!trade.slOverridden || (stopIsTrail && stopImproves)) && !(mSL || mTSL)) {
+            trade.stopLossPrice = out.stop;
+          }
+          if (!trade.tpOverridden && !mTP) {
+            trade.targetPrice = Math.round(out.target * 100) / 100;
+          }
+          anyUpdated = true;
+          if (out.exit) {
+            const reason =
+              out.phase === "target-bank" ? ("TP_HIT" as const)
+              : out.phase === "trailing" ? ("TSL_HIT" as const)
+              : ("SL_HIT" as const);
+            // A master switch of the same kind overrides the Ladder exit.
+            const ownedByMaster =
+              (mSL && reason === "SL_HIT") || (mTSL && reason === "TSL_HIT") || (mTP && reason === "TP_HIT");
+            if (!ownedByMaster) {
+              this.ladderFavSince.delete(trade.id);
+              this.exitingTrades.set(trade.id, Date.now());
+              tradesToExit.push({ trade, reason, exitPrice: out.exitPrice ?? tick.ltp });
+            }
+          }
+          continue; // Ladder owns the exit — skip legacy TP/SL/TSL
         }
 
         // GLIDE DISASTER STOP — deliberately ABOVE the manualExitOnly guard.

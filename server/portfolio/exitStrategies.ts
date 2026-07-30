@@ -26,7 +26,7 @@
  *   ANCHOR: bank at the target (exit when ltp reaches it) — no ride
  */
 
-export type ExitStrategyName = "sprint" | "runway" | "anchor" | "glide";
+export type ExitStrategyName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 
 /** See ExitLevelMode in aiModeConfig — "percent" (premium %) or "rupees" (net ₹
  *  P&L after charges). Duplicated as a bare union here to avoid a config→engine
@@ -181,5 +181,132 @@ export function decideExit(
 ): ExitOutput | null {
   if (name === "runway") return runwayDecide(i, c);
   if (name === "anchor") return anchorDecide(i, c);
-  return null; // "sprint" / undefined → legacy TP/SL/TSL path
+  return null; // "sprint" / "ladder" / undefined → own path
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LADDER (T147) — cut losers, ride winners. A 5th racing strategy with its own
+// staged engine, separate from decideExit's runway/anchor path because its
+// config shape and per-trade state differ. Direction-aware like the rest.
+//
+// Downside, in order of precedence each tick:
+//   SL  — starts slStartPct below entry, STEPS tighter toward slFloorPct every
+//         slStepSec (from entry). Self-close guard: never tighten to within
+//         slLtpGapPct of the LIVE price (it would rise into the price and close
+//         the trade); it HOLDS in that gap and resumes when the gap reopens.
+//   TSL — arms once price holds in favour for tslArmSec; SL then dies, stop
+//         snaps to breakeven and trails (A: % below peak · B: give back % of the
+//         peak gain, default B). Stays at/above breakeven.
+//   MSL — hard safety-net floor (mslPct from entry). The stop can never sit
+//         further against the trade than this; enabled by default.
+// Upside:
+//   MTP — the EXIT: a multiple (mtpR) of the INITIAL risk (slStartPct of entry).
+//   TTP — trailing profit line is visual only (drawn from `peak`); no exit here.
+// ES / partial-booking are handled outside the engine (tickHandler / later phase).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** How TSL trails once armed. "peak" = a fixed % below the running peak (A);
+ *  "giveback" = hand back a % of the peak gain from entry (B, default). */
+export type LadderTrailMode = "peak" | "giveback";
+
+export interface LadderConfig {
+  // MSL — safety net
+  mslEnabled: boolean;
+  mslPct: number; // hard floor: % from entry the stop can never cross
+
+  // SL — primary guard, steps tighter over time
+  slStartPct: number; // initial distance below entry (the "risk", also MTP's base)
+  slFloorPct: number; // tightest distance (measured from entry)
+  slStepPct: number; // reduce the distance by this each step
+  slStepSec: number; // seconds between steps
+  slDelaySec: number; // hold the start level this long before stepping begins
+  slLtpGapPct: number; // never tighten SL to within this % of the LIVE price
+
+  // TSL — trailing guard (SL dies when it arms)
+  tslArmSec: number; // seconds price must hold in favour before arming
+  tslTrailMode: LadderTrailMode;
+  tslTrailPct: number; // % (below peak, or of peak-gain given back)
+
+  // MTP — the take-profit exit
+  mtpR: number; // exit at mtpR × initial risk (slStartPct) of profit
+
+  // ES — honour SEA's exit signal (visual-only when off, the default)
+  esHonour: boolean;
+}
+
+export const DEFAULT_LADDER_CFG: LadderConfig = {
+  mslEnabled: true,
+  mslPct: 8,
+  slStartPct: 5,
+  slFloorPct: 1,
+  slStepPct: 0.5,
+  slStepSec: 30,
+  slDelaySec: 0,
+  slLtpGapPct: 1,
+  tslArmSec: 30,
+  tslTrailMode: "giveback",
+  tslTrailPct: 50,
+  mtpR: 2,
+  esHonour: false,
+};
+
+export interface LadderState {
+  /** When price most recently entered (and has since stayed in) favour — i.e.
+   *  the last moment `ltp` crossed to the profitable side of entry and did not
+   *  cross back. null while at-or-against entry. Drives TSL arming (held for
+   *  tslArmSec). The tick engine tracks this per trade, like peakLtp. */
+  inFavourSince: number | null;
+}
+
+/** LADDER — see the block comment above. `s` carries the continuous-in-favour
+ *  clock the tick engine maintains; everything else is a pure function of it. */
+export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): ExitOutput {
+  const d = sign(i);
+  const risk = i.entry * (c.slStartPct / 100); // premium points of the initial stop
+  const targetGain = c.mtpR * risk; // MTP distance in favour
+  const target = i.entry + d * targetGain;
+
+  const tslArmed = s.inFavourSince != null && i.now - s.inFavourSince >= c.tslArmSec * 1000;
+
+  let stop: number;
+  let phase: ExitPhase;
+  if (tslArmed) {
+    // SL is dead. Breakeven floor, then trail — whichever is TIGHTER (further in
+    // favour) wins, and never below breakeven.
+    const be = i.entry;
+    const peakGain = Math.max(0, favour(i, i.peak));
+    const trail =
+      c.tslTrailMode === "peak"
+        ? i.peak * (1 - d * (c.tslTrailPct / 100)) // A: % below the peak
+        : i.entry + d * (peakGain * (1 - c.tslTrailPct / 100)); // B: give back % of peak gain
+    stop = favour(i, trail) > favour(i, be) ? trail : be;
+    phase = "trailing";
+  } else {
+    // SL steps tighter over time. Stepping starts after slDelaySec.
+    const elapsed = i.now - i.openedAt - c.slDelaySec * 1000;
+    const steps = elapsed > 0 ? Math.floor(elapsed / (c.slStepSec * 1000)) : 0;
+    const slPct = Math.max(c.slFloorPct, c.slStartPct - steps * c.slStepPct);
+    let sl = i.entry * (1 - d * (slPct / 100));
+    // Self-close guard: keep the stop at least slLtpGapPct of the LIVE price away
+    // (against side). If a step would tighten it inside that gap, HOLD it at the
+    // gap edge so it never rises into the price and self-closes.
+    const gap = i.ltp * (c.slLtpGapPct / 100);
+    const cappedFavour = favour(i, i.ltp) - gap; // SL favour must not exceed this
+    if (favour(i, sl) > cappedFavour) sl = i.ltp - d * gap;
+    stop = sl;
+    phase = elapsed <= 0 ? "cooling" : "wide";
+  }
+
+  // MSL hard floor — the stop can never sit further against the trade than this.
+  if (c.mslEnabled) {
+    const msl = i.entry * (1 - d * (c.mslPct / 100));
+    if (favour(i, stop) < favour(i, msl)) stop = msl;
+  }
+
+  // MTP — bank the profit when the live price reaches the target.
+  if (favour(i, i.ltp) >= targetGain) {
+    return { stop, exit: true, exitPrice: target, target, phase: "target-bank" };
+  }
+  const exit = stopBreached(i, stop);
+  return { stop, exit, exitPrice: exit ? stop : undefined, target, phase };
 }

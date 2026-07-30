@@ -166,7 +166,7 @@ export interface TradeRecord {
   /** `exitStrategy`: which pluggable exit strategy runs this trade (T84).
    *  "sprint" = today's TP/SL/TSL/age + honours external EXIT signals;
    *  "runway"/"anchor" = staged stops, ignore external signals. Default sprint. */
-  exitStrategy?: "sprint" | "runway" | "anchor" | "glide";
+  exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
   /** The target the SIGNAL supplied at open (null when it sent none). Kept
@@ -386,7 +386,7 @@ export const tradeRecordSchema = new Schema(
     stopLossDisabled: { type: Boolean, default: false },
     targetDisabled: { type: Boolean, default: false },
     manualExitOnly: { type: Boolean, default: false },
-    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor", "glide"], default: "sprint" },
+    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor", "glide", "ladder"], default: "sprint" },
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     originalTargetPrice: { type: Number, default: null },

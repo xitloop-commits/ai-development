@@ -47,19 +47,26 @@ interface GlideCfg {
   disasterSlPct: number; giveBackArmPct: number; giveBackPct: number;
   tpEnabled: boolean; tpMode: ExitLevelMode; tp: number;
 }
-interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg }
+/** T147 — Ladder: MSL/SL/TSL/MTP knobs (mirrors server LadderConfig). */
+interface LadderCfg {
+  mslEnabled: boolean; mslPct: number;
+  slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
+  tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
+  mtpR: number; esHonour: boolean;
+}
+interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean };
-  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean };
+  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean };
   /** T144 — per-cohort strategy race: each cohort's enabled strategies (one
    *  trade placed per enabled strategy on that cohort's signal). */
-  cohortStrategies: Record<"scalp" | "trend" | "ma" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean }>;
+  cohortStrategies: Record<"scalp" | "trend" | "ma" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean }>;
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
 /** T129 — system-wide settings; edited in the Settings menu, not here. */
-type StratName = "sprint" | "runway" | "anchor" | "glide";
+type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 interface CommonCfg {
   revPct: number;
   globalExits: {
@@ -336,11 +343,12 @@ const HELP = {
 /** Instruments with trained models (the two index books SEA runs). */
 const MODEL_INSTRUMENTS = ["nifty50", "banknifty"] as const;
 
-const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide"; label: string }[] = [
+const STRATEGIES: { key: StratName; label: string }[] = [
   { key: "sprint", label: "Sprint" },
   { key: "runway", label: "Runway" },
   { key: "anchor", label: "Anchor" },
   { key: "glide", label: "Glide" },
+  { key: "ladder", label: "Ladder" },
 ];
 
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
@@ -628,7 +636,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                         <div key={c.key} className="flex items-center justify-between gap-2">
                           <span className="text-[0.625rem] text-muted-foreground w-12 shrink-0">{c.label}</span>
                           <div className="flex gap-1 flex-wrap justify-end">
-                            {(["sprint", "runway", "anchor", "glide"] as const).map((s) => {
+                            {(["sprint", "runway", "anchor", "glide", "ladder"] as const).map((s) => {
                               if (s === "glide" && c.key !== "ma") return null; // Glide is MA-only
                               const isDefault = dflt === s;
                               return (

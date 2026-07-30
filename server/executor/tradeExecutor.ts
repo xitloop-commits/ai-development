@@ -1350,8 +1350,8 @@ function buildTradeRecord(
   const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   // Same helper the UI placement path uses, so the level a manual trade gets at
-  // the router and the level computed here can never drift apart. Runway/Anchor
-  // get null: their engine recomputes both from entry on the first tick.
+  // the router and the level computed here can never drift apart. Runway/Anchor/
+  // Ladder get null: their engine recomputes both from entry on the first tick.
   const cfgLevels =
     strategy === "sprint" && req.entryPrice > 0
       ? sprintOpeningLevels(req.channel, req.entryPrice, isLong, req.quantity)

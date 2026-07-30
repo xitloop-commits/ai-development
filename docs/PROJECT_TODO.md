@@ -1560,7 +1560,7 @@ In progress 2026-06-19. Plan: `~/.claude/plans/how-the-integration-is-synthetic-
   - **Phase 0:** TradeRecord fields (`superOrderId`, `slLegOrderId`, `tpLegOrderId`, `legModifyCount`, `tslArmedOnBroker`, `lastBrokerTp*`); super-order types; order-update WS now forwards `legNo`/`entryOrderId`.
   - **Phase 1:** Dhan adapter `placeSuperOrder`/`modifySuperOrderLeg`/`cancelSuperOrder`; live entry routes to Super Order when `useSuperOrderForLive` + SL&TP present; leg-fill reconciliation in `applyBrokerOrderEvent` (match by `superOrderId == entryOrderId`) → close via the paper auto-exit seam; `exitTrade` cancels legs then flattens.
   - **Phase 2:** tickHandler live block runs gated-TSL detection → emits `brokerTslArm` → TEA `armBrokerTsl` modifies STOP_LOSS_LEG to breakeven + native `trailingJump` (arm-once, cap-guarded).
-  - **Phase 3:** TP ratchet → throttled `brokerTpRatchet` (30s emit throttle) → TEA `ratchetBrokerTp` modifies TARGET_LEG with step% + time throttle + `25 - margin` modify budget.
+  - **Phase 3:** TP ratchet → throttled `brokerTpLadder` (30s emit throttle) → TEA `ratchetBrokerTp` modifies TARGET_LEG with step% + time throttle + `25 - margin` modify budget.
 - **DEFERRED:** recovery-engine super-order leg reconciliation via `SUPER_ORDER_BOOK` (backstop for a WS event missed while down). Needs the real Dhan super-order-book response shape → build during live validation.
 - **Live validation runbook (live-only — Super Orders 404 on sandbox; 1 lot, cheapest viable option, market open, one test at a time):**
   - **Pre-flight:** (1) **Token** — Dhan mints it on server startup via stored TOTP (refresh-on-startup-only policy; no manual/runtime refresh). If the **feed banner is green**, the token is valid → proceed; if red/stale, **restart the server** to re-mint. (2) `LOG_LEVEL=debug` to see `[ORDER→/←Dhan]`. (3) Enable `useSuperOrderForLive` in Settings. (4) Kill switch within reach; start on `testing-live`.
@@ -1688,6 +1688,59 @@ lesson); Glide is MA-only. Extra trades = extra charges (accepted, paper-test).
   per cohort" — toggle grid per cohort; default pill locked ON; Glide only on MA.
 - tests: resolveExitStrategy.test (7 race cases), inbound.test (N strategies →
   N trades, distinct exec ids). Money-path suites green (715).
+
+### T147 [Execution] — "Ladder" exit strategy (DESIGN LOCKED, build pending) 🚧
+A new exit strategy that fixes the R:R 0.67 disease (cut losers, ride winners) —
+added as a 5th strategy that RACES the existing four (does NOT replace them;
+Glide stays for the MA cohort because Ladder has no model-signal exit).
+
+**Markers — downside (stops):**
+- **MSL (Max Stop Loss)** — safety net, on/off toggle (default ON). Hard floor the
+  trade can never cross. Distance configurable.
+- **SL (Stop Loss)** — starts **5%** below entry (config). **Steps tighter toward
+  entry every X sec** (interval + step config) down to a **1% floor** (config,
+  measured from ENTRY). Live from **0s** (config delay). Dies the instant TSL
+  arms, but stays **visible**. Self-close guard: the tightening is active ONLY
+  while the SL is more than a **separate "SL-to-LTP gap" %** (default 1%, config,
+  measured from LIVE price) below the LTP — within that gap it HOLDS so it never
+  rises into the price and self-closes; resumes when the gap reopens.
+- **TSL (Trailing Stop Loss)** — arms once price **holds above entry for X sec**
+  (config). Snaps to **breakeven**, SL dies. Then trails: mode **A (% below peak)**
+  or **B (give-back % of peak gain)**, toggle, default **B**.
+
+**Markers — upside (targets):**
+- **TTP (Trailing TP)** — visual profit line only, **never exits**.
+- **MTP (Max TP)** — the take-profit **EXIT** = multiple of the **initial 5% risk**:
+  1.5× / 2× / 3× / 4× / 5×, default **2×**.
+
+**Marker — model exit (honour SEA):**
+- **ES (Exit-Signal marker)** — dropped on the bar (timestamped) the moment SEA
+  sends that trade's EXIT / reversal signal. **honour toggle default OFF** →
+  VISUAL ONLY, no exit; the operator watches where the model said "get out" vs
+  where the price markers actually exited, to build paper proof. Toggle **ON**
+  later → closes the trade **immediately** on the signal. Once proven ON, Ladder
+  fully covers Glide's model-exit (could then replace Glide on MA too).
+
+**Partial / profit booking (PB):**
+- **on/off toggle, default OFF** (prove on paper first, like ES).
+- **Multiple tranches**, each = *{level, % to book}*. Level basis is a **toggle:
+  ×R (risk-multiple) OR % move** (config). Every level + % configurable.
+- **Legs are DYNAMIC to the lots bought** — book in WHOLE lots; the %s distribute
+  across levels rounded to whole lots; **1 lot = no split (rides whole)**; any
+  **leftover lot goes to the RUNNER** (the riding chunk).
+- Partial levels sit **below MTP** (MTP caps the runner). PB markers on the bar
+  per level, with the % shown. After the first book, stop is at breakeven (TSL).
+- Default when ON: 40% @1R, 30% @1.5R, 30% rides to MTP(2R).
+
+**Exit fires at:** MTP (up) · SL→TSL→MSL (down) · ES (only when honour=ON) ·
+PB tranches (only when PB=ON).
+
+**Coverage:** Sprint ✅, Anchor ✅, Runway ✅ (gradual SL tighten = its staged
+stop). Glide ✅ once ES honour is turned ON (visual-only until then).
+
+**Build pending:** new engine path (like decideExit's runway/anchor), config block
+(~10 knobs), TradeBar markers (MSL/SL/TSL/TTP/MTP), register in the cohort race,
+tests. Do the Rule-5 three-step analysis before coding.
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 

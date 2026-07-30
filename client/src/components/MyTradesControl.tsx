@@ -20,18 +20,19 @@ import { useChannel } from "@/contexts/CapitalContext";
 
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
-  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean };
+  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean };
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
 }
 
-const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide"; label: string }[] = [
+const STRATEGIES: { key: "sprint" | "runway" | "anchor" | "glide" | "ladder"; label: string }[] = [
   { key: "sprint", label: "Sprint" },
   { key: "runway", label: "Runway" },
   { key: "anchor", label: "Anchor" },
   { key: "glide", label: "Glide" },
+  { key: "ladder", label: "Ladder" },
 ];
 /** `ma` maps to the signal engine's `ma_signal`; the server owns that mapping. */
 const MANUAL_COHORTS: { key: "ma" | "scalp" | "trend" | "swing"; label: string }[] = [

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { runwayDecide, anchorDecide, decideExit, DEFAULT_EXIT_CFG } from "./exitStrategies";
+import {
+  runwayDecide,
+  anchorDecide,
+  decideExit,
+  ladderDecide,
+  DEFAULT_EXIT_CFG,
+  DEFAULT_LADDER_CFG,
+} from "./exitStrategies";
 
 // entry 100. T85: the gain now comes ONLY from the strategy's defaultTargetPct
 // (10% of 100 = 10 pts), so every number below is unchanged. `target` is set to a
@@ -183,5 +190,117 @@ describe("SHORT — levels mirror around entry", () => {
   it("ANCHOR does NOT bank when premium rises to entry + gain (that is a loss)", () => {
     const o = anchorDecide({ ...short, ltp: 110, peak: 100, now: at(10) }, cfg);
     expect(o.phase).not.toBe("target-bank");
+  });
+});
+
+/**
+ * LADDER (T147). entry 100, slStartPct 5 → risk = 5 pts, mtpR 2 → target = 110.
+ * `s.inFavourSince` is the continuous-in-favour clock the tick engine maintains;
+ * null = not (yet) in favour, so TSL cannot arm.
+ */
+const lcfg = DEFAULT_LADDER_CFG; // slStart 5, floor 1, step 0.5/30s, gap 1%, arm 30s, giveback 50%, mtpR 2, msl 8%
+const lbase = { entry: 100, target: null as number | null, openedAt: 0, isBuy: true };
+const noFav = { inFavourSince: null };
+
+describe("LADDER — SL steps tighter over time", () => {
+  it("opens at slStartPct below entry (95)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 99, peak: 100, now: at(0) }, lcfg, noFav);
+    expect(o.stop).toBeCloseTo(95, 5);
+    expect(o.target).toBeCloseTo(110, 5); // mtpR(2) × risk(5) above entry
+    expect(o.exit).toBe(false);
+  });
+
+  it("tightens by one step every slStepSec (2 steps @60s → 4% → 96)", () => {
+    // ltp 98 (against) sits far enough above the 96 stop that the gap guard
+    // (1% of price ≈ 0.98) does not bite.
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(1) }, lcfg, noFav); // 60s = 2×30
+    expect(o.stop).toBeCloseTo(96, 5);
+  });
+
+  it("never tightens past the floor (slFloorPct = 1 → 99)", () => {
+    // ltp well in favour (101) so the gap guard leaves the floor alone; not armed
+    const o = ladderDecide({ ...lbase, ltp: 101, peak: 101, now: at(60) }, lcfg, { inFavourSince: at(60) - 5_000 });
+    expect(o.stop).toBeCloseTo(99, 5); // floored at 1% from entry, not tighter
+  });
+
+  it("self-close guard HOLDS the stop 1% below the live price, never into it", () => {
+    // floor wants 99, but ltp is 99 → 99 would sit AT the price. Held to ltp−1%.
+    const o = ladderDecide({ ...lbase, ltp: 99, peak: 100, now: at(60) }, lcfg, noFav);
+    expect(o.stop).toBeCloseTo(99 - 0.99, 4); // 98.01, a 1%-of-price cushion
+  });
+});
+
+describe("LADDER — TSL arms after holding in favour, SL dies", () => {
+  it("give-back mode (B): trails, handing back 50% of the peak gain", () => {
+    // in favour 31s ≥ armSec 30 → armed. peak 106 (gain 6) → give back 3 → 103.
+    const o = ladderDecide({ ...lbase, ltp: 105, peak: 106, now: at(1) }, lcfg, { inFavourSince: at(1) - 31_000 });
+    expect(o.phase).toBe("trailing");
+    expect(o.stop).toBeCloseTo(103, 5);
+    expect(o.exit).toBe(false);
+  });
+
+  it("peak mode (A): trails a fixed % below the peak", () => {
+    const o = ladderDecide(
+      { ...lbase, ltp: 105, peak: 106, now: at(1) },
+      { ...lcfg, tslTrailMode: "peak", tslTrailPct: 3 },
+      { inFavourSince: at(1) - 31_000 },
+    );
+    expect(o.stop).toBeCloseTo(102.82, 2); // 106 × 0.97
+  });
+
+  it("never trails below breakeven", () => {
+    // peak mode with a big trail % would land the stop below entry; clamped to BE.
+    const o = ladderDecide(
+      { ...lbase, ltp: 100.8, peak: 101, now: at(1) },
+      { ...lcfg, tslTrailMode: "peak", tslTrailPct: 5 }, // 101×0.95 = 95.95 < entry
+      { inFavourSince: at(1) - 31_000 },
+    );
+    expect(o.stop).toBeCloseTo(100, 5);
+  });
+
+  it("does NOT arm before tslArmSec has elapsed in favour", () => {
+    const o = ladderDecide({ ...lbase, ltp: 101, peak: 101, now: at(1) }, lcfg, { inFavourSince: at(1) - 5_000 });
+    expect(o.phase).not.toBe("trailing"); // still on the stepping SL
+  });
+});
+
+describe("LADDER — MSL floor and MTP exit", () => {
+  it("MSL clamps the stop so it never sits past mslPct (8% → 92)", () => {
+    // one deep tick to 90 drives the guard past MSL; MSL pulls it back to 92.
+    const o = ladderDecide({ ...lbase, ltp: 90, peak: 100, now: at(0) }, lcfg, noFav);
+    expect(o.stop).toBeCloseTo(92, 5);
+    expect(o.exit).toBe(true); // price already through it
+  });
+
+  it("MSL off lets the guard sit further out", () => {
+    const o = ladderDecide({ ...lbase, ltp: 90, peak: 100, now: at(0) }, { ...lcfg, mslEnabled: false }, noFav);
+    expect(o.stop).toBeCloseTo(90 - 0.9, 4); // held 1% below ltp, no 8% floor
+  });
+
+  it("MTP exits at mtpR × risk (110)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, lcfg, { inFavourSince: at(5) - 60_000 });
+    expect(o.phase).toBe("target-bank");
+    expect(o.exit).toBe(true);
+    expect(o.exitPrice).toBeCloseTo(110, 5);
+  });
+
+  it("MTP follows mtpR (3× → 115)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 100, peak: 100, now: at(0) }, { ...lcfg, mtpR: 3 }, noFav);
+    expect(o.target).toBeCloseTo(115, 5); // entry + 3 × 5
+  });
+});
+
+describe("LADDER — SHORT mirrors around entry", () => {
+  const lshort = { entry: 100, target: null as number | null, openedAt: 0, isBuy: false };
+  it("SL opens ABOVE entry (105)", () => {
+    const o = ladderDecide({ ...lshort, ltp: 101, peak: 100, now: at(0) }, lcfg, noFav);
+    expect(o.stop).toBeCloseTo(105, 5);
+    expect(o.target).toBeCloseTo(90, 5); // MTP below for a short
+  });
+
+  it("MTP banks when premium FALLS to the target (90)", () => {
+    const o = ladderDecide({ ...lshort, ltp: 89, peak: 89, now: at(5) }, lcfg, { inFavourSince: at(5) - 60_000 });
+    expect(o.phase).toBe("target-bank");
+    expect(o.exitPrice).toBeCloseTo(90, 5);
   });
 });

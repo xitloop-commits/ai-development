@@ -22,7 +22,7 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
-import { DEFAULT_EXIT_CFG, type ExitStrategyConfig } from "./exitStrategies";
+import { DEFAULT_EXIT_CFG, DEFAULT_LADDER_CFG, type ExitStrategyConfig, type LadderConfig } from "./exitStrategies";
 import type { Channel } from "./state";
 
 /**
@@ -38,7 +38,7 @@ export type Book = "paper" | "live";
 /** Who placed the trade, collapsed to the two config streams. USER → manual;
  *  AI and RCA → ai. */
 export type OriginKind = "ai" | "manual";
-export type StrategyName = "sprint" | "runway" | "anchor" | "glide";
+export type StrategyName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 
 export interface CohortsConfig {
   scalp: boolean;
@@ -155,6 +155,7 @@ export interface SharedExitConfig {
   runway: ExitStrategyConfig;
   anchor: ExitStrategyConfig;
   glide: GlideConfig;
+  ladder: LadderConfig; // T147 — cut-losers/ride-winners racer (own staged engine)
   // T129 — `lubasManagedExit` moved to CommonConfig (one live book, one owner).
 }
 
@@ -279,6 +280,7 @@ function baseExits(): SharedExitConfig {
     glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50, tpEnabled: false, tpMode: "percent", tp: 25 },
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
+    ladder: { ...DEFAULT_LADDER_CFG },
   };
 }
 
@@ -314,15 +316,16 @@ function baseMode(): AiModeConfig {
     cohorts: { scalp: true, trend: false, ma: true, swing: false },
     // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
     // so it must be chosen deliberately, never inherited from a default.
-    strategies: { sprint: true, runway: true, anchor: true, glide: false },
+    strategies: { sprint: true, runway: true, anchor: true, glide: false, ladder: false },
     // T144 — per-cohort race. Each cohort starts with ONLY its Common default on
     // (scalp→sprint, trend→runway, ma→glide, swing→anchor); the operator turns on
-    // extra strategies per cohort to race them on the same signal.
+    // extra strategies per cohort to race them on the same signal. Ladder (T147)
+    // is a new racer — OFF everywhere until deliberately turned on for a cohort.
     cohortStrategies: {
-      scalp: { sprint: true, runway: false, anchor: false, glide: false },
-      trend: { sprint: false, runway: true, anchor: false, glide: false },
-      ma: { sprint: false, runway: false, anchor: false, glide: true },
-      swing: { sprint: false, runway: false, anchor: true, glide: false },
+      scalp: { sprint: true, runway: false, anchor: false, glide: false, ladder: false },
+      trend: { sprint: false, runway: true, anchor: false, glide: false, ladder: false },
+      ma: { sprint: false, runway: false, anchor: false, glide: true, ladder: false },
+      swing: { sprint: false, runway: false, anchor: true, glide: false, ladder: false },
     },
     sizing: {
       perInstrument: {
@@ -347,7 +350,7 @@ function baseMode(): AiModeConfig {
 function baseManual(): AiModeConfig {
   const m = baseMode();
   m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, swing: false };
-  m.strategies = { sprint: false, runway: false, anchor: false, glide: true };
+  m.strategies = { sprint: false, runway: false, anchor: false, glide: true, ladder: false };
   return m;
 }
 
@@ -356,7 +359,7 @@ function baseManual(): AiModeConfig {
 function defaultAll(): AllAiConfig {
   const paperAi = baseMode();
   const liveAi = baseMode();
-  liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false };
+  liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false, ladder: false };
   // Replay defaults to a copy of paper's AI setup (races all four, 1 lot elsewhere
   // — but whatever paper ships with), so a fresh install replays like paper until
   // the operator diverges it.
@@ -479,6 +482,23 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
     st.trailPct = clampNum(st.trailPct, 1, 90, 15);
     st.defaultTargetPct = clampLevel(st.defaultTargetPct, st.tpMode, 50, 2.3, 3000);
   }
+  // T147 — Ladder. Back-fill for a config that predates it, then clamp.
+  if (!e.ladder) (e as SharedExitConfig).ladder = { ...DEFAULT_LADDER_CFG };
+  const l = e.ladder;
+  l.mslEnabled = l.mslEnabled !== false; // safety net ON by default
+  l.mslPct = clampNum(l.mslPct, 1, 90, 8);
+  l.slStartPct = clampNum(l.slStartPct, 1, 90, 5);
+  // Floor can never be wider than the start (SL only tightens toward entry).
+  l.slFloorPct = clampNum(l.slFloorPct, 0.1, l.slStartPct, Math.min(1, l.slStartPct));
+  l.slStepPct = clampNum(l.slStepPct, 0, 20, 0.5);
+  l.slStepSec = Math.round(clampNum(l.slStepSec, 1, 600, 30));
+  l.slDelaySec = Math.round(clampNum(l.slDelaySec, 0, 600, 0));
+  l.slLtpGapPct = clampNum(l.slLtpGapPct, 0, 20, 1);
+  l.tslArmSec = Math.round(clampNum(l.tslArmSec, 0, 600, 30));
+  l.tslTrailMode = l.tslTrailMode === "peak" ? "peak" : "giveback";
+  l.tslTrailPct = clampNum(l.tslTrailPct, 1, 95, 50);
+  l.mtpR = clampNum(l.mtpR, 1, 10, 2);
+  l.esHonour = !!l.esHonour;
   return e;
 }
 
@@ -507,7 +527,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   if (!c.cohortStrategy) (c as CommonConfig).cohortStrategy = { ...dflt };
   for (const k of ["scalp", "trend", "ma", "swing"] as const) {
     const v = c.cohortStrategy[k];
-    c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide"] as const).includes(v) ? v : dflt[k];
+    c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide", "ladder"] as const).includes(v) ? v : dflt[k];
   }
   // T141 — master exits. Back-fill for an old config, then clamp each level by
   // its own mode (% band vs net-₹ band). TSL % caps at 90 (a >90% giveback is
@@ -532,7 +552,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
-  for (const s of ["sprint", "runway", "anchor", "glide"] as const) c.strategies[s] = !!c.strategies[s];
+  for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) c.strategies[s] = !!c.strategies[s];
   // T144 — per-cohort strategy toggles. Back-fill for an old config, coerce
   // booleans, drop Glide off every cohort but `ma`, and FORCE each cohort's
   // Common default ON so a cohort can never be muted (the T139 lesson).
@@ -540,7 +560,7 @@ function sanitizeMode(c: AiModeConfig): AiModeConfig {
   if (!c.cohortStrategies) (c as AiModeConfig).cohortStrategies = {} as AiModeConfig["cohortStrategies"];
   for (const k of ["scalp", "trend", "ma", "swing"] as const) {
     const row = c.cohortStrategies[k] ?? (c.cohortStrategies[k] = {} as Record<StrategyName, boolean>);
-    for (const s of ["sprint", "runway", "anchor", "glide"] as const) row[s] = !!row[s];
+    for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) row[s] = !!row[s];
     if (k !== "ma") row.glide = false; // Glide is MA-only
     const dflt = dfltMap?.[k];
     if (dflt && (dflt !== "glide" || k === "ma")) row[dflt] = true; // default locked on
@@ -667,7 +687,7 @@ export function getAllAiConfig(): AllAiConfig {
 /** The active strategies for a book+origin block, in a stable order. */
 export function getActiveStrategies(book: EffBook, kind: OriginKind): StrategyName[] {
   const s = state[book][kind].strategies;
-  return (["sprint", "runway", "anchor", "glide"] as StrategyName[]).filter((k) => s[k]);
+  return (["sprint", "runway", "anchor", "glide", "ladder"] as StrategyName[]).filter((k) => s[k]);
 }
 
 /**
@@ -753,7 +773,7 @@ export function enabledStrategiesForCohort(
   const key = cohortKey(cohort);
   if (!key) return [resolveExitStrategy(channel, origin, isEquity, cohort)];
   const row = getAiConfig(resolveBook(channel), "ai").cohortStrategies?.[key];
-  const all: StrategyName[] = ["sprint", "runway", "anchor", "glide"];
+  const all: StrategyName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
   let list = strategiesForCohort(row ? all.filter((s) => row[s]) : [], cohort);
   const dflt = getCommonConfig().cohortStrategy[key];
   if (dflt && (dflt !== "glide" || cohort === "ma_signal") && !list.includes(dflt)) list = [dflt, ...list];
