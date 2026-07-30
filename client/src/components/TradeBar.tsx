@@ -320,9 +320,14 @@ export function TradeBar({
   // otherwise fall back to entry so a plain in-profit trade still shows green.
   const bufferStart = tslPos != null && tslPos < ltpPos ? tslPos : profitStart;
 
+  // Has the price EVER been at/below entry? The red at-risk band (stop→entry) is
+  // only shown when it has — a trade that has only ever been in profit shouldn't
+  // paint the loss zone red "by default" when the price never went there.
+  const wentBelowEntry = ltpFav < 0 || (troughLtp != null && troughLtp > 0 && toFav(troughLtp) < 0);
+
   // ── Colour bands ──────────────────────────────────────────────────────
   const bands: Array<{ from: number; to: number; color: string }> = [];
-  if (hasStop && !stopLocked) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
+  if (hasStop && !stopLocked && wentBelowEntry) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
   if (stopLocked) bands.push({ from: entryPos, to: stopPos, color: DARK_GREEN }); // locked profit (E→TSL)
   // Pre-lock with price already past the gate: entry→gate is profit not yet
   // protected (pale); gate→LTP is the clear-green buffer pushed below.
@@ -413,7 +418,7 @@ export function TradeBar({
 
   // ── Zone % arrows (<—— x% ——>) ────────────────────────────────────────
   // Risk = stop→entry (the red loss zone, only when the stop is below entry).
-  const showRisk = hasStop && !stopLocked && entryPos - stopPos > 4;
+  const showRisk = hasStop && !stopLocked && wentBelowEntry && entryPos - stopPos > 4;
   const riskMid = (stopPos + entryPos) / 2;
 
   // Reward = entry→TP, broken into consecutive measured gaps at the TSL and the
