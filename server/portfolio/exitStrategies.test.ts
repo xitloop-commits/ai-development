@@ -244,6 +244,19 @@ describe("LADDER — SL steps tighter over time", () => {
     expect(o.stop).toBeCloseTo(95, 5);
     expect(o.exit).toBe(true);
   });
+
+  it("gap-through fills at the WORSE of stop and price (not the stop)", () => {
+    // stop 95, but price gapped to 90 → realistic fill is 90, not 95 (a stop is
+    // not a limit). This is trade 113: stop 110.2 but market at 105.25.
+    const o = ladderDecide({ ...lbase, ltp: 90, peak: 100, now: at(0) }, { ...lcfg, mslEnabled: false }, noFav);
+    expect(o.exitPrice).toBeCloseTo(90, 5);
+  });
+
+  it("a clean stop hit (price at the stop, no gap) fills at the stop", () => {
+    const o = ladderDecide({ ...lbase, ltp: 95, peak: 100, now: at(0) }, { ...lcfg, mslEnabled: false }, noFav);
+    expect(o.exit).toBe(true);
+    expect(o.exitPrice).toBeCloseTo(95, 5);
+  });
 });
 
 describe("LADDER — TSL arms after holding in favour, SL dies", () => {

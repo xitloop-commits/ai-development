@@ -335,5 +335,10 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
     return { stop, exit: true, exitPrice: target, target, phase: "target-bank" };
   }
   const exit = stopBreached(i, stop);
-  return { stop, exit, exitPrice: exit ? stop : undefined, target, phase };
+  // Fill realism: a stop is NOT a limit. When price gaps straight THROUGH the
+  // stop (a fast drop below it), the fill is the market, not the stop — so bank
+  // the WORSE of the stop and the live price. Filling at the stop on a gap
+  // flatters every loss (trade 113: stop 110.2 but price was at 105.25).
+  const fill = exit ? (favour(i, i.ltp) < favour(i, stop) ? i.ltp : stop) : undefined;
+  return { stop, exit, exitPrice: fill, target, phase };
 }
