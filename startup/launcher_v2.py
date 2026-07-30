@@ -1528,6 +1528,152 @@ def _run_bat_sync(title: str, *bat_args: str) -> bool:
     return ok
 
 
+def _agg_scorecards(instrument: str, version: str, dates: list[str], bt_root: Path) -> dict | None:
+    """Aggregate one version's per-date scorecards over `dates` into
+    signal-weighted metrics. Returns None if no scorecard exists for any date."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        import backtest_compare
+    except Exception:
+        return None
+    scs: list[tuple[str, dict]] = []
+    for d in sorted(dates):
+        sc = backtest_compare._load_scorecard(bt_root, instrument, version, d)
+        if sc:
+            scs.append((d, sc))
+    if not scs:
+        return None
+
+    def wmean(key: str, wkey: str) -> float | None:
+        num = 0.0
+        den = 0.0
+        for _, sc in scs:
+            v = sc.get(key)
+            w = sc.get(wkey) or 0
+            if v is not None and w:
+                num += v * w
+                den += w
+        return (num / den) if den else None
+
+    return {
+        "n_dates": len(scs),
+        "signals": sum((sc.get("total_signals") or 0) for _, sc in scs),
+        "dir_acc": wmean("direction_60s_accuracy", "direction_60s_n"),
+        "precision": wmean("signal_precision_overall", "total_signals"),
+        "tp_rate": wmean("tp_hit_rate", "total_signals"),
+        "sl_rate": wmean("sl_hit_rate", "total_signals"),
+        "per_date": scs,
+    }
+
+
+def _model_pnl(instrument: str, version: str) -> dict | None:
+    """The model's sim-PnL scorecard (net ₹ / win-rate / expectancy / drawdown),
+    computed over its OWN holdout window during training — NOT the picked dates."""
+    p = ROOT / "models" / instrument / version / "sim_pnl_scorecard.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _show_verdict(instrument: str, older: str, newer: str, dates: list[str]) -> None:
+    """Aggregated verdict for older (A) vs newer (B) across `dates`, plus the
+    model-level P&L, plus a compact per-date line so a lucky day shows."""
+    bt_root = ROOT / "data" / "backtests"
+    a = _agg_scorecards(instrument, older, dates, bt_root)
+    b = _agg_scorecards(instrument, newer, dates, bt_root)
+    W = 78
+    print()
+    print(f"  {'═' * W}")
+    if not a or not b:
+        print(f"    VERDICT — {instrument}: missing scorecards for one version — cannot aggregate.")
+        print(f"  {'═' * W}")
+        return
+    dspan = f"{min(dates)} … {max(dates)}" if len(dates) > 1 else dates[0]
+    print(f"    VERDICT — {instrument}   ({len(dates)} date(s): {dspan})")
+    print(f"    A = {older}   (older / incumbent)     B = {newer}   (newer / challenger)")
+    print(f"  {'═' * W}")
+    print()
+    print(f"    {'Metric':<24} {'A':>14}  {'B':>14}   {'Delta':>9}")
+    print(f"    {'─' * 24} {'─' * 14}  {'─' * 14}   {'─' * 9}")
+
+    tally = {"A": 0, "B": 0}
+
+    def row(label, av, bv, fmt="{:.1f}%", higher_better=True, dfmt="{:+.1f}", vote=True):
+        a_str = fmt.format(av) if av is not None else "—"
+        b_str = fmt.format(bv) if bv is not None else "—"
+        dstr = ""
+        mark = ""
+        if av is not None and bv is not None:
+            d = bv - av
+            dstr = dfmt.format(d)
+            if d != 0:
+                better_b = (d > 0) == higher_better
+                mark = GREEN(" ✓") if better_b else YELLOW(" ✗")
+                if vote:
+                    tally["B" if better_b else "A"] += 1
+        print(f"    {label:<24} {a_str:>14}  {b_str:>14}   {dstr:>9}{mark}")
+
+    row("Test dates", a["n_dates"], b["n_dates"], fmt="{:.0f}", dfmt="{:+.0f}", vote=False)
+    row("Total signals", a["signals"], b["signals"], fmt="{:.0f}", dfmt="{:+.0f}", vote=False)
+    row("Direction 60s acc", a["dir_acc"], b["dir_acc"])
+    row("Overall precision", a["precision"], b["precision"])
+    row("TP hit rate", a["tp_rate"], b["tp_rate"], higher_better=True)
+    row("SL hit rate", a["sl_rate"], b["sl_rate"], higher_better=False)
+
+    pa = _model_pnl(instrument, older)
+    pb = _model_pnl(instrument, newer)
+    na_trades = (pa or {}).get("sim_pnl_signals") or 0
+    nb_trades = (pb or {}).get("sim_pnl_signals") or 0
+    print()
+    if not (pa or pb):
+        print(f"    {DIM('Model P&L: no sim_pnl scorecard for either version.')}")
+    elif na_trades == 0 and nb_trades == 0:
+        print(f"    {DIM('Model P&L: sim produced 0 trades for both (no option bid/ask in the '
+                         'sim window) — not available.')}")
+    else:
+        print(f"    {DIM('Model P&L — each over its OWN holdout window, NOT the dates above:')}")
+
+        def prow(label, key, fmt="{:,.0f}", higher_better=True, scale=1.0):
+            av = (pa or {}).get(key)
+            bv = (pb or {}).get(key)
+            av = av * scale if av is not None else None
+            bv = bv * scale if bv is not None else None
+            row(label, av, bv, fmt=fmt, higher_better=higher_better, dfmt="{:+,.0f}")
+
+        prow("  Net P&L (₹)", "sim_pnl_total_inr")
+        prow("  Win rate", "sim_pnl_win_rate", fmt="{:.1f}%", scale=100.0)
+        prow("  Expectancy (₹)", "sim_pnl_expectancy_inr", fmt="{:+,.0f}")
+        prow("  Max drawdown (₹)", "sim_pnl_max_drawdown_inr", higher_better=False)
+
+    # per-date consistency line (spot a lucky day)
+    print()
+    print(f"    {DIM('Per-date signals / TP-hit% (A → B):')}")
+    for (d, sca), (_, scb) in zip(a["per_date"], b["per_date"]):
+        na, ta = sca.get("total_signals") or 0, sca.get("tp_hit_rate")
+        nb, tb = scb.get("total_signals") or 0, scb.get("tp_hit_rate")
+        ta_s = f"{ta:.0f}%" if ta is not None else "—"
+        tb_s = f"{tb:.0f}%" if tb is not None else "—"
+        print(f"      {d}   {na:>4} sig / {ta_s:>4}   →   {nb:>4} sig / {tb_s:>4}")
+
+    # verdict line
+    print()
+    lead = tally["B"] - tally["A"]
+    if len(dates) < 3:
+        note = YELLOW(f"provisional — only {len(dates)} date(s); test more to trust it")
+    elif lead >= 2:
+        note = GREEN(f"B (newer, {newer}) looks better — leads {tally['B']}–{tally['A']}")
+    elif lead <= -2:
+        note = YELLOW(f"A (older, {older}) looks better — leads {tally['A']}–{tally['B']}")
+    else:
+        note = YELLOW(f"mixed / inconclusive ({tally['B']}–{tally['A']}) — test more dates")
+    print(f"    {BOLD('→ Verdict:')} {note}")
+    print(f"  {'═' * W}")
+
+
 def _show_compare_inline(instrument: str, older: str, newer: str, dates: list[str]) -> None:
     """Render the existing scorecards for (instrument, older vs newer) on each
     date, INLINE in the launcher console — no spawned window. Reuses
@@ -1621,10 +1767,11 @@ def act_evaluate() -> None:
                     _run_bat_sync(f"score {inst} {date} {ver[:8]}",
                                   "backtest-scored.bat", inst, date, ver)
 
-        # ── show the comparison INLINE (reads the scorecards ensured above) ──
+        # ── show the aggregated VERDICT inline (reads the scorecards ensured
+        #    above; aggregates across the picked dates + pulls model P&L) ──
         _clear()
         for inst, (older, newer) in pairs.items():
-            _show_compare_inline(inst, older, newer, dates)
+            _show_verdict(inst, older, newer, sorted(dates))
         print()
         print(f"  {DIM('─' * 60)}")
         print(f"  {DIM('Press any key to return to the menu…')}")
