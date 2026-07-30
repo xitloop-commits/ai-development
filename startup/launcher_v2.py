@@ -426,6 +426,45 @@ def _scan_backtestable_dates(instruments: list[str]) -> list[str]:
     return sorted(d for d in (candidates & have_parquet) if d < today)
 
 
+def _trained_dates_for(instrument: str, version: str) -> set[str]:
+    """The dates a SPECIFIC model version was fit on (train ∪ val) — the only
+    dates a backtest on it would be in-sample. Calibration dates are NOT
+    included (the model never trained on them). Empty set if no manifest."""
+    manifest = ROOT / "models" / instrument / version / "training_manifest.json"
+    if not manifest.exists():
+        return set()
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for s in list(data.get("train_dates", []) or []) + list(data.get("val_dates", []) or []):
+        m = re.search(r"\d{4}-\d{2}-\d{2}", str(s))
+        if m:
+            out.add(m.group(0))
+    return out
+
+
+def _comparable_dates(pairs: dict[str, tuple[str, str]]) -> list[str]:
+    """Honest test dates for a 2-version compare: any date with a parquet that
+    NEITHER chosen version trained on (train ∪ val), for every selected
+    instrument, and before today.
+
+    This is broader — and more correct — than `_scan_backtestable_dates`, which
+    only offered the reserved holdout + calibration dates and so wrongly hid
+    dates AFTER the models' training cut-off. Those post-training dates are
+    genuine out-of-sample (the model never saw them), so they belong here; only
+    dates a version actually TRAINED on are refused (they'd be in-sample)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    result: set[str] | None = None
+    for inst, (older, newer) in pairs.items():
+        trained = _trained_dates_for(inst, older) | _trained_dates_for(inst, newer)
+        parqs = set(scan_feature_days(inst))
+        oos = {d for d in parqs if d < today and d not in trained}
+        result = oos if result is None else (result & oos)
+    return sorted(result or set())
+
+
 def compute_walk_forward_dates() -> tuple[str, str]:
     """(backtest target, train end-date).
 
@@ -1533,8 +1572,10 @@ def act_evaluate() -> None:
         if cancelled or not pairs:
             continue
 
-        # ── step 2b: pick held-out date(s), multi-select ──
-        available = _scan_backtestable_dates(list(pairs.keys()))
+        # ── step 2b: pick test date(s), multi-select. Version-aware: any date
+        #    neither chosen version trained on (reserved holdout, cal dates, AND
+        #    post-training dates), not just the reserved holdout. ──
+        available = _comparable_dates(pairs)
         default_dates = {d1} if d1 in available else set()
         dates = _multi_date_picker(
             "Evaluate & compare  —  step 3 of 3: pick test date(s)",
