@@ -806,8 +806,8 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
                     <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
                     <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
-                    {/* MTP — the take-profit */}
-                    <Num help={HELP.ladderMtpR} label="Target ×R" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
+                    {/* MTP — the take-profit exit (× the initial risk) */}
+                    <Num help={HELP.ladderMtpR} label="MTP (Max TP) ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
                     {/* ES — honour the model's exit signal */}
                     <Row label="Honour exit signal" help={HELP.ladderEsHonour}>
                       <Pill label={ed.ladder.esHonour ? "ON" : "OFF"} on={ed.ladder.esHonour}
