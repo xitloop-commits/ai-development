@@ -65,12 +65,21 @@ vi.mock("../executor/settings", () => ({
   })),
 }));
 
+// Keep the REAL aiModeConfig (default single-strategy behaviour) but let a test
+// override enabledStrategiesForCohort to simulate a multi-strategy race, without
+// touching the config file (T144).
+vi.mock("../portfolio/aiModeConfig", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../portfolio/aiModeConfig")>();
+  return { ...actual, enabledStrategiesForCohort: vi.fn(actual.enabledStrategiesForCohort) };
+});
+
 // ─── SUT ─────────────────────────────────────────────────────────
 
 import { rcaMonitor } from "./index";
 import { tradeExecutor } from "../executor/tradeExecutor";
 import { portfolioAgent } from "../portfolio";
 import { getSEASignals } from "../seaSignals";
+import { enabledStrategiesForCohort } from "../portfolio/aiModeConfig";
 
 const sampleEvalReq = {
   executionId: "test-1",
@@ -120,6 +129,17 @@ describe("rcaMonitor.evaluateTrade", () => {
       instrument: "NIFTY_50", origin: "AI",
       exitStrategy: "sprint", executionId: "test-1",
     });
+  });
+
+  it("T144 — races N strategies → N trades, one per strategy, distinct execution ids", async () => {
+    (enabledStrategiesForCohort as any).mockReturnValueOnce(["sprint", "runway", "anchor"]);
+    const result = await rcaMonitor.evaluateTrade({ ...sampleEvalReq, cohort: "scalp", executionId: "sig-9" });
+    expect(result.decision).toBe("APPROVE");
+    expect(tradeExecutor.submitTrade).toHaveBeenCalledTimes(3);
+    const calls = (tradeExecutor.submitTrade as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.map((r: any) => r.exitStrategy)).toEqual(["sprint", "runway", "anchor"]);
+    // Distinct execution ids so the idempotency store doesn't dedupe the twins.
+    expect(calls.map((r: any) => r.executionId)).toEqual(["sig-9:sprint", "sig-9:runway", "sig-9:anchor"]);
   });
 
   it("REJECT when TEA returns success=false", async () => {

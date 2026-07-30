@@ -1635,6 +1635,42 @@ per-trade serial. Plan when resumed: add a stored `tradeSeq` stamped at
 trades in openedAt order, show it on the row (keep signal # secondary?). Partha
 "will come back to this later" (2026-07-29).
 
+### T145 [Portfolio] 🔴 — clawback rewound the trade cursor → trades vanished ✅ FIXED 2026-07-30
+Recurrence of the day-cycle bug (T142 only half-fixed it). On a losing day whose
+loss ≥ the daily target, `completeOrClawbackSingle` rolled `currentDayIndex`
+BACKWARD (processClawback) — but that index doubles as the trade-storage + desk
+cursor, so the desk jumped to an empty "day 1" and today's trades (still in the
+ACTIVE cycle) vanished from view. Hit right after the T144 race placed 3 trades
+on a trend signal and they closed red.
+- **Root fix:** the clawback now applies only the MONEY effect (pool + history);
+  it no longer rewinds `currentDayIndex`. Safe because the "staircase rewind" was
+  cosmetic AND its consumed-day deletion never ran (`deleteDayRecordsFrom` is
+  dead code) — so you stay on the same day with a smaller pool.
+- **Data repair:** `scripts/repair_cursor_20260730.ts` re-pointed currentDayIndex
+  1 → 3 (the ACTIVE cycle, 379 trades incl. today). Backed up to
+  `portfolio_state_bak_20260730`. No trade was ever lost — they were always in idx3.
+- Portfolio suite green (380). NOTE: the live path (completeOrClawbackLive) has the
+  same rewind — fix there too if live compounding is ever turned on.
+
+### T144 [Execution] — per-cohort strategy RACE (compare strategies per signal) ✅ DONE 2026-07-30
+Bring back the multi-strategy race, but scoped per book × per cohort so you can
+compare which exit strategy handles a cohort's signals best. An AI signal now
+places ONE trade per enabled strategy for its cohort (same entry, different
+exit). The cohort's Common default is **locked ON** (can't be muted — the T139
+lesson); Glide is MA-only. Extra trades = extra charges (accepted, paper-test).
+
+- config ([aiModeConfig.ts](../../server/portfolio/aiModeConfig.ts)): per-book
+  `ai.cohortStrategies[scalp|trend|ma|swing][sprint|runway|anchor|glide]`; seeded
+  default-only-on; sanitize forces the default on + Glide off non-MA + back-fills.
+  New `cohortKey()` + `enabledStrategiesForCohort()`.
+- placement ([risk-control/index.ts](../../server/risk-control/index.ts)):
+  evaluateTrade loops the enabled set, one submitTrade each with a
+  strategy-scoped executionId (`<id>:<strategy>`); USER/RCA stay single.
+- UI ([AiControl.tsx](../../client/src/components/AiControl.tsx)): "Strategy race
+  per cohort" — toggle grid per cohort; default pill locked ON; Glide only on MA.
+- tests: resolveExitStrategy.test (7 race cases), inbound.test (N strategies →
+  N trades, distinct exec ids). Money-path suites green (715).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 ### T142 [Portfolio] 🔴 — trades scattered across cycles / hidden from desk ✅ FIXED 2026-07-29

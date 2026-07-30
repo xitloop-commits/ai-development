@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { resolveExitStrategy, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
+import { resolveExitStrategy, enabledStrategiesForCohort, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -396,45 +396,58 @@ class RcaMonitor {
     submitResult?: Awaited<ReturnType<typeof tradeExecutor.submitTrade>>;
   }> {
     log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
-    // Phase 1 pass-through to TEA — APPROVE every well-formed input.
-    // T139 — ONE trade per signal, using the strategy mapped to its cohort
-    // (Settings → Cohort strategies). This replaced the per-book race, whose
-    // zero-enabled state silently paused a book — the reason the live book placed
-    // nothing. Whether a book takes a cohort at all is decided upstream (the
-    // cohort filter in discipline/routes); here the cohort simply picks its
-    // strategy, so a routed signal always places.
+    // T144 — an AI signal RACES every enabled strategy for its cohort (AI menu →
+    // per-cohort toggles): one trade per strategy on the SAME signal, so Sprint /
+    // Runway / Anchor / Glide can be compared on identical entry. The cohort's
+    // Common default is always in the set (can't be muted). USER/RCA place a
+    // single trade on the cohort's resolved strategy. Whether a book takes the
+    // cohort at all is decided upstream (the cohort filter in discipline/routes).
     const book = resolveBook(input.channel);
     const kind = originKind(input.origin);
-    const strategy = resolveExitStrategy(input.channel, input.origin, false, input.cohort);
+    const strategies = input.origin === "AI"
+      ? enabledStrategiesForCohort(input.channel, input.origin, false, input.cohort)
+      : [resolveExitStrategy(input.channel, input.origin, false, input.cohort)];
     const order = getAiConfig(book, kind).order; // per-block order type / product
-    const submitResult = await tradeExecutor.submitTrade({
-      executionId: input.executionId,
-      channel: input.channel,
-      origin: input.origin,
-      instrument: input.instrument,
-      direction: input.direction,
-      quantity: input.quantity,
-      entryPrice: input.entryPrice,
-      stopLoss: input.stopLoss,
-      takeProfit: input.takeProfit,
-      orderType: order.orderType,
-      productType: order.productType,
-      optionType: input.optionType,
-      strike: input.strike,
-      expiry: input.expiry,
-      contractSecurityId: input.contractSecurityId,
-      capitalPercent: input.capitalPercent,
-      cohort: input.cohort,
-      signalSeq: input.signalSeq,
-      exitStrategy: strategy,
-      timestamp: Date.now(),
-    });
-    const decision = submitResult.success ? "APPROVE" : "REJECT";
+
+    const results: Array<Awaited<ReturnType<typeof tradeExecutor.submitTrade>>> = [];
+    for (const strategy of strategies) {
+      // Unique executionId per raced strategy so the idempotency store keeps them
+      // separate (else the 2nd..Nth would dedupe against the 1st). Single-strategy
+      // placements keep their id unchanged.
+      const executionId = strategies.length > 1 ? `${input.executionId}:${strategy}` : input.executionId;
+      const r = await tradeExecutor.submitTrade({
+        executionId,
+        channel: input.channel,
+        origin: input.origin,
+        instrument: input.instrument,
+        direction: input.direction,
+        quantity: input.quantity,
+        entryPrice: input.entryPrice,
+        stopLoss: input.stopLoss,
+        takeProfit: input.takeProfit,
+        orderType: order.orderType,
+        productType: order.productType,
+        optionType: input.optionType,
+        strike: input.strike,
+        expiry: input.expiry,
+        contractSecurityId: input.contractSecurityId,
+        capitalPercent: input.capitalPercent,
+        cohort: input.cohort,
+        signalSeq: input.signalSeq,
+        exitStrategy: strategy,
+        timestamp: Date.now(),
+      });
+      results.push(r);
+    }
+    // The signal is APPROVEd if ANY strategy placed; surface the first success (or
+    // the first failure) as the primary result for the caller's existing shape.
+    const primary = results.find((r) => r.success) ?? results[0];
+    const decision = primary?.success ? "APPROVE" : "REJECT";
     rcaEvalTotal.labels({ decision }).inc();
     return {
       decision,
-      reason: submitResult.error,
-      submitResult,
+      reason: primary?.error,
+      submitResult: primary,
     };
   }
 

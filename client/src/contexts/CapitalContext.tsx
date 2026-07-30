@@ -212,12 +212,12 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     if (!tm) return;
     appliedDefaultRef.current = true;
     const ws = (tm.defaultWorkspace ?? 'my') as Workspace;
-    const mode: Mode =
-      ws === 'ai' ? tm.aiTradesMode
-      : ws === 'my' ? tm.myTradesMode
-      : ws === 'stocks' ? 'paper'
-      : 'live';
-    setChannel(channelOf(ws, mode));
+    // Always land on the PAPER tab (Partha, 2026-07-30) — testing happens on
+    // paper, and the live tab should be a deliberate manual switch, never the
+    // screen you open into. The workspace still follows defaultWorkspace; only
+    // the paper/live mode is pinned. (AI/My live ROUTING is unaffected — that's
+    // driven by aiLiveEnabled/myLiveEnabled, not by which tab is showing.)
+    setChannel(channelOf(ws, 'paper'));
   }, [settingsQuery.data]);
 
   // Per-channel cache of normalized past-day records — past days never change

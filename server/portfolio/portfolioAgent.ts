@@ -1567,9 +1567,15 @@ class PortfolioAgentImpl {
     const hasOpen = day.trades.some((t) => t.status === "OPEN");
     if (!hasOpen && day.totalPnl < 0 && Math.abs(day.totalPnl) >= day.targetAmount) {
       const clawback = processClawback(day.totalPnl, state);
+      // T142/T145 — apply the MONEY clawback (pool + history) but DO NOT rewind
+      // currentDayIndex. That index doubles as the trade-storage + desk cursor, so
+      // rewinding it onto an old COMPLETED cycle stranded the day's trades and made
+      // the desk show "day 1" (the recurring disappear-on-a-losing-day bug). The
+      // staircase "rewind" was cosmetic for the projection AND its consumed-day
+      // deletion never actually ran (deleteDayRecordsFrom is unused), so dropping
+      // the rewind loses nothing real: you stay on the same day with a smaller pool.
       await updateCapitalState(channel, {
         tradingPool: clawback.newTradingPool,
-        currentDayIndex: clawback.newDayIndex,
         profitHistory: clawback.updatedHistory,
       });
       // Note: caller (router or TEA) handles deleting consumed day records;
@@ -1585,8 +1591,8 @@ class PortfolioAgentImpl {
         reserveDelta: 0,
         note:
           `Day ${day.dayIndex} loss ₹${Math.abs(day.totalPnl).toLocaleString("en-IN")} ` +
-          `clawed back — staircase rewinds to day ${clawback.newDayIndex}`,
-        detail: { dayIndex: day.dayIndex, newDayIndex: clawback.newDayIndex },
+          `clawed back from the trading pool (cursor stays on day ${day.dayIndex})`,
+        detail: { dayIndex: day.dayIndex, wouldHaveRewoundTo: clawback.newDayIndex },
       });
     }
   }

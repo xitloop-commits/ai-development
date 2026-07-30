@@ -52,6 +52,9 @@ interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide:
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean };
+  /** T144 — per-cohort strategy race: each cohort's enabled strategies (one
+   *  trade placed per enabled strategy on that cohort's signal). */
+  cohortStrategies: Record<"scalp" | "trend" | "ma" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean }>;
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
@@ -607,22 +610,38 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                 </Group>
                 )}
 
-                {/* ③ Strategy — one per cohort, set in Settings → Cohort
-                    strategies (T139). Shown read-only here so the book's cohorts
-                    and their strategies are visible together. */}
+                {/* ③ Strategy RACE per cohort (T144). For each cohort that's on,
+                    toggle which exit strategies to run — a signal places ONE trade
+                    per enabled strategy, so you can compare them on the same
+                    signal. The Common default is locked ON (can't be muted);
+                    Glide is MA-only. */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
                   <span className="flex items-center gap-1.5">
-                    <SectionLabel>Strategy per cohort</SectionLabel>
-                    <InfoDot text="Each cohort trades with one strategy, set once for the whole platform in Settings → Cohort strategies. A signal places one trade using its cohort's strategy." />
+                    <SectionLabel>Strategy race per cohort</SectionLabel>
+                    <InfoDot text="For each cohort, pick which exit strategies to run. A signal places ONE trade per enabled strategy — so Sprint / Runway / Anchor race on the SAME signal and you can see which handles that cohort best. The cohort's default (Settings → Cohort strategies) is locked ON so a cohort is never silenced. Glide is MA-only." />
                   </span>
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex flex-col gap-1">
                     {COHORTS.filter((c) => d.cohorts[c.key]).map((c) => {
-                      const key = c.key === "ma" ? "ma" : c.key;
-                      const strat = all?.common.cohortStrategy?.[key as "scalp" | "trend" | "ma" | "swing"];
+                      const dflt = all?.common.cohortStrategy?.[c.key];
+                      const row = d.cohortStrategies?.[c.key];
                       return (
-                        <div key={c.key} className="flex items-center justify-between text-[0.625rem]">
-                          <span className="text-muted-foreground">{c.label}</span>
-                          <span className="font-bold text-info-cyan capitalize">{strat ?? "—"}</span>
+                        <div key={c.key} className="flex items-center justify-between gap-2">
+                          <span className="text-[0.625rem] text-muted-foreground w-12 shrink-0">{c.label}</span>
+                          <div className="flex gap-1 flex-wrap justify-end">
+                            {(["sprint", "runway", "anchor", "glide"] as const).map((s) => {
+                              if (s === "glide" && c.key !== "ma") return null; // Glide is MA-only
+                              const isDefault = dflt === s;
+                              return (
+                                <Pill
+                                  key={s}
+                                  label={s.charAt(0).toUpperCase() + s.slice(1)}
+                                  on={!!row?.[s]}
+                                  disabled={isDefault}
+                                  onClick={() => edit((x) => { x.cohortStrategies[c.key][s] = !x.cohortStrategies[c.key][s]; })}
+                                />
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })}

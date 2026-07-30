@@ -160,9 +160,21 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
+export type CohortKey = "scalp" | "trend" | "ma" | "swing";
+
 export interface AiModeConfig {
   cohorts: CohortsConfig;
+  /** Legacy flat race toggle — kept for back-compat; superseded by
+   *  cohortStrategies (T144). Not read by placement any more. */
   strategies: Record<StrategyName, boolean>;
+  /**
+   * T144 — per-cohort strategy RACE. Each cohort can enable multiple strategies;
+   * an AI signal for that cohort places ONE trade per enabled strategy, so you
+   * can compare (e.g.) Sprint vs Runway on the SAME scalp signal. The cohort's
+   * Common default (cohortStrategy) is always ON — sanitize forces it, so a
+   * cohort can never be silently muted. Glide is only allowed on `ma`.
+   */
+  cohortStrategies: Record<CohortKey, Record<StrategyName, boolean>>;
   sizing: SizingConfig;
   order: OrderConfig;
 }
@@ -303,6 +315,15 @@ function baseMode(): AiModeConfig {
     // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
     // so it must be chosen deliberately, never inherited from a default.
     strategies: { sprint: true, runway: true, anchor: true, glide: false },
+    // T144 — per-cohort race. Each cohort starts with ONLY its Common default on
+    // (scalp→sprint, trend→runway, ma→glide, swing→anchor); the operator turns on
+    // extra strategies per cohort to race them on the same signal.
+    cohortStrategies: {
+      scalp: { sprint: true, runway: false, anchor: false, glide: false },
+      trend: { sprint: false, runway: true, anchor: false, glide: false },
+      ma: { sprint: false, runway: false, anchor: false, glide: true },
+      swing: { sprint: false, runway: false, anchor: true, glide: false },
+    },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -506,6 +527,18 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor", "glide"] as const) c.strategies[s] = !!c.strategies[s];
+  // T144 — per-cohort strategy toggles. Back-fill for an old config, coerce
+  // booleans, drop Glide off every cohort but `ma`, and FORCE each cohort's
+  // Common default ON so a cohort can never be muted (the T139 lesson).
+  const dfltMap = getCommonConfig().cohortStrategy;
+  if (!c.cohortStrategies) (c as AiModeConfig).cohortStrategies = {} as AiModeConfig["cohortStrategies"];
+  for (const k of ["scalp", "trend", "ma", "swing"] as const) {
+    const row = c.cohortStrategies[k] ?? (c.cohortStrategies[k] = {} as Record<StrategyName, boolean>);
+    for (const s of ["sprint", "runway", "anchor", "glide"] as const) row[s] = !!row[s];
+    if (k !== "ma") row.glide = false; // Glide is MA-only
+    const dflt = dfltMap?.[k];
+    if (dflt && (dflt !== "glide" || k === "ma")) row[dflt] = true; // default locked on
+  }
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
     s.mode = s.mode === "percent" ? "percent" : "lots";
@@ -683,6 +716,42 @@ export function resolveExitStrategy(
   // Glide only ever makes sense on MA-Signal (see above).
   if (strat === "glide" && cohort !== "ma_signal") return "sprint";
   return strat ?? "sprint";
+}
+
+/** Signal cohort ("ma_signal"/"scalp"/…) → config key ("ma"/"scalp"/…), or null. */
+export function cohortKey(cohort: string | null | undefined): CohortKey | null {
+  return cohort === "ma_signal" ? "ma"
+    : cohort === "scalp" ? "scalp"
+    : cohort === "trend" ? "trend"
+    : cohort === "swing" ? "swing"
+    : null;
+}
+
+/**
+ * T144 — the strategies an AI signal should RACE for its cohort: one trade each.
+ *
+ * Reads the book's per-cohort toggles (AI menu). Glide is dropped off any cohort
+ * but MA; the cohort's Common default is always included (sanitize forces it on,
+ * this is belt-and-suspenders). Equity is pinned to a single Sprint trade — the
+ * staged strategies' 25% stop is meaningless on a stock. Unknown cohort or an
+ * empty set falls back to the single `resolveExitStrategy`, so a signal always
+ * places at least one trade.
+ */
+export function enabledStrategiesForCohort(
+  channel: Channel,
+  origin: "RCA" | "AI" | "USER",
+  isEquity: boolean,
+  cohort?: string | null,
+): StrategyName[] {
+  if (isEquity) return ["sprint"];
+  const key = cohortKey(cohort);
+  if (!key) return [resolveExitStrategy(channel, origin, isEquity, cohort)];
+  const row = getAiConfig(resolveBook(channel), "ai").cohortStrategies?.[key];
+  const all: StrategyName[] = ["sprint", "runway", "anchor", "glide"];
+  let list = strategiesForCohort(row ? all.filter((s) => row[s]) : [], cohort);
+  const dflt = getCommonConfig().cohortStrategy[key];
+  if (dflt && (dflt !== "glide" || cohort === "ma_signal") && !list.includes(dflt)) list = [dflt, ...list];
+  return list.length ? list : [resolveExitStrategy(channel, origin, isEquity, cohort)];
 }
 
 /** Deep-merge a patch into one BOOK's exit config; clamp, persist, return it. */

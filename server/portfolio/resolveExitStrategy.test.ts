@@ -23,6 +23,7 @@ import {
   resolveExitStrategy,
   resolveManualCohort,
   strategiesForCohort,
+  enabledStrategiesForCohort,
   sprintOpeningLevels,
   updateAiConfig,
   updateExitConfig,
@@ -74,6 +75,49 @@ describe("T139 — one strategy per cohort, from the common map", () => {
     expect(resolveExitStrategy("live", "AI", false, "ma_signal")).toBe("glide");
     setMap({ ma: "runway" });
     expect(resolveExitStrategy("live", "AI", false, "ma_signal")).toBe("runway");
+  });
+});
+
+describe("T144 — enabledStrategiesForCohort (per-cohort race)", () => {
+  beforeEach(() => initAiConfig());
+
+  it("defaults to the cohort's Common strategy only (one trade)", () => {
+    expect(enabledStrategiesForCohort("paper", "AI", false, "scalp")).toEqual(["sprint"]);
+    expect(enabledStrategiesForCohort("paper", "AI", false, "trend")).toEqual(["runway"]);
+    expect(enabledStrategiesForCohort("paper", "AI", false, "swing")).toEqual(["anchor"]);
+    expect(enabledStrategiesForCohort("paper", "AI", false, "ma_signal")).toEqual(["glide"]);
+  });
+
+  it("races every enabled strategy for the cohort", () => {
+    updateAiConfig("paper", "ai", { cohortStrategies: { scalp: { runway: true, anchor: true } } });
+    expect(enabledStrategiesForCohort("paper", "AI", false, "scalp")).toEqual(["sprint", "runway", "anchor"]);
+  });
+
+  it("keeps the Common default ON even if the config tries to turn it off", () => {
+    updateAiConfig("paper", "ai", { cohortStrategies: { scalp: { sprint: false, runway: true } } });
+    // sanitize forces the default (sprint) back on — a cohort can't be muted.
+    expect(enabledStrategiesForCohort("paper", "AI", false, "scalp")).toContain("sprint");
+  });
+
+  it("never races Glide off the MA cohort, even if toggled", () => {
+    updateAiConfig("paper", "ai", { cohortStrategies: { scalp: { glide: true } } });
+    expect(enabledStrategiesForCohort("paper", "AI", false, "scalp")).not.toContain("glide");
+  });
+
+  it("lets MA race Glide alongside another strategy", () => {
+    updateAiConfig("paper", "ai", { cohortStrategies: { ma: { sprint: true } } });
+    const set = enabledStrategiesForCohort("paper", "AI", false, "ma_signal");
+    expect(set).toContain("glide");
+    expect(set).toContain("sprint");
+  });
+
+  it("pins equity to a single Sprint trade", () => {
+    updateAiConfig("paper", "ai", { cohortStrategies: { scalp: { runway: true, anchor: true } } });
+    expect(enabledStrategiesForCohort("paper", "AI", true, "scalp")).toEqual(["sprint"]);
+  });
+
+  it("falls back to one trade for an unknown cohort", () => {
+    expect(enabledStrategiesForCohort("paper", "AI", false, "weird")).toEqual(["sprint"]);
   });
 });
 
