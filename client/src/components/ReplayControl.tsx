@@ -11,7 +11,12 @@ import { useState, useEffect, useRef } from 'react';
 import { Play, Square, Rewind } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { setSelectedRunId, openReplayTab } from '@/lib/replaySelection';
+import { useSeaStatus } from '@/stores/seaStatusStore';
 import { toast } from 'sonner';
+
+/** Shown when SEA is down — replay would record ticks with zero signals, so the
+ *  server refuses it (T136). We disable the button up front with this reason. */
+const SEA_OFF_TIP = 'Live simulation program is off — start the signal engine (SEA) before replaying, or the run records ticks with no signals.';
 
 const SPEEDS = [1, 3, 5, 10, 30, 60] as const;
 
@@ -23,6 +28,11 @@ export function ReplayControl() {
   const dates = datesQ.data ?? [];
   const status = statusQ.data;
   const running = !!status?.running;
+  // Replay needs a live SEA engine to score the replayed ticks — otherwise the
+  // run records ticks with zero signals (the exact issue we hit). anyAlive is
+  // driven by SEA's ~5s heartbeat, so it's true whenever the engine is up, even
+  // when idle. Gate the Replay button on it (mirrors the server's T136 guard).
+  const seaOff = !useSeaStatus().anyAlive;
 
   // Collapsed into a popover to give the AppBar its space back — the controls
   // are only touched when starting a run, but they occupied the bar always.
@@ -115,9 +125,10 @@ export function ReplayControl() {
   return (
     <div className="relative shrink-0 self-stretch flex" ref={ref}>
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors"
-        title="Replay — re-run a recorded day as a live simulation"
+        onClick={() => !seaOff && setOpen((o) => !o)}
+        disabled={seaOff}
+        className="px-2.5 flex items-center gap-1.5 hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        title={seaOff ? SEA_OFF_TIP : 'Replay — re-run a recorded day as a live simulation'}
       >
         <Rewind className="h-3.5 w-3.5 text-primary" />
         <span className="font-display text-[0.625rem] font-bold tracking-wider text-primary">REPLAY</span>
@@ -182,9 +193,9 @@ export function ReplayControl() {
             models: Object.keys(chosenModels).length ? chosenModels : undefined,
           })
         }
-        disabled={!selectedDate || startMut.isPending}
+        disabled={!selectedDate || startMut.isPending || seaOff}
         className="w-full flex items-center justify-center gap-1 rounded px-2 py-1.5 mt-1 text-[0.6875rem] font-bold bg-bullish/15 text-bullish hover:bg-bullish/25 transition-colors disabled:opacity-40"
-        title="Replay this day's recorded ticks as a live simulation (available outside market hours)"
+        title={seaOff ? SEA_OFF_TIP : 'Replay this day\'s recorded ticks as a live simulation (available outside market hours)'}
       >
         <Play className="h-3 w-3" /> Start replay
       </button>
