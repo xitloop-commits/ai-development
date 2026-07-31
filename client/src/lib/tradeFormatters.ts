@@ -22,6 +22,20 @@ export function formatAge(openedAt?: number): string {
   return `${diffDays}d`;
 }
 
+/** Live age at SECOND granularity, so a fresh trade's timer visibly ticks:
+ *  `45s` → `2m 05s` → `1h 3m` → `2d 4h`. (formatAge only changes each minute,
+ *  so a just-entered trade appeared frozen at "0m".) Pair with a 1s re-render. */
+export function formatLiveAge(openedAt?: number): string {
+  if (!openedAt) return '';
+  const s = Math.max(0, Math.floor((Date.now() - openedAt) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
 /** Format a hold duration (ms) with seconds precision — for how long a trade was
  *  sustained (scalps last seconds–minutes). e.g. 45s, 3m 12s, 1h 4m. */
 export function formatDuration(ms?: number | null): string {

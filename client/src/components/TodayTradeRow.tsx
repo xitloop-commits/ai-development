@@ -10,7 +10,7 @@ import { channelToWorkspace, optionExchangeFor, feedExchangeForTrade, isEquityTr
 import {
   fmt,
   pnlColor,
-  formatAge,
+  formatLiveAge,
   formatDuration,
   getTradeDirectionLabel,
   getTradeContractLabel,
@@ -453,7 +453,7 @@ function _TodayTradeRow({
             {/* Sustained duration: live age while open, final hold once closed */}
             {isOpen ? (
               <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums" title="Time in trade (live)">
-                {formatAge(trade.openedAt)}
+                {formatLiveAge(trade.openedAt)}
               </span>
             ) : (
               (() => {
