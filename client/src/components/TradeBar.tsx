@@ -524,7 +524,7 @@ export function TradeBar({
       {stopReadoutTop && hasStop && stopProfit != null && (
         stopFav >= 0 ? (
           <span
-            className="absolute right-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            className="absolute right-0 -top-2 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: TSL_COLOR, background: "rgba(0,0,0,0.6)" }}
             title={`TSL — secured ${fmtMoney(stopProfit)} (locked at ${formatPrice(stopPrice)}, ${fmtSign(stopFav)})`}
           >
@@ -532,7 +532,7 @@ export function TradeBar({
           </span>
         ) : (
           <span
-            className="absolute left-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            className="absolute left-0 -top-2 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: SL_COLOR, background: "rgba(0,0,0,0.6)" }}
             title={`SL — at risk ${fmtMoney(stopProfit)} (stop ${formatPrice(stopPrice)}, ${fmtSign(stopFav)}); nothing secured until the stop clears entry`}
           >
