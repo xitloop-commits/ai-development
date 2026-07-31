@@ -50,6 +50,11 @@ export interface TradeBarProps {
   /** Label for the take-profit marker (default "TP"). Ladder passes "MTP" — its
    *  target is the Max-TP exit at ×R of the initial risk. */
   tpLabel?: string;
+  /** T147 (Ladder) — show the active stop's price as a FIXED readout at the top
+   *  of the bar: SL top-LEFT while the stop is at-risk (below entry), TSL
+   *  top-RIGHT once it has locked at/above entry. Independent of where the
+   *  moving marker sits. */
+  stopReadoutTop?: boolean;
   /** T147 (Ladder) — the TTP (Trailing-TP) line as a favourable-% of entry. A
    *  VISUAL-ONLY marker (never exits; MTP is the exit). The parent computes it as
    *  max(startPct, peakFav + trailPct) so it floats above the running high.
@@ -151,6 +156,7 @@ export function TradeBar({
   mslPercent,
   tpPercent,
   tpLabel = "TP",
+  stopReadoutTop = false,
   ttpPercent,
   trailingEnabled = false,
   tslGatePrice,
@@ -511,6 +517,28 @@ export function TradeBar({
         >
           {PHASE_META[exitPhase].label}
         </span>
+      )}
+      {/* Fixed stop readout at the top corners (Ladder): SL top-LEFT while the
+          stop is at-risk (below entry), TSL top-RIGHT once it has locked at/above
+          entry. Stays put even as the marker moves. */}
+      {stopReadoutTop && hasStop && (
+        stopFav >= 0 ? (
+          <span
+            className="absolute right-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            style={{ color: TSL_COLOR, background: "rgba(0,0,0,0.6)" }}
+            title={`TSL locked ${formatPrice(stopPrice)} (${fmtSign(stopFav)})`}
+          >
+            TSL {scalePrice(stopPrice)}
+          </span>
+        ) : (
+          <span
+            className="absolute left-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            style={{ color: SL_COLOR, background: "rgba(0,0,0,0.6)" }}
+            title={`SL ${formatPrice(stopPrice)} (${fmtSign(stopFav)})`}
+          >
+            SL {scalePrice(stopPrice)}
+          </span>
+        )
       )}
       {/* Top tier: zone % chips — risk over stop→entry, then one chip per
           reward gap (E→TSL→LTP→TP). Skip a chip when its gap is too thin to read. */}

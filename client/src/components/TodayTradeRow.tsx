@@ -406,6 +406,7 @@ function _TodayTradeRow({
                 })()}
                 mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
+                stopReadoutTop={trade.exitStrategy === "ladder"}
                 ttpPercent={
                   trade.exitStrategy === "ladder" && ladderTtp && trade.entryPrice > 0
                     ? (() => {
