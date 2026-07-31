@@ -100,6 +100,17 @@ function _TodayTradeRow({
   const instHex = hexOf(trade.instrument);
   const isOpen = trade.status === 'OPEN';
 
+  // Tick the live age once a second while the trade is OPEN. formatAge only
+  // recomputes on re-render, so between price updates (or on a fresh trade with
+  // sparse ticks) the timer looked frozen. This internal state bump re-renders
+  // the row every second regardless of prop churn.
+  const [, setAgeTick] = useState(0);
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = setInterval(() => setAgeTick((n) => (n + 1) % 86_400), 1000);
+    return () => clearInterval(id);
+  }, [isOpen]);
+
   // Roll the exit strategy by clicking the pill. Glide is offered ONLY on an
   // MA-Signal trade — it has no stop of its own and waits for MA's leg-end EXIT,
   // so on any other cohort nothing would ever close the trade. The server
