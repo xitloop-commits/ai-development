@@ -521,22 +521,22 @@ export function TradeBar({
       {/* Fixed stop readout at the top corners (Ladder): SL top-LEFT while the
           stop is at-risk (below entry), TSL top-RIGHT once it has locked at/above
           entry. Stays put even as the marker moves. */}
-      {stopReadoutTop && hasStop && (
+      {stopReadoutTop && hasStop && stopProfit != null && (
         stopFav >= 0 ? (
           <span
             className="absolute right-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: TSL_COLOR, background: "rgba(0,0,0,0.6)" }}
-            title={`TSL locked ${formatPrice(stopPrice)} (${fmtSign(stopFav)})`}
+            title={`TSL — secured ${fmtMoney(stopProfit)} (locked at ${formatPrice(stopPrice)}, ${fmtSign(stopFav)})`}
           >
-            TSL {scalePrice(stopPrice)}
+            Secured {fmtMoney(stopProfit)}
           </span>
         ) : (
           <span
             className="absolute left-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: SL_COLOR, background: "rgba(0,0,0,0.6)" }}
-            title={`SL ${formatPrice(stopPrice)} (${fmtSign(stopFav)})`}
+            title={`SL — at risk ${fmtMoney(stopProfit)} (stop ${formatPrice(stopPrice)}, ${fmtSign(stopFav)}); nothing secured until the stop clears entry`}
           >
-            SL {scalePrice(stopPrice)}
+            At risk {fmtMoney(stopProfit)}
           </span>
         )
       )}
