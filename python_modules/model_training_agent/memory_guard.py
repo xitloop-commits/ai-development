@@ -36,6 +36,7 @@ class HeadroomCheck:
     total_bytes: int
     headroom_ok: bool
     margin_bytes: int  # negative when we're underwater
+    own_rss_bytes: int = 0  # this process's current RSS (already-loaded matrices)
 
     @property
     def estimated_peak_gb(self) -> float:
@@ -44,6 +45,14 @@ class HeadroomCheck:
     @property
     def available_gb(self) -> float:
         return self.available_bytes / (1024 ** 3)
+
+    @property
+    def own_rss_gb(self) -> float:
+        return self.own_rss_bytes / (1024 ** 3)
+
+    @property
+    def effective_available_gb(self) -> float:
+        return (self.available_bytes + self.own_rss_bytes) / (1024 ** 3)
 
     @property
     def total_gb(self) -> float:
@@ -67,6 +76,14 @@ def check_headroom(
         vm = psutil.virtual_memory()
         available = int(vm.available)
         total = int(vm.total)
+        # This check runs AFTER the trainer has loaded the feature matrices, so
+        # our own RSS is already part of the estimated peak AND already subtracted
+        # from `available`. Credit it back so we don't double-count already-loaded
+        # data (which made the guard falsely refuse runs that actually fit).
+        try:
+            own_rss = int(psutil.Process().memory_info().rss)
+        except Exception:
+            own_rss = 0
     except Exception:
         # Optional dep missing or platform doesn't support psutil: pass.
         return HeadroomCheck(
@@ -75,14 +92,19 @@ def check_headroom(
             total_bytes=2**62,
             headroom_ok=True,
             margin_bytes=2**62,
+            own_rss_bytes=0,
         )
-    margin = available - estimated
+    # Effective headroom = free RAM + what this process already holds. The peak
+    # is the process's TOTAL working set, and it won't re-allocate the matrices
+    # it's already loaded, so its current RSS is genuinely usable toward the peak.
+    margin = (available + own_rss) - estimated
     return HeadroomCheck(
         estimated_peak_bytes=estimated,
         available_bytes=available,
         total_bytes=total,
         headroom_ok=margin > 0,
         margin_bytes=margin,
+        own_rss_bytes=own_rss,
     )
 
 
@@ -90,7 +112,9 @@ def format_check(check: HeadroomCheck) -> list[str]:
     """Build a multi-line operator-friendly summary."""
     lines = [
         f"   est. peak working set:  {check.estimated_peak_gb:>6.1f} GB",
-        f"   currently available:    {check.available_gb:>6.1f} GB",
+        f"   free RAM now:           {check.available_gb:>6.1f} GB",
+        f"   already loaded here:    {check.own_rss_gb:>6.1f} GB",
+        f"   usable headroom:        {check.effective_available_gb:>6.1f} GB  (free + already loaded)",
         f"   system total:           {check.total_gb:>6.1f} GB",
     ]
     if check.headroom_ok:
@@ -145,7 +169,8 @@ def assert_headroom_or_advise(
     raise RuntimeError(
         f"Insufficient memory headroom for {instrument} training: "
         f"need ~{check.estimated_peak_gb:.1f} GB, have "
-        f"{check.available_gb:.1f} GB available"
+        f"{check.effective_available_gb:.1f} GB usable "
+        f"(free {check.available_gb:.1f} + {check.own_rss_gb:.1f} already loaded)"
     )
 
 
