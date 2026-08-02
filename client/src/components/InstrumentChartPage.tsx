@@ -116,6 +116,47 @@ function buildTradeMarkers(
   return out;
 }
 
+// ── Grid layouts (T88) — the operator picks how many panes from the top-bar
+// menu; pane 1 is ALWAYS the underlying, panes 2..N auto-fill with this
+// instrument's OPEN trade charts (newest first). The set matches the layout
+// picker: even grids of 1 / 2 / 4 / 6 / 8 / 9 / 10 panes. Default 2×4.
+type ChartGridLayout = { id: string; cols: number; rows: number; panes: number };
+const CHART_GRID_LAYOUTS: ChartGridLayout[] = [
+  { id: "1", cols: 1, rows: 1, panes: 1 },
+  { id: "2", cols: 2, rows: 1, panes: 2 },
+  { id: "2x2", cols: 2, rows: 2, panes: 4 },
+  { id: "2x3", cols: 3, rows: 2, panes: 6 },
+  { id: "2x4", cols: 4, rows: 2, panes: 8 },
+  { id: "3x3", cols: 3, rows: 3, panes: 9 },
+  { id: "2x5", cols: 5, rows: 2, panes: 10 },
+];
+const DEFAULT_GRID_LAYOUT = "2x4";
+const gridLayoutKey = (inst: string | null) => `chartGridLayout:${inst ?? "?"}`;
+function loadGridLayout(inst: string | null): string {
+  try {
+    return localStorage.getItem(gridLayoutKey(inst)) || DEFAULT_GRID_LAYOUT;
+  } catch {
+    return DEFAULT_GRID_LAYOUT;
+  }
+}
+
+/** A tiny cols×rows grid glyph for the layout menu. */
+function GridIcon({ cols, rows, size = 16 }: { cols: number; rows: number; size?: number }) {
+  const pad = 1;
+  const gap = 1;
+  const cw = (size - pad * 2 - gap * (cols - 1)) / cols;
+  const ch = (size - pad * 2 - gap * (rows - 1)) / rows;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
+      {Array.from({ length: rows }).flatMap((_, r) =>
+        Array.from({ length: cols }).map((__, c) => (
+          <rect key={`${r}-${c}`} x={pad + c * (cw + gap)} y={pad + r * (ch + gap)} width={cw} height={ch} rx={0.5} fill="currentColor" />
+        )),
+      )}
+    </svg>
+  );
+}
+
 export default function InstrumentChartPage() {
   const inst = useMemo(chartInstrumentFromUrl, []);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -139,6 +180,15 @@ export default function InstrumentChartPage() {
   const [pinnedPe, setPinnedPe] = useState<{ securityId: string; strike: number | null; entryTime: number } | null>(null);
   // Pinned contracts are day-specific — reset them when the viewed date changes.
   useEffect(() => { setPinnedCe(null); setPinnedPe(null); }, [date]);
+
+  // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
+  const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem(gridLayoutKey(inst), layoutId); } catch { /* ignore */ }
+  }, [inst, layoutId]);
+  const layout = CHART_GRID_LAYOUTS.find((l) => l.id === layoutId)
+    ?? CHART_GRID_LAYOUTS.find((l) => l.id === DEFAULT_GRID_LAYOUT)!;
 
   const today = istDateString();
   const isToday = date === today;
@@ -408,6 +458,26 @@ export default function InstrumentChartPage() {
             </div>
           )}
         </div>
+        {/* Layout picker (T88) — pane 1 = underlying, panes 2..N = open trades. */}
+        <div className="relative">
+          <button className={btn(true)} onClick={() => setLayoutMenuOpen((v) => !v)} title="Chart layout — panes">
+            <span className="inline-flex items-center gap-1"><GridIcon cols={layout.cols} rows={layout.rows} size={13} /> Layout ▾</span>
+          </button>
+          {layoutMenuOpen && (
+            <div className="absolute z-20 mt-1 flex gap-1 rounded border border-border bg-background/95 p-1.5 shadow-xl backdrop-blur">
+              {CHART_GRID_LAYOUTS.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => { setLayoutId(l.id); setLayoutMenuOpen(false); }}
+                  title={`${l.panes} panes (${l.cols}×${l.rows})`}
+                  className={`p-1 rounded border transition-colors ${l.id === layoutId ? "border-info-cyan text-info-cyan bg-info-cyan/10" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  <GridIcon cols={l.cols} rows={l.rows} size={20} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {!isToday && baseCandles.length > 0 && (
             <button className={btn(playing)} onClick={() => { if (playing) { setPlaying(false); return; } if (replayCount == null || replayCount >= baseCandles.length) setReplayCount(1); setPlaying(true); }} title="Replay this day tick-by-tick">
@@ -424,9 +494,18 @@ export default function InstrumentChartPage() {
         </div>
       </div>
 
-      {/* Split: underlying (left) | CE + PE (right) */}
-      <div className="flex-1 min-h-0 flex gap-2">
-        <div className="flex flex-col min-h-0 w-1/2 gap-2">
+      {/* Panes (T88): pane 1 = underlying (+ trade-reason); panes 2..N = this
+          instrument's open-trade charts. Interim step: CE/PE occupy panes 2-3
+          until step 3 swaps them for the per-trade contract charts. */}
+      <div
+        className="flex-1 min-h-0 grid gap-2"
+        style={{
+          gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+        }}
+      >
+        {/* Pane 1 — underlying + trade-reason (always) */}
+        <div className="min-h-0 flex flex-col gap-2">
           <TickChart
             candles={candles}
             markers={markers}
@@ -485,7 +564,8 @@ export default function InstrumentChartPage() {
             )}
           </div>
         </div>
-        <div className="flex flex-col min-h-0 w-1/2 gap-2">
+        {/* Pane 2 — CE (interim; step 3 swaps panes 2..N to open-trade charts) */}
+        {layout.panes >= 2 && (
           <TickChart
             candles={ce.candles}
             markers={ceMarkers}
@@ -494,7 +574,7 @@ export default function InstrumentChartPage() {
             indicators={indicators}
             intervalSec={intervalSec}
             emptyText={optEmpty}
-            className="flex-1"
+            className="min-h-0 h-full"
             header={<>
               <span className="font-bold" style={{ color: CHART_UP }}>CE</span>
               <span className="text-muted-foreground">{ceStrike ?? "ATM"} call · {intervalLabel} · {ce.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
@@ -503,6 +583,10 @@ export default function InstrumentChartPage() {
               )}
             </>}
           />
+        )}
+
+        {/* Pane 3 — PE (interim) */}
+        {layout.panes >= 3 && (
           <TickChart
             candles={pe.candles}
             markers={peMarkers}
@@ -511,7 +595,7 @@ export default function InstrumentChartPage() {
             indicators={indicators}
             intervalSec={intervalSec}
             emptyText={optEmpty}
-            className="flex-1"
+            className="min-h-0 h-full"
             header={<>
               <span className="font-bold" style={{ color: CHART_DOWN }}>PE</span>
               <span className="text-muted-foreground">{peStrike ?? "ATM"} put · {intervalLabel} · {pe.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
@@ -520,7 +604,14 @@ export default function InstrumentChartPage() {
               )}
             </>}
           />
-        </div>
+        )}
+
+        {/* Panes 4..N — this instrument's open-trade charts load here (step 3) */}
+        {Array.from({ length: Math.max(0, layout.panes - 3) }).map((_, i) => (
+          <div key={i} className="min-h-0 rounded border border-dashed border-border/40 bg-background/20 flex items-center justify-center text-[0.625rem] text-muted-foreground">
+            open trade — chart loads here
+          </div>
+        ))}
       </div>
     </div>
   );
