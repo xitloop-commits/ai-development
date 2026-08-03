@@ -124,8 +124,8 @@ const DARK_GREEN = "rgba(21, 128, 61, 0.85)";
 // Travel fills (LTP → peak / LTP → trough). Deliberately OFF the green/red band
 // palette so the excursion reads as its own layer: teal for the up-travel (pops
 // over the profit greens), bright magenta-red for the down-travel.
-const TRAVEL_UP = "#ff00ff";   // TEST: magenta (up / LTP→peak)
-const TRAVEL_DOWN = "#ffff00"; // TEST: yellow (down / LTP→trough)
+const TRAVEL_UP = "#ff00ff";   // magenta (up / LTP→peak)
+const TRAVEL_DOWN = "#ff3b3b"; // bright red (down / LTP→trough) — brighter than the SL red so it reads as its own layer
 const LIGHT_GREEN = "rgba(187, 247, 208, 0.85)";
 const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → LTP buffer
 const GREY = "rgba(148, 163, 184, 0.35)";
@@ -524,7 +524,7 @@ export function TradeBar({
       {stopReadoutTop && hasStop && stopProfit != null && (
         stopFav >= 0 ? (
           <span
-            className="absolute right-0 -top-2 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            className="absolute right-0 -top-1 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: TSL_COLOR, background: "rgba(0,0,0,0.6)" }}
             title={`TSL — secured ${fmtMoney(stopProfit)} (locked at ${formatPrice(stopPrice)}, ${fmtSign(stopFav)})`}
           >
@@ -532,7 +532,7 @@ export function TradeBar({
           </span>
         ) : (
           <span
-            className="absolute left-0 -top-2 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
+            className="absolute left-0 -top-1 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none tabular-nums"
             style={{ color: SL_COLOR, background: "rgba(0,0,0,0.6)" }}
             title={`SL — at risk ${fmtMoney(stopProfit)} (stop ${formatPrice(stopPrice)}, ${fmtSign(stopFav)}); nothing secured until the stop clears entry`}
           >
