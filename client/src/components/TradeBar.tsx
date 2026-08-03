@@ -717,7 +717,7 @@ export function TradeBar({
             its price sits to the RIGHT of the marker. Entry's price sits to the
             LEFT of its marker so the two never overlap. */}
         {mslPos != null && <Label at={mslPos} color={MSL_COLOR} text="MSL" price={mslPrice ?? undefined} hideText={compact} align="left" />}
-        {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
+        {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopLocked ? undefined : stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
         {ttpPos != null && <Label at={ttpPos} color={TTP_COLOR} text="TTP" price={ttpPrice} hideText={compact} align="left" />}
         {hasTp && <Label at={tpPos} color={TP_COLOR} text={tpLabel} price={tpPrice} hideText={compact} />}
