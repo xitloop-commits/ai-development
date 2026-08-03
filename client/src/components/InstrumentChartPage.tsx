@@ -157,6 +157,55 @@ function GridIcon({ cols, rows, size = 16 }: { cols: number; rows: number; size?
   );
 }
 
+/** One grid pane for a single trade — fetches THIS trade's option contract
+ *  candles (its own hooks, so any number of panes is React-safe) and draws it
+ *  with the trade's entry/exit markers. T88 step 3. */
+function TradePane({
+  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled,
+}: {
+  trade: ChartTradeRow;
+  inst: string;
+  date: string;
+  optSeg: string;
+  intervalSec: number;
+  style: ChartStyle;
+  indicators: Set<IndicatorKey>;
+  optionsEnabled: boolean;
+}) {
+  const secId = trade.contractSecurityId ?? "";
+  const hist = trpc.trading.optionTicksForContract.useQuery(
+    { instrument: inst, date, securityId: secId },
+    { enabled: !!inst && !!date && !!secId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+  );
+  const c = useLiveCandles(secId || null, optSeg, intervalSec, optionsEnabled, hist.data as { t: number[]; ltp: number[] } | undefined);
+  const times = useMemo(() => c.candles.map((k) => k.time as number), [c.candles]);
+  const markers = useMemo(() => buildTradeMarkers([trade], times, Infinity), [trade, times]);
+  const entryLine = useMemo(() => [{ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" }], [trade.entryPrice]);
+  const isCall = trade.side === "CE";
+  return (
+    <TickChart
+      candles={c.candles}
+      markers={markers}
+      tradeLines={entryLine}
+      style={style}
+      indicators={indicators}
+      intervalSec={intervalSec}
+      emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
+      className="min-h-0 h-full"
+      header={<>
+        <span className="font-bold" style={{ color: isCall ? CHART_UP : CHART_DOWN }}>{trade.side}</span>
+        <span className="text-muted-foreground">
+          {trade.strike ?? ""} {isCall ? "call" : "put"}{trade.signalSeq != null ? ` · #${trade.signalSeq}` : ""} · {c.tickCount} tk
+        </span>
+        <span className="ml-auto tabular-nums font-semibold" style={{ color: trade.status === "OPEN" ? CHART_UP : (trade.pnl >= 0 ? CHART_UP : CHART_DOWN) }}>
+          {trade.status === "OPEN" ? "OPEN" : `${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(0)}`}
+          {trade.exitReason ? ` · ${trade.exitReason}` : ""}
+        </span>
+      </>}
+    />
+  );
+}
+
 export default function InstrumentChartPage() {
   const inst = useMemo(chartInstrumentFromUrl, []);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -189,6 +238,10 @@ export default function InstrumentChartPage() {
   }, [inst, layoutId]);
   const layout = CHART_GRID_LAYOUTS.find((l) => l.id === layoutId)
     ?? CHART_GRID_LAYOUTS.find((l) => l.id === DEFAULT_GRID_LAYOUT)!;
+  // T88 — a clicked trade (even a closed one) takes the first trade pane; reset
+  // when the viewed date changes.
+  const [focusedTrade, setFocusedTrade] = useState<ChartTradeRow | null>(null);
+  useEffect(() => { setFocusedTrade(null); }, [date]);
 
   const today = istDateString();
   const isToday = date === today;
@@ -323,6 +376,19 @@ export default function InstrumentChartPage() {
 
   // ── Trade-reason panel: selected trade (else latest) + its signal ───
   const tradeRows = useMemo(() => (tradesQuery.data as ChartTradeRow[] | undefined) ?? [], [tradesQuery.data]);
+  // T88 — panes 2..N: OPEN trades on this instrument (newest first), with the
+  // clicked/focused trade (even if closed) taking the first trade pane. Capped
+  // to the layout's pane count minus the underlying (pane 1).
+  const paneTrades = useMemo(() => {
+    const open = tradeRows.filter((t) => t.status === "OPEN").sort((a, b) => b.entryTime - a.entryTime);
+    const list: ChartTradeRow[] = [];
+    if (focusedTrade) list.push(focusedTrade);
+    for (const t of open) {
+      if (focusedTrade && t.contractSecurityId === focusedTrade.contractSecurityId && t.entryTime === focusedTrade.entryTime) continue;
+      list.push(t);
+    }
+    return list.slice(0, Math.max(0, layout.panes - 1));
+  }, [tradeRows, focusedTrade, layout.panes]);
   const signalRows = useMemo(() => (signalsQuery.data as ChartSignal[] | undefined) ?? [], [signalsQuery.data]);
   const activeTrade = useMemo(() => {
     if (tradeRows.length === 0) return null;
@@ -399,13 +465,9 @@ export default function InstrumentChartPage() {
       if (d < bestD) { bestD = d; best = r; }
     }
     setSelectedSeq(best.signalSeq ?? null);
-    // Load the clicked trade's contract into the matching pane (call → CE/top,
-    // put → PE/bottom). Only today's contracts have chart data (optionsEnabled).
-    if (best.contractSecurityId) {
-      const pin = { securityId: best.contractSecurityId, strike: best.strike, entryTime: best.entryTime };
-      if (best.side === "CE") setPinnedCe(pin);
-      else setPinnedPe(pin);
-    }
+    // T88 — load the clicked trade (even a closed one) into the first trade pane.
+    // Only today's contracts have chart data (optionsEnabled).
+    if (best.contractSecurityId) setFocusedTrade(best);
   };
   const conf01 = (v: number) => Math.round(v <= 1 ? v * 100 : v);
 
@@ -564,52 +626,25 @@ export default function InstrumentChartPage() {
             )}
           </div>
         </div>
-        {/* Pane 2 — CE (interim; step 3 swaps panes 2..N to open-trade charts) */}
-        {layout.panes >= 2 && (
-          <TickChart
-            candles={ce.candles}
-            markers={ceMarkers}
-            tradeLines={ceEntryLine}
+        {/* Panes 2..N — this instrument's open trades (newest first) + the
+            clicked/focused trade, each its own contract chart. */}
+        {paneTrades.map((t, i) => (
+          <TradePane
+            key={`${t.contractSecurityId}-${t.entryTime}-${i}`}
+            trade={t}
+            inst={inst ?? ""}
+            date={date}
+            optSeg={optSeg}
+            intervalSec={intervalSec}
             style={style}
             indicators={indicators}
-            intervalSec={intervalSec}
-            emptyText={optEmpty}
-            className="min-h-0 h-full"
-            header={<>
-              <span className="font-bold" style={{ color: CHART_UP }}>CE</span>
-              <span className="text-muted-foreground">{ceStrike ?? "ATM"} call · {intervalLabel} · {ce.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
-              {pinnedCe && (
-                <button onClick={() => setPinnedCe(null)} className="ml-1 px-1 rounded text-[0.5625rem] font-semibold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25" title="Back to the live ATM contract">live</button>
-              )}
-            </>}
+            optionsEnabled={optionsEnabled}
           />
-        )}
-
-        {/* Pane 3 — PE (interim) */}
-        {layout.panes >= 3 && (
-          <TickChart
-            candles={pe.candles}
-            markers={peMarkers}
-            tradeLines={peEntryLine}
-            style={style}
-            indicators={indicators}
-            intervalSec={intervalSec}
-            emptyText={optEmpty}
-            className="min-h-0 h-full"
-            header={<>
-              <span className="font-bold" style={{ color: CHART_DOWN }}>PE</span>
-              <span className="text-muted-foreground">{peStrike ?? "ATM"} put · {intervalLabel} · {pe.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
-              {pinnedPe && (
-                <button onClick={() => setPinnedPe(null)} className="ml-1 px-1 rounded text-[0.5625rem] font-semibold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25" title="Back to the live ATM contract">live</button>
-              )}
-            </>}
-          />
-        )}
-
-        {/* Panes 4..N — this instrument's open-trade charts load here (step 3) */}
-        {Array.from({ length: Math.max(0, layout.panes - 3) }).map((_, i) => (
-          <div key={i} className="min-h-0 rounded border border-dashed border-border/40 bg-background/20 flex items-center justify-center text-[0.625rem] text-muted-foreground">
-            open trade — chart loads here
+        ))}
+        {/* Spare panes — empty until more trades open. */}
+        {Array.from({ length: Math.max(0, (layout.panes - 1) - paneTrades.length) }).map((_, i) => (
+          <div key={`ph-${i}`} className="min-h-0 rounded border border-dashed border-border/40 bg-background/20 flex items-center justify-center text-[0.625rem] text-muted-foreground">
+            no open trade
           </div>
         ))}
       </div>
