@@ -101,6 +101,10 @@ export interface TradeBarProps {
   roundTripCharges?: number;
   /** Compact mode (tight table cells): bar + ticks only, no text labels. */
   compact?: boolean;
+  /** Show the numeric price labels under the markers (SL / E / TP / MSL / TTP).
+   *  Default false — the bar reads cleaner as coloured markers; flip on to see
+   *  the exact prices. */
+  showPrices?: boolean;
   /** Exit-strategy phase — when set, a small colour-coded badge is drawn at the
    *  top-left. Absent on today's live rows (not yet wired); used by Storybook +
    *  future runway/anchor wiring. */
@@ -181,6 +185,7 @@ export function TradeBar({
   units,
   roundTripCharges = 0,
   compact = false,
+  showPrices = false,
   frozen = false,
   exitPhase,
   className,
@@ -428,7 +433,7 @@ export function TradeBar({
         style={{ left: `${clamp(at, 4, 96)}%`, color, transform }}
       >
         {!hideText && <span className="text-[0.5rem] font-bold tabular-nums">{text}</span>}
-        {price != null && price > 0 && (
+        {showPrices && price != null && price > 0 && (
           <span className="text-[0.5rem] font-bold tabular-nums opacity-90">{scalePrice(price)}</span>
         )}
       </span>
