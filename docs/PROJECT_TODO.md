@@ -265,7 +265,9 @@ PARKED / PENDING (resume here):
 **THEN (post-revamp):** T86 remainder — β (atomic close + clear the stuck guard), γ (EOD square-off), stale mirror; then T85 (per-strategy live exit settings + Runway scale-out backtest).
 **Risks:** `Channel` touches 62 files (mitigate: collapse-not-remove + the invariant test); capital-pool migration (one-off script + backup); the WS forwarding change is the highest-leverage but also touches the shared feed — do it first, in isolation, with the α repro as the gate.
 
-### T88 [UI] — Chart-first per-instrument trading pages (TradingView-style) — DESIGN LOCKED 2026-07-18, build pending 🆕
+### T88 [UI] — Chart-first per-instrument trading pages (TradingView-style) — GRID-LAYOUT PHASE BUILT 2026-08-03; ticket/draggable-SL-TP pending 🚧
+**Built 2026-08-03 (grid layout):** the pop-out chart page ([InstrumentChartPage.tsx](../client/src/components/InstrumentChartPage.tsx)) gained a top-bar **Layout picker** (grid icons: 1 / 2 / 2×2 / 2×3 / 2×4 / 3×3 / 2×5), persisted per instrument (localStorage), default **2×4**. The fixed underlying|CE+PE split is now a CSS grid: **pane 1 = underlying + trade-reason**; **panes 2..N = this instrument's OPEN trades** (newest first, most-recent N−1 on overflow), each a `TradePane` fetching its own contract candles + entry/exit markers + P&L header; a clicked trade (even closed) takes the first trade pane; spare panes show "no open trade". The old ATM CE/PE machinery was stripped. STILL PENDING from the full spec below: on-chart Buy ticket, draggable SL/TP lines, TradeBar overlay per pane, LIVE/PAPER toggle.
+
 New trading surface brainstormed + locked with Partha 2026-07-18. **Full spec: [08 UI Desktop §15](systems/08_ui_desktop.md).** One-line version: new routes (one per instrument, `?view=trade&inst=KEY`) with the **option premium chart** at center — splits one pane per open trade (max 4 = 2×2), TradingView-style on-chart Buy ticket + draggable SL/TP with live ₹, SL/TSL/TP lines live-bound to the TradeBar engine state (two-way for manual trades, LOCKED for AI trades), TradeBar strip overlaid at each pane bottom, read-only underlying mini-overlay, left Today-Trades panel (+ Win/Loss + today P&L strip), right signal drawer with a "Take manually" button that pre-arms the ticket, AppBar = instrument name + expiry + LIVE/PAPER toggle (default PAPER), empty footer. AI + My trades shown merged with origin tags. **The current UI is NOT retired — it stays as the home page; these routes are additive.** Reuses TickChart / OptionChartDialog pattern / useLiveCandles / useInstrumentBar.placeAt / TradeBar / cohort colors. Cross-dep: T87 (`source` tag model; instrument-bar removal — lift `placeAt` logic). **Status: document-only per Partha ("do not implement, keep ready with document") — build starts only on his go.**
 
 ### T89 [OPS/DATA] — Crude feature pipeline broken (merge fails on heavy MCX days) — SHELVED 2026-07-19 🆕
@@ -1689,7 +1691,18 @@ lesson); Glide is MA-only. Extra trades = extra charges (accepted, paper-test).
 - tests: resolveExitStrategy.test (7 race cases), inbound.test (N strategies →
   N trades, distinct exec ids). Money-path suites green (715).
 
-### T147 [Execution] — "Ladder" exit strategy (Phase 1 BUILT; ES marker + partial-booking pending) 🚧
+### T147 [Execution] — "Ladder" exit strategy (Phase 1 BUILT + refined 2026-08; ES marker + partial-booking pending) 🚧
+**Refinements 2026-08-01/03:** SL now fills at the WORSE of stop/live-price on a
+gap-through (was flattering losses); the stepping SL **ratchets** (holds, never
+moves backward — the self-close guard was chasing price down); TradeBar gained
+the **MSL** marker, the **TTP** trailing-profit line (start% + trail%, floats
+above the peak), an **MTP** basis toggle (**×risk or %**), a **secured/at-risk ₹**
+readout at the top corners, and labelled **SubGroup dividers** in the settings
+(MSL/SL/TSL/TTP/MTP/ES). Ladder added to the **Common cohort-strategy** picker.
+Red at-risk band only shows once price has been below entry. **Still open:** your
+call on TSL floor at 1.5% vs breakeven-snap; then Phase 2 (ES marker) + Phase 3
+(partial booking).
+
 A new exit strategy that fixes the R:R 0.67 disease (cut losers, ride winners) —
 added as a 5th strategy that RACES the existing four (does NOT replace them;
 Glide stays for the MA cohort because Ladder has no model-signal exit).
@@ -1770,6 +1783,42 @@ above): dynamic whole-lot legs, ×R or % levels, leftover lot to the runner.
 
 **Deferred polish:** MSL marker on CLOSED (past) rows (config may have changed
 since); a distinct TTP tick (peak travel already shows the high-water line).
+
+### T148 [OPS/UI] — Launcher "Evaluate" flow (merged Backtest + Compare) ✅ BUILT 2026-08-01
+Merged the two launcher menu items into one **Evaluate** flow: pick instruments
+(≥2 versions) → pick the 2 versions per instrument → **multi-select** held-out
+dates → auto-score any missing (version × date) synchronously → **inline
+verdict**. Date list is now **version-aware** (`_comparable_dates`) — offers any
+date NEITHER chosen version trained on (reserved holdout + cal + post-training
+days), fixing "only lists to 7-17". Verdict aggregates metrics across the picked
+dates (signal-weighted) + per-date consistency line + model P&L from
+`sim_pnl_scorecard.json` (labelled "own holdout window") + a conservative
+winner call. [launcher_v2.py](../startup/launcher_v2.py), backtest-compare.bat
+(accepts --run1/--run2), backtest_compare.py header-char fix.
+
+### T149 [OPS/DATA] 🔴 — 2026-07-31 raw recording corrupt (recorder crash) ✅ REPAIRED 2026-08-02
+The whole 2026-07-31 recording was **tail-truncated** — all 16 gz files failed
+`gzip -t`; the banknifty replay crashed reading the truncated chain-snapshots gz
+(`zlib: invalid block type`) and the pool swallowed it → "starts and stops
+immediately". Repaired the 8 NSE files (banknifty + nifty50) by recovering each
+file's valid prefix into a clean gzip (originals kept as `.corrupt-bak`): option
+ticks recovered in full (1.23M banknifty / 973k nifty50), chain snapshots
+truncated early (~270 → max-pain degraded for 7-31). MCX files (crude/natgas)
+left corrupt (huge, low priority). No replay-code change (Partha's call).
+
+### T150 [MTA] — Training memory-guard false-trips (double-counts loaded RSS) ✅ FIXED 2026-08-02
+The headroom guard runs AFTER the feature matrices load, so the process's own
+RSS was both part of the estimated peak AND already subtracted from `available`
+— refusing runs that fit (banknifty 55-date: "need 15.6, have 14.2" with ~7 GB
+already loaded). Now headroom = free RAM + own RSS vs estimated peak.
+[memory_guard.py](../python_modules/model_training_agent/memory_guard.py), 8
+tests green.
+
+### T151 [UI] — Live trade age wasn't ticking (minute granularity) ✅ FIXED 2026-08-01
+The age beside the close button used `formatAge` (whole minutes) + only
+re-rendered on price ticks, so a fresh trade sat at "0m". Added `formatLiveAge`
+(seconds: `45s → 2m 05s`) + a 1s re-render while OPEN. Also: TradeBar age/tick
+polish. [TodayTradeRow.tsx](../client/src/components/TodayTradeRow.tsx).
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
