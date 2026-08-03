@@ -348,6 +348,19 @@ class ReplayAdapter:
         # Target backfill queue
         self._pending: deque[_PendingRow] = deque()
 
+        # Batched-flush amortization (2026-08-03). After the max target
+        # window saturates, matured rows trickle out ~1 per underlying
+        # tick; batching tiny groups re-extracts the FULL 2-h strike
+        # history every call (profiled at 61% of a 1.5M-event MCX
+        # replay). Hold matured rows until MIN_FLUSH_BATCH accumulate,
+        # and only walk the maturity count every FLUSH_CHECK_EVERY
+        # events. flush_all() drains any held tail at end-of-stream, so
+        # no row is ever lost — emission is just deferred by a few
+        # minutes of STREAM time. Legacy scalar mode bypasses the hold.
+        self._MIN_FLUSH_BATCH: int = 256
+        self._FLUSH_CHECK_EVERY: int = 64
+        self._flush_check_skip: int = 0
+
         # Maximum target window (seconds) — determines when to backfill.
         # Phase 3: must also span the trend (1800s) + swing (7200s) horizons
         # so rows aren't flushed before their swing windows close.
@@ -1165,6 +1178,33 @@ class ReplayAdapter:
         when ``TFA_LEGACY_TARGETS=1`` or when the ready batch is < 2 rows
         (scalar wins below the Polars per-batch overhead break-even).
         """
+        if not self._pending:
+            return
+        if current_ts < self._pending[0].t0 + self._max_window_sec:
+            return  # head not matured → nothing is (queue is FIFO)
+
+        from tick_feature_agent.replay import targets_cache as _tc
+
+        # Amortization hold (2026-08-03, see __init__ comment): in the
+        # batched path, wait until MIN_FLUSH_BATCH rows have matured so
+        # the per-batch history extraction is paid ~100× less often.
+        # The count walk early-exits at MIN_FLUSH_BATCH (O(256) worst
+        # case) and only runs every FLUSH_CHECK_EVERY events.
+        if not _tc.legacy_enabled():
+            self._flush_check_skip -= 1
+            if self._flush_check_skip > 0:
+                return
+            self._flush_check_skip = self._FLUSH_CHECK_EVERY
+            ready_count = 0
+            for p in self._pending:
+                if current_ts < p.t0 + self._max_window_sec:
+                    break
+                ready_count += 1
+                if ready_count >= self._MIN_FLUSH_BATCH:
+                    break
+            if ready_count < self._MIN_FLUSH_BATCH:
+                return
+
         # Collect eligible rows (FIFO order preserved by popleft loop).
         ready: list = []
         while self._pending:
@@ -1174,8 +1214,6 @@ class ReplayAdapter:
             ready.append(self._pending.popleft())
         if not ready:
             return
-
-        from tick_feature_agent.replay import targets_cache as _tc
         min_window = min(self._profile.target_windows_sec)
         upside_key = f"max_upside_{min_window}s"
         upside_pct_key = f"upside_percentile_{min_window}s"

@@ -47,9 +47,9 @@ def _install_event_limit(max_events: int) -> None:
     """
     original = replay_runner.merge_streams
 
-    def limited(folder, instrument, logger=None):
+    def limited(folder, instrument, *args, **kwargs):
         count = 0
-        for event in original(folder, instrument, logger=logger):
+        for event in original(folder, instrument, *args, **kwargs):
             count += 1
             if count > max_events:
                 return
