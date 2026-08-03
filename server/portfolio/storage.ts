@@ -100,6 +100,10 @@ export interface PositionStateDoc {
    */
   peakLtp?: number;
 
+  /** MOST-ADVERSE LTP seen since entry — the mirror of peakLtp (lowest for a BUY,
+   *  highest for a SELL). Drives the TradeBar downside-travel footprint. */
+  troughLtp?: number;
+
   /** Broker-assigned order ID (returned by placeOrder). Renamed from
    *  the legacy `brokerId` field in 2026-05; that name now stores the
    *  broker identity instead. */
@@ -268,6 +272,7 @@ const positionStateSchema = new Schema(
 
     // Wave 1: peak ltp persisted for restart-safe TSL ratchet.
     peakLtp: { type: Number, default: null },
+    troughLtp: { type: Number, default: null }, // mirror of peakLtp — TradeBar downside footprint
 
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
@@ -533,6 +538,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     targetPrice: doc.targetPrice ?? null,
     stopLossPrice: doc.stopLossPrice ?? null,
     peakLtp: doc.peakLtp ?? undefined,
+    troughLtp: doc.troughLtp ?? undefined,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
     manualExitOnly: doc.manualExitOnly ?? false,
     exitStrategy: doc.exitStrategy ?? "sprint",
