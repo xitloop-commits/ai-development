@@ -234,7 +234,10 @@ export default function InstrumentChartPage() {
   // T88 — a clicked trade (even a closed one) takes the first trade pane; reset
   // when the viewed date changes.
   const [focusedTrade, setFocusedTrade] = useState<ChartTradeRow | null>(null);
-  useEffect(() => { setFocusedTrade(null); }, [date]);
+  // Trade-reason is a floating card (opened on trade-click), not a permanent
+  // panel — keeps the chart full-height.
+  const [showReason, setShowReason] = useState(false);
+  useEffect(() => { setFocusedTrade(null); setShowReason(false); }, [date]);
 
   const today = istDateString();
   const isToday = date === today;
@@ -410,6 +413,7 @@ export default function InstrumentChartPage() {
     // T88 — load the clicked trade (even a closed one) into the first trade pane.
     // Only today's contracts have chart data (optionsEnabled).
     if (best.contractSecurityId) setFocusedTrade(best);
+    setShowReason(true); // surface the reason card for the clicked trade
   };
   const conf01 = (v: number) => Math.round(v <= 1 ? v * 100 : v);
 
@@ -507,8 +511,8 @@ export default function InstrumentChartPage() {
           gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
         }}
       >
-        {/* Pane 1 — underlying + trade-reason (always) */}
-        <div className="min-h-0 flex flex-col gap-2">
+        {/* Pane 1 — underlying (full height); trade-reason floats as a card. */}
+        <div className="min-h-0 relative">
           <TickChart
             candles={candles}
             markers={markers}
@@ -518,19 +522,27 @@ export default function InstrumentChartPage() {
             intervalSec={intervalSec}
             loading={ticksLoading}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
-            className="flex-1"
+            className="h-full"
             onTimeClick={onUnderlyingClick}
             header={<>
               <span className="font-bold">{meta.displayName}</span>
               <span className="text-muted-foreground">underlying · {intervalLabel} · {und.tickCount} tk</span>
               {spot != null && <span className="tabular-nums" style={{ color: CHART_UP }}>spot {spot.toFixed(2)}</span>}
               {expiryLabel && <span className="text-muted-foreground">exp {expiryLabel}</span>}
-              <span className="ml-auto text-[0.5625rem] text-muted-foreground">click a trade marker → reason ↓</span>
+              <button
+                type="button"
+                onClick={() => setShowReason((v) => !v)}
+                className="ml-auto text-[0.5625rem] rounded px-1 border border-border/60 text-muted-foreground hover:text-foreground"
+                title="Show why the selected trade was taken"
+              >
+                {showReason ? "Why ✕" : "Why?"}
+              </button>
             </>}
           />
-          {/* Trade-reason panel — why the selected (else latest) trade was taken. */}
-          <div className="shrink-0 max-h-[30%] overflow-auto rounded border border-border bg-background/40 p-2 text-[0.6875rem]">
-            {activeTrade ? (
+          {/* Floating trade-reason card — opened by clicking a trade or the Why?
+              button; dismissable. Overlays the chart, so it costs no layout space. */}
+          {showReason && activeTrade && (
+            <div className="absolute left-2 bottom-2 z-30 max-w-[min(92%,30rem)] rounded border border-border bg-background/95 p-2 text-[0.6875rem] shadow-xl backdrop-blur">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <span className="font-bold">Why this trade</span>
@@ -538,10 +550,11 @@ export default function InstrumentChartPage() {
                   <span style={{ color: activeTrade.side === "CE" ? CHART_UP : CHART_DOWN }}>
                     {meta.displayName} {activeTrade.strike ?? ""} {activeTrade.side}
                   </span>
-                  <span className="ml-auto tabular-nums" style={{ color: activeTrade.pnl >= 0 ? CHART_UP : CHART_DOWN }}>
+                  <span className="tabular-nums" style={{ color: activeTrade.pnl >= 0 ? CHART_UP : CHART_DOWN }}>
                     {activeTrade.status === "OPEN" ? "OPEN" : `${activeTrade.pnl >= 0 ? "+" : ""}${activeTrade.pnl.toFixed(0)}`}
                     {activeTrade.exitReason ? ` · ${activeTrade.exitReason}` : ""}
                   </span>
+                  <button type="button" onClick={() => setShowReason(false)} className="ml-auto px-1 rounded text-muted-foreground hover:text-foreground" title="Close">✕</button>
                 </div>
                 {activeSignal && (
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
@@ -562,10 +575,8 @@ export default function InstrumentChartPage() {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="text-muted-foreground">No trades {isToday ? "yet today" : "on this date"}.</div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         {/* Panes 2..N — this instrument's open trades (newest first) + the
             clicked/focused trade, each its own contract chart. */}
