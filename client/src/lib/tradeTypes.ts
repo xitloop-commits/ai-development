@@ -150,6 +150,10 @@ export interface TradeRecord {
    *  of peakLtp. peak↔trough = the trade's full travel, drawn on the TradeBar and
    *  frozen on close. Absent on trades that pre-date the field. */
   troughLtp?: number | null;
+  /** Cumulative ms the LTP spent below / above entry — the TradeBar zone timers
+   *  (red = time underwater, green = time in profit). */
+  msBelowEntry?: number | null;
+  msAboveEntry?: number | null;
   /** Epoch ms when the trailing stop activated — drives the TradeBar's "TSL
    *  running" stopwatch next to the TP. Absent until TSL arms. */
   tslActivatedAt?: number | null;

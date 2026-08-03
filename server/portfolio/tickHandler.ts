@@ -197,6 +197,9 @@ class TickHandler extends EventEmitter {
    *  favour and has since stayed there (cleared the moment it drops back to
    *  at-or-against entry). ladderDecide arms the TSL after tslArmSec of it. */
   private ladderFavSince = new Map<string, number>();
+  /** Zone-timer clock: tradeId → ms epoch of the last tick, used to accumulate
+   *  msBelowEntry / msAboveEntry (time underwater vs in profit) per trade. */
+  private zoneLastTickAt = new Map<string, number>();
   /** LIVE only — last time we emitted a broker TP-ratchet for a trade. Throttles
    *  the emit so we don't flood TEA (which also enforces the per-order modify cap). */
   private lastTpEmitAt = new Map<string, number>();
@@ -565,6 +568,25 @@ class TickHandler extends EventEmitter {
         if (newTrough !== currentTrough) {
           trade.troughLtp = newTrough;
           anyUpdated = true;
+        }
+
+        // Zone timers — cumulative ms the LTP spent BELOW entry (underwater) vs
+        // ABOVE it (in profit), drawn as tiny MM:SS on the TradeBar. Accumulated
+        // in-memory each tick (like peakLtp); rides on the next anyUpdated persist,
+        // so no per-tick Mongo write. In-memory last-tick map is restart-safe: the
+        // totals persist, only the in-flight delta is lost on a restart.
+        {
+          const nowMs = Date.now();
+          const lastZone = this.zoneLastTickAt.get(trade.id);
+          if (lastZone != null) {
+            const dt = nowMs - lastZone;
+            if (dt > 0 && dt < 60_000) { // ignore gaps > 1 min (feed stall / restart)
+              const fav = isBuy ? tick.ltp - trade.entryPrice : trade.entryPrice - tick.ltp;
+              if (fav < 0) trade.msBelowEntry = (trade.msBelowEntry ?? 0) + dt;
+              else if (fav > 0) trade.msAboveEntry = (trade.msAboveEntry ?? 0) + dt;
+            }
+          }
+          this.zoneLastTickAt.set(trade.id, nowMs);
         }
 
         // LADDER (T147) TSL-arm clock. Start it the first tick price is in favour;

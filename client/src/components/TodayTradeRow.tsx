@@ -428,6 +428,8 @@ function _TodayTradeRow({
                     : undefined
                 }
                 peakLtp={trade.peakLtp}
+                msBelowEntry={trade.msBelowEntry}
+                msAboveEntry={trade.msAboveEntry}
                 troughLtp={trade.troughLtp}
                 units={trade.qty}
                 roundTripCharges={charges}

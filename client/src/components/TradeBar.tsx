@@ -26,6 +26,12 @@ import { formatPrice, formatINR } from "@/lib/formatINR";
 /** Compact price for the scale (no ₹, no K/L shorthand): 135.4, 1,234.5. */
 const scalePrice = (v: number) => formatINR(v, { prefix: false, compact: false });
 
+/** ms → MM:SS for the zone timers. */
+const fmtMMSS = (ms: number) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
+
 /** Exit-strategy phase (T84 runway/anchor staged stop). `ExitOutput.phase` on the
  *  server produces these; drawn here as a small badge so you can see which stage a
  *  trade is in. Absent for the legacy sprint path (which trails a target instead). */
@@ -78,6 +84,11 @@ export interface TradeBarProps {
    *  stop sits deliberately wide; when it lapses the stop tightens. Only Runway /
    *  Anchor have one — pass null for Sprint (no cooling window). */
   coolingEndsAt?: number | null;
+  /** Cumulative ms the LTP spent BELOW entry (red-zone timer, drawn just left of
+   *  the MSL) and ABOVE entry (green-zone timer, just right of the MTP). Tiny
+   *  MM:SS inside the track. Absent → not drawn. */
+  msBelowEntry?: number | null;
+  msAboveEntry?: number | null;
   /** Peak (max-favourable) LTP reached during the trade — draws the upside of the
    *  travel band. Persisted + frozen on close, so it stays on past trades. */
   peakLtp?: number | null;
@@ -157,6 +168,8 @@ export function TradeBar({
   tpPercent,
   tpLabel = "TP",
   stopReadoutTop = false,
+  msBelowEntry,
+  msAboveEntry,
   ttpPercent,
   trailingEnabled = false,
   tslGatePrice,
@@ -647,6 +660,28 @@ export function TradeBar({
             title={`Cooling window · ${coolingClock} left — the stop stays wide until this lapses, then tightens.`}
           >
             {coolingClock}
+          </span>
+        )}
+
+        {/* Zone timers (tiny MM:SS inside the track): time spent UNDERWATER (red,
+            just left of the MSL floor) and time IN PROFIT (green, just right of
+            the MTP). Show how long the trade sat each side of entry. */}
+        {msBelowEntry != null && msBelowEntry > 0 && (
+          <span
+            className="absolute z-[12] text-[0.5rem] font-bold tabular-nums leading-none px-0.5 rounded pointer-events-none whitespace-nowrap"
+            style={{ left: `${clamp(mslPos ?? stopPos, 4, 94)}%`, top: "50%", transform: "translate(calc(-100% - 3px), -50%)", color: "#ff6b6b", background: "rgba(0,0,0,0.6)" }}
+            title={`Time underwater (LTP below entry): ${fmtMMSS(msBelowEntry)}`}
+          >
+            {fmtMMSS(msBelowEntry)}
+          </span>
+        )}
+        {msAboveEntry != null && msAboveEntry > 0 && (
+          <span
+            className="absolute z-[12] text-[0.5rem] font-bold tabular-nums leading-none px-0.5 rounded pointer-events-none whitespace-nowrap"
+            style={{ left: `${clamp(hasTp ? tpPos : ltpPos, 6, 96)}%`, top: "50%", transform: "translate(3px, -50%)", color: TP_COLOR, background: "rgba(0,0,0,0.6)" }}
+            title={`Time in profit (LTP above entry): ${fmtMMSS(msAboveEntry)}`}
+          >
+            {fmtMMSS(msAboveEntry)}
           </span>
         )}
 

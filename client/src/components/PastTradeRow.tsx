@@ -219,6 +219,8 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
               tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
               stopReadoutTop={trade.exitStrategy === "ladder"}
               peakLtp={trade.peakLtp}
+              msBelowEntry={trade.msBelowEntry}
+              msAboveEntry={trade.msAboveEntry}
               troughLtp={trade.troughLtp}
               units={trade.qty}
               roundTripCharges={trade.charges}

@@ -134,6 +134,12 @@ export interface TradeRecord {
    *  (max favourable + max adverse excursion), drawn on the TradeBar and frozen
    *  on close. Persisted; absent on trades that pre-date the field. */
   troughLtp?: number;
+  /** Cumulative ms the LTP spent BELOW entry (underwater) since entry — the
+   *  red-zone timer drawn on the TradeBar. Accumulated per tick, persisted. */
+  msBelowEntry?: number;
+  /** Cumulative ms the LTP spent ABOVE entry (in profit) since entry — the
+   *  green-zone timer drawn on the TradeBar. Accumulated per tick, persisted. */
+  msAboveEntry?: number;
   /** Epoch ms when the trailing stop ACTIVATED (gate held). Stamped once and
    *  persisted so the UI can show a "TSL running" stopwatch that survives a
    *  reload. Absent until the TSL arms; never reset for the trade's life. */
@@ -381,6 +387,8 @@ export const tradeRecordSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     peakLtp: { type: Number, default: null },
     troughLtp: { type: Number, default: null },
+    msBelowEntry: { type: Number, default: null },
+    msAboveEntry: { type: Number, default: null },
     breakevenPrice: { type: Number, default: null },
     slDistance: { type: Number, default: null },
     stopLossDisabled: { type: Boolean, default: false },
@@ -1298,6 +1306,8 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       ltp: t.ltp ?? 0,
       peakLtp: t.peakLtp ?? undefined,
       troughLtp: t.troughLtp ?? undefined,
+      msBelowEntry: t.msBelowEntry ?? undefined,
+      msAboveEntry: t.msAboveEntry ?? undefined,
       qty: t.qty,
       lotSize: t.lotSize ?? undefined,
       productType: (t.productType as "INTRADAY" | "CNC" | undefined) ?? undefined,
