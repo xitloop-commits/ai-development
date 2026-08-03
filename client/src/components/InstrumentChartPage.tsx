@@ -1,12 +1,14 @@
 /**
- * InstrumentChartPage (T76) — standalone pop-out window for ONE instrument.
- * Split layout: LEFT = underlying chart (from our recorded/near-live disk ticks)
- * + trade-reason panel; RIGHT = the current ATM strike's CE (top) and PE (bottom)
- * charts, built live from the WS tick stream. Reached via ?view=instchart&inst=<KEY>.
+ * InstrumentChartPage (T76 / T88) — standalone pop-out window for ONE instrument.
+ * Grid layout (top-bar Layout picker, persisted per instrument): pane 1 = the
+ * underlying chart (recorded/near-live disk ticks) with a floating trade-reason
+ * card; panes 2..N = this instrument's trades (open first, then recent closed),
+ * each a TradePane charting its own option contract from the WS tick stream.
+ * Reached via ?view=instchart&inst=<KEY>.
  *
- * Shared controls (interval 1s–5m, date, candle/HA/line, indicators, signal/trade
- * overlays, replay) drive every panel. The CE/PE panels re-point when the ATM
- * strike rolls intraday (ids from instrumentLiveState).
+ * Shared controls (interval 1s–5m, date, candle/HA/line, indicators, trade
+ * overlays, replay) drive every panel. Clicking a trade focuses it into the
+ * first trade pane + opens its reason card.
  */
 import { useEffect, useMemo, useState } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
@@ -356,11 +358,19 @@ export default function InstrumentChartPage() {
   // clicked/focused trade (even if closed) taking the first trade pane. Capped
   // to the layout's pane count minus the underlying (pane 1).
   const paneTrades = useMemo(() => {
-    const open = tradeRows.filter((t) => t.status === "OPEN").sort((a, b) => b.entryTime - a.entryTime);
+    // Open trades first (live positions), then the most-recent CLOSED trades so a
+    // placed trade still shows even when it exits quickly (Ladder often does).
+    const byNewest = (a: ChartTradeRow, b: ChartTradeRow) => b.entryTime - a.entryTime;
+    const ordered = [
+      ...tradeRows.filter((t) => t.status === "OPEN").sort(byNewest),
+      ...tradeRows.filter((t) => t.status !== "OPEN").sort(byNewest),
+    ];
+    const same = (a: ChartTradeRow, b: ChartTradeRow) =>
+      a.contractSecurityId === b.contractSecurityId && a.entryTime === b.entryTime;
     const list: ChartTradeRow[] = [];
     if (focusedTrade) list.push(focusedTrade);
-    for (const t of open) {
-      if (focusedTrade && t.contractSecurityId === focusedTrade.contractSecurityId && t.entryTime === focusedTrade.entryTime) continue;
+    for (const t of ordered) {
+      if (focusedTrade && same(t, focusedTrade)) continue;
       list.push(t);
     }
     return list.slice(0, Math.max(0, layout.panes - 1));
@@ -596,7 +606,7 @@ export default function InstrumentChartPage() {
         {/* Spare panes — empty until more trades open. */}
         {Array.from({ length: Math.max(0, (layout.panes - 1) - paneTrades.length) }).map((_, i) => (
           <div key={`ph-${i}`} className="min-h-0 rounded border border-dashed border-border/40 bg-background/20 flex items-center justify-center text-[0.625rem] text-muted-foreground">
-            no open trade
+            no trade yet
           </div>
         ))}
       </div>
