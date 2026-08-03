@@ -655,6 +655,41 @@ class TestMergeChunksToFinal:
         _merge_chunks_to_final([], out)
         assert not out.exists()
 
+    def test_schema_drift_chunks_merge_with_null_padding(self, tmp_path):
+        """2026-08-03 regression: chunks flushed before feature warmup
+        have FEWER columns than later chunks (pivot/trend/swing columns
+        only appear once their lookback windows fill). The merge must
+        union the schemas and null-pad the early chunks instead of
+        dying with pyarrow's "Table schema does not match" error.
+        """
+        import polars as pl
+
+        from tick_feature_agent.replay.replay_runner import _merge_chunks_to_final
+
+        pre = pl.DataFrame({
+            "event_idx": [0, 1],
+            "ltp": [100.0, 100.5],
+        })
+        post = pl.DataFrame({
+            "event_idx": [2, 3],
+            "ltp": [101.0, 101.5],
+            "pivot_swing_structure": [1.0, -1.0],   # late-warmup column
+        })
+        chunks = []
+        for i, df in enumerate((pre, post)):
+            p = tmp_path / f"chunk_{i:03d}.parquet"
+            df.write_parquet(str(p))
+            chunks.append(p)
+
+        out = tmp_path / "merged.parquet"
+        _merge_chunks_to_final(chunks, out)
+
+        merged = pl.read_parquet(out)
+        assert merged.shape == (4, 3)
+        assert set(merged.columns) == {"event_idx", "ltp", "pivot_swing_structure"}
+        # Pre-warmup rows are null-padded; post-warmup values intact.
+        assert merged["pivot_swing_structure"].to_list() == [None, None, 1.0, -1.0]
+
     def test_atomic_write_uses_tmp_then_rename(self, tmp_path):
         """``_merge_chunks_to_final`` writes to ``<final>.tmp`` first
         then renames. Verify the .tmp file does NOT survive the call

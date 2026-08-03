@@ -216,12 +216,19 @@ def _merge_chunks_to_final(
       by the caller AFTER the atomic rename succeeds, so a mid-merge
       crash leaves the chunks intact for resume.
 
-    Schema drift: all chunks come from the same replay session
-    through the same emitter, so schemas match by construction. If a
-    future ingest bug ever produces a chunk with a different schema,
-    pyarrow's ``write_table`` will raise a clear "schema mismatch"
-    error naming the offending column -- we fail fast rather than
-    silently reordering or dropping columns.
+    Schema drift (2026-08-03): chunks from ONE session can differ —
+    late-warmup features (pivot structure, trend/swing targets,
+    PE-leg risk columns) only start emitting once their lookback
+    windows fill, so a chunk flushed before warmup has FEWER columns
+    than later chunks. This actually happened on the 2026-08 MCX
+    backfill: the event loop slowed enough that time-based flushes
+    produced tiny pre-warmup chunks, and the merge (which used chunk
+    1's schema for the writer) died with "Table schema does not
+    match" at the first post-warmup chunk — discarding hours of
+    compute. Fix: cheap footer-only scan of every chunk first,
+    unify into the UNION schema, then pad each chunk's missing
+    columns with nulls while streaming. A genuine type conflict on
+    the same column name still fails fast with a clear pyarrow error.
     """
     if not chunk_files:
         return
@@ -232,7 +239,13 @@ def _merge_chunks_to_final(
         except Exception:
             pass
 
+    import pyarrow as pa
     import pyarrow.parquet as pq
+
+    # Footer-only scan (no row data) → union schema across all chunks.
+    union_schema = pa.unify_schemas(
+        [pq.read_schema(str(cf)) for cf in chunk_files]
+    )
 
     tmp = final_path.with_suffix(final_path.suffix + ".tmp")
     # Emit "reading" progress every N chunks so the dashboard refreshes
@@ -244,9 +257,16 @@ def _merge_chunks_to_final(
     try:
         for i, cf in enumerate(chunk_files, 1):
             table = pq.read_table(str(cf))
+            if table.schema != union_schema:
+                for field in union_schema:
+                    if field.name not in table.column_names:
+                        table = table.append_column(
+                            field, pa.nulls(len(table), type=field.type),
+                        )
+                table = table.select(union_schema.names).cast(union_schema)
             if writer is None:
                 writer = pq.ParquetWriter(
-                    str(tmp), table.schema, compression="snappy",
+                    str(tmp), union_schema, compression="snappy",
                 )
             writer.write_table(table)
             # Release the chunk's memory immediately so peak stays at
