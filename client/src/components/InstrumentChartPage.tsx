@@ -222,13 +222,6 @@ export default function InstrumentChartPage() {
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
-  // Pinned option contracts — clicking a trade on the underlying loads THAT
-  // trade's contract into the matching pane (call → CE/top, put → PE/bottom).
-  // null = show the live ATM contract.
-  const [pinnedCe, setPinnedCe] = useState<{ securityId: string; strike: number | null; entryTime: number } | null>(null);
-  const [pinnedPe, setPinnedPe] = useState<{ securityId: string; strike: number | null; entryTime: number } | null>(null);
-  // Pinned contracts are day-specific — reset them when the viewed date changes.
-  useEffect(() => { setPinnedCe(null); setPinnedPe(null); }, [date]);
 
   // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
   const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
@@ -279,33 +272,13 @@ export default function InstrumentChartPage() {
   // on `live` (fresh feature row) with `signal` as a fallback between rows.
   type AtmShape = { atm_strike?: number; atm_ce_security_id?: string | null; atm_pe_security_id?: string | null; hours_to_expiry?: number | null; spot_price?: number | null } | null;
   const ls = liveStateQuery.data as { live?: AtmShape; signal?: AtmShape } | undefined;
-  const atmCeId = ls?.live?.atm_ce_security_id ?? ls?.signal?.atm_ce_security_id ?? null;
-  const atmPeId = ls?.live?.atm_pe_security_id ?? ls?.signal?.atm_pe_security_id ?? null;
-  const atmStrike = ls?.live?.atm_strike ?? ls?.signal?.atm_strike ?? null;
   const spot = ls?.live?.spot_price ?? ls?.signal?.spot_price ?? null;
-  // Effective contract per pane: the pinned (clicked-trade) contract, else live ATM.
-  const effCeId = pinnedCe?.securityId ?? atmCeId;
-  const effPeId = pinnedPe?.securityId ?? atmPeId;
-  const ceStrike = pinnedCe?.strike ?? atmStrike;
-  const peStrike = pinnedPe?.strike ?? atmStrike;
   // Expiry DATE derived from hours-to-expiry on the live feature row (options
   // expire at 15:30 IST; now + hours lands on the expiry day).
   const hoursToExp = ls?.live?.hours_to_expiry ?? null;
   const expiryLabel = hoursToExp != null && hoursToExp > 0 ? formatCalendarDay(Date.now() + hoursToExp * 3600000) : null;
   const optSeg = optionSegmentFor(inst ?? "");
-  const optionsEnabled = isToday; // live options today; disk back-fill below seeds history
-  // One-time background disk read of each ATM contract's day history (slow scan
-  // of the big option file) — prepended to the live candles when it lands.
-  const ceHist = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: inst ?? "", date, securityId: effCeId ?? "" },
-    { enabled: !!inst && !!date && !!effCeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
-  );
-  const peHist = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: inst ?? "", date, securityId: effPeId ?? "" },
-    { enabled: !!inst && !!date && !!effPeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
-  );
-  const ce = useLiveCandles(effCeId, optSeg, intervalSec, optionsEnabled, ceHist.data as { t: number[]; ltp: number[] } | undefined);
-  const pe = useLiveCandles(effPeId, optSeg, intervalSec, optionsEnabled, peHist.data as { t: number[]; ltp: number[] } | undefined);
+  const optionsEnabled = isToday; // live options today; each TradePane fetches its own contract history
 
   // ── Underlying candles + replay ─────────────────────────────────
   // Disk history (seed) + live WS on the SAME recorded contract (near-month
@@ -422,37 +395,6 @@ export default function InstrumentChartPage() {
     const candle = baseCandles.find((c) => c.time === t);
     return candle ? [{ price: candle.close, color: CHART_ENTRY, title: "Entry" }] : [];
   }, [openTrade, baseCandles]);
-  const ceEntryLine = useMemo(
-    () => (openTrade?.side === "CE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
-    [openTrade],
-  );
-  const peEntryLine = useMemo(
-    () => (openTrade?.side === "PE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
-    [openTrade],
-  );
-  // In/out markers on the option charts. Live ATM view: every trade on that leg.
-  // Pinned (a trade was clicked): ONLY that one clicked trade — matched by its
-  // contract + entry time — so the pane shows the single trade in isolation.
-  const ceMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => {
-      if (!showTrades || !ce.candles.length) return [];
-      const rows = pinnedCe
-        ? tradeRows.filter((t) => t.side === "CE" && t.contractSecurityId === pinnedCe.securityId && t.entryTime === pinnedCe.entryTime)
-        : tradeRows.filter((t) => t.side === "CE");
-      return buildTradeMarkers(rows, ce.candles.map((c) => c.time), Infinity);
-    },
-    [showTrades, ce.candles, tradeRows, pinnedCe],
-  );
-  const peMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => {
-      if (!showTrades || !pe.candles.length) return [];
-      const rows = pinnedPe
-        ? tradeRows.filter((t) => t.side === "PE" && t.contractSecurityId === pinnedPe.securityId && t.entryTime === pinnedPe.entryTime)
-        : tradeRows.filter((t) => t.side === "PE");
-      return buildTradeMarkers(rows, pe.candles.map((c) => c.time), Infinity);
-    },
-    [showTrades, pe.candles, tradeRows, pinnedPe],
-  );
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -482,7 +424,6 @@ export default function InstrumentChartPage() {
   const dateOptions = recordedDates.includes(today) ? recordedDates : [...recordedDates, today];
   const ticksLoading = ticksQuery.isLoading && ticksQuery.fetchStatus !== "idle";
   const intervalLabel = CHART_INTERVALS.find((i) => i.seconds === intervalSec)?.label ?? "";
-  const optEmpty = optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours).";
 
   const btn = (active: boolean) =>
     `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
