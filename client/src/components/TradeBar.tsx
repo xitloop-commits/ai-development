@@ -124,7 +124,7 @@ const DARK_GREEN = "rgba(21, 128, 61, 0.85)";
 // Travel fills (LTP → peak / LTP → trough). Deliberately OFF the green/red band
 // palette so the excursion reads as its own layer: teal for the up-travel (pops
 // over the profit greens), bright magenta-red for the down-travel.
-const TRAVEL_UP = "#ff00ff";   // magenta (up / LTP→peak)
+const TRAVEL_UP = "#00e676";   // bright green (up / LTP→peak) — brighter than the profit-band greens so it reads as its own layer
 const TRAVEL_DOWN = "#ff3b3b"; // bright red (down / LTP→trough) — brighter than the SL red so it reads as its own layer
 const LIGHT_GREEN = "rgba(187, 247, 208, 0.85)";
 const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → LTP buffer
