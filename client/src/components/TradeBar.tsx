@@ -349,9 +349,17 @@ export function TradeBar({
   // paint the loss zone red "by default" when the price never went there.
   const wentBelowEntry = ltpFav < 0 || (troughLtp != null && troughLtp > 0 && toFav(troughLtp) < 0);
 
+  // How far the price ACTUALLY dipped below entry — the trough (or the live LTP
+  // if it's currently underwater and no trough is recorded yet). The red loss
+  // fill stops here, NOT at the SL: painting the full entry→SL zone implied a
+  // loss the price never took. Mirrors the profit side, which only greens up to
+  // where price actually went (the room-to-TP stays neutral grey).
+  const adverseFav = troughLtp != null && troughLtp > 0 ? toFav(troughLtp) : ltpFav;
+  const adverseReachPos = adverseFav < 0 ? Math.max(pos(adverseFav), stopPos) : entryPos;
+
   // ── Colour bands ──────────────────────────────────────────────────────
   const bands: Array<{ from: number; to: number; color: string }> = [];
-  if (hasStop && !stopLocked && wentBelowEntry) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
+  if (hasStop && !stopLocked && wentBelowEntry) bands.push({ from: adverseReachPos, to: entryPos, color: `${RED}55` }); // realized loss reach (entry→trough)
   if (stopLocked) bands.push({ from: entryPos, to: stopPos, color: DARK_GREEN }); // locked profit (E→TSL)
   // Pre-lock with price already past the gate: entry→gate is profit not yet
   // protected (pale); gate→LTP is the clear-green buffer pushed below.
