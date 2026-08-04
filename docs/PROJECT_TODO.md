@@ -1692,16 +1692,26 @@ lesson); Glide is MA-only. Extra trades = extra charges (accepted, paper-test).
   N trades, distinct exec ids). Money-path suites green (715).
 
 ### T147 [Execution] — "Ladder" exit strategy (Phase 1 BUILT + refined 2026-08; ES marker + partial-booking pending) 🚧
-**Refinements 2026-08-01/03:** SL now fills at the WORSE of stop/live-price on a
-gap-through (was flattering losses); the stepping SL **ratchets** (holds, never
-moves backward — the self-close guard was chasing price down); TradeBar gained
-the **MSL** marker, the **TTP** trailing-profit line (start% + trail%, floats
-above the peak), an **MTP** basis toggle (**×risk or %**), a **secured/at-risk ₹**
-readout at the top corners, and labelled **SubGroup dividers** in the settings
-(MSL/SL/TSL/TTP/MTP/ES). Ladder added to the **Common cohort-strategy** picker.
-Red at-risk band only shows once price has been below entry. **Still open:** your
-call on TSL floor at 1.5% vs breakeven-snap; then Phase 2 (ES marker) + Phase 3
-(partial booking).
+**Stop redesign 2026-08-04 — adaptive plain trailing stop (REPLACES SL-step + TSL-arm):**
+the whole downside is now ONE trailing stop, `stop = max(prevStop, MSL, peak ×
+(1 − trail%))`, ratcheting up. The **trail % is chosen live from the red/green
+zone timers**: green-time ≥ red-time → `trailLoose` (def 5%, behaving → give room);
+red-time > green-time → `trailTight` (def 3%, struggling → cut quicker). Removed:
+the arm timer, the activation gate, the breakeven-snap, and the stepping SL
+(slStart/floor/step/delay/gap — kept in config but INERT). The stop crosses into
+profit on its own; the marker just turns SL-red → TSL-yellow at breakeven (one
+marker, cosmetic). Ratchet means a later loosen never lowers the stop, only slows
+its rise. Engine ([exitStrategies.ts](../server/portfolio/exitStrategies.ts)
+`ladderDecide`) + `trailTight`/`trailLoose` config + AI-settings knobs + rewritten
+tests (397 portfolio green). **Paper default — validate on paper before live.**
+Also new: TradeBar **zone timers** (red = time underwater / green = time in profit,
+persisted via the fixed live-field whitelist), red loss fill now stops at the
+**trough** (not the SL), `showPrices` toggle (default off), TSL price label dropped.
+**Refinements 2026-08-01/03:** SL fills at the WORSE of stop/live-price on a
+gap-through; TradeBar gained the **MSL** marker, the **TTP** trailing-profit line,
+an **MTP** basis toggle (**×risk or %**), a **secured/at-risk ₹** readout, and
+labelled **SubGroup dividers**. Ladder is in the **Common cohort-strategy** picker.
+**Still open:** Phase 2 (ES marker) + Phase 3 (partial booking).
 
 A new exit strategy that fixes the R:R 0.67 disease (cut losers, ride winners) —
 added as a 5th strategy that RACES the existing four (does NOT replace them;
