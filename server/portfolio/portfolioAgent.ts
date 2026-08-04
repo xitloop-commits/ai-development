@@ -532,6 +532,9 @@ class PortfolioAgentImpl {
       targetPrice: trade.targetPrice,
       stopLossPrice: trade.stopLossPrice,
       peakLtp: trade.peakLtp,
+      troughLtp: trade.troughLtp,
+      msBelowEntry: trade.msBelowEntry,
+      msAboveEntry: trade.msAboveEntry,
       trailingStopEnabled: trade.trailingStopEnabled,
       manualExitOnly: trade.manualExitOnly ?? false,
       exitStrategy: trade.exitStrategy ?? "sprint",
@@ -1776,6 +1779,9 @@ class PortfolioAgentImpl {
       r.unrealizedPnl = live.unrealizedPnl;
       r.lastTickAt = live.lastTickAt;
       if (live.peakLtp != null) r.peakLtp = live.peakLtp;
+      if (live.troughLtp != null) r.troughLtp = live.troughLtp;
+      if (live.msBelowEntry != null) r.msBelowEntry = live.msBelowEntry;
+      if (live.msAboveEntry != null) r.msAboveEntry = live.msAboveEntry;
       if (live.stopLossPrice != null) r.stopLossPrice = live.stopLossPrice;
       if (live.targetPrice != null) r.targetPrice = live.targetPrice;
     }
@@ -2061,6 +2067,9 @@ function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
     stopLossPrice: p.stopLossPrice,
     trailingStopEnabled: p.trailingStopEnabled,
     peakLtp: p.peakLtp,
+    troughLtp: p.troughLtp,
+    msBelowEntry: p.msBelowEntry,
+    msAboveEntry: p.msAboveEntry,
     brokerOrderId: p.brokerOrderId,
     brokerId: p.brokerId,
     cohort: p.cohort ?? null,

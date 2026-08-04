@@ -1171,6 +1171,12 @@ class TickHandler extends EventEmitter {
         entryPending: live.entryPending,
       };
       if (live.peakLtp != null) patch.peakLtp = live.peakLtp;
+      // Mirror of peakLtp + the zone timers — same live-owned tracking, so they
+      // MUST ride this whitelist too or they never reach day_records /
+      // position_state (they were tracked in memory but silently dropped here).
+      if (live.troughLtp != null) patch.troughLtp = live.troughLtp;
+      if (live.msBelowEntry != null) patch.msBelowEntry = live.msBelowEntry;
+      if (live.msAboveEntry != null) patch.msAboveEntry = live.msAboveEntry;
       if (live.stopLossPrice != null) patch.stopLossPrice = live.stopLossPrice;
       // Trailing take-profit: the live record may have ratcheted the target up.
       if (live.targetPrice != null) patch.targetPrice = live.targetPrice;

@@ -240,7 +240,7 @@ describe("portfolioAgent.getPositions — live-field overlay (T86 ③)", () => {
       dayIndex: 3,
       trades: [
         // The live twin: price moved to 130, unrealizedPnl (130-100)*15 = 450.
-        { id: "T1", ltp: 130, unrealizedPnl: 450, lastTickAt: 9_999, peakLtp: 132, stopLossPrice: 128, targetPrice: 140, status: "OPEN" },
+        { id: "T1", ltp: 130, unrealizedPnl: 450, lastTickAt: 9_999, peakLtp: 132, troughLtp: 96, msBelowEntry: 12_000, msAboveEntry: 48_000, stopLossPrice: 128, targetPrice: 140, status: "OPEN" },
       ],
     } as any);
 
@@ -250,6 +250,11 @@ describe("portfolioAgent.getPositions — live-field overlay (T86 ③)", () => {
     expect(pos.unrealizedPnl).toBe(450);  // live, not the frozen 0
     expect(pos.lastTickAt).toBe(9_999);   // surfaced (mirror had dropped it)
     expect(pos.peakLtp).toBe(132);
+    // Mirror of peakLtp + zone timers — these rode a whitelist that once dropped
+    // them, so the TradeBar timers never populated (2026-08-04 fix).
+    expect(pos.troughLtp).toBe(96);
+    expect(pos.msBelowEntry).toBe(12_000);
+    expect(pos.msAboveEntry).toBe(48_000);
     expect(pos.stopLossPrice).toBe(128);  // trailed
     expect(pos.targetPrice).toBe(140);    // ratcheted
     // day_records read exactly once for the single distinct dayIndex.
