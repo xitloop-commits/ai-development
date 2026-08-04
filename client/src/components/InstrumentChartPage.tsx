@@ -34,7 +34,7 @@ import {
   type IndicatorKey,
 } from "@/lib/instrumentChart";
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
-import { resolveCohortHex } from "@/lib/tradeThemes";
+import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -349,6 +349,13 @@ export default function InstrumentChartPage() {
     return out;
   }, [candles, cutoffTime, showTrades, tradesQuery.data]);
 
+  // Cohort legend — the distinct cohorts among the loaded trades, so the marker
+  // colours (pink = MA-Signal, cyan = scalp, …) mean something at a glance.
+  const presentCohorts = useMemo<string[]>(() => {
+    const rows = (tradesQuery.data as ChartTradeRow[] | undefined) ?? [];
+    return Array.from(new Set(rows.map((t) => t.cohort).filter((c): c is string => !!c))).sort();
+  }, [tradesQuery.data]);
+
   // The underlying MA line is coloured by its own 20-EMA price slope (green =
   // rising, red = falling) — TickChart's default when no `maLegs` are passed.
 
@@ -460,6 +467,18 @@ export default function InstrumentChartPage() {
         <div className="flex items-center gap-0.5">
           <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
         </div>
+        {/* Cohort legend — marker colours are per-cohort; this key makes them
+            readable (pink = MA-Signal, cyan = scalp, …). */}
+        {showTrades && presentCohorts.length > 0 && (
+          <div className="flex items-center gap-2 pl-1" title="Trade-marker colour by strategy cohort">
+            {presentCohorts.map((c) => (
+              <span key={c} className="inline-flex items-center gap-1 text-[0.625rem] text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: resolveCohortHex(c) }} />
+                {cohortLabel(c)}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="relative">
           <button className={btn(indicators.size > 0)} onClick={() => setIndicatorMenuOpen((v) => !v)}>
             Indicators{indicators.size ? ` (${indicators.size})` : ""} ▾
