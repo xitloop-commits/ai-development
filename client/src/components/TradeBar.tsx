@@ -448,42 +448,28 @@ export function TradeBar({
     );
   };
 
-  // ── Zone % arrows (<—— x% ——>) ────────────────────────────────────────
-  // Risk = stop→entry (the red loss zone, only when the stop is below entry).
-  const showRisk = hasStop && !stopLocked && wentBelowEntry && entryPos - stopPos > 4;
-  const riskMid = (stopPos + entryPos) / 2;
-
-  // Reward = entry→TP, broken into consecutive measured gaps at the TSL and the
-  // live LTP. The TSL point is the locked trailing stop, or — before it arms —
-  // the pending activation gate, so the gap up to it reads as "how far price
-  // must still travel to activate the TSL". Sorting by position keeps every gap
-  // correct in all states: pre-arm you get …→TSL (distance to arm); once locked
-  // you get E→TSL, TSL→LTP, LTP→TP.
-  type RewardPoint = { fav: number; kind: 'E' | 'TSL' | 'LTP' | 'TP' };
-  const rewardPts: RewardPoint[] = [{ fav: 0, kind: 'E' }];
-  if (hasTp) rewardPts.push({ fav: tpPct, kind: 'TP' });
-  if (hasStop && tslFav != null && tslFav > 0 && tslFav < tpPct) rewardPts.push({ fav: tslFav, kind: 'TSL' });
-  if (hasTp && ltpFav > 0 && ltpFav < tpPct) rewardPts.push({ fav: ltpFav, kind: 'LTP' });
-  rewardPts.sort((a, b) => a.fav - b.fav);
-  const rewardSegs = rewardPts.slice(0, -1).map((a, i) => {
-    const b = rewardPts[i + 1];
-    return { fromPos: pos(a.fav), toPos: pos(b.fav), gapPct: b.fav - a.fav, from: a.kind, to: b.kind };
+  // ── Measurement arrows (<—— x% ——>) — a fixed chain: stop → LTP → TTP → MTP.
+  // ① stop→LTP  = cushion the price has above the stop
+  // ② LTP→TTP   = room left up to the trailing take-profit line
+  // ③ TTP→MTP   = gap from that line to the take-profit EXIT
+  // Points that don't exist for this trade (no TTP on non-Ladder, no stop / no
+  // TP) drop out and the chain closes up. Each gap is tinted by the point it runs
+  // UP TO: green→LTP, yellow→TTP, grey→MTP.
+  type ChainKind = 'stop' | 'LTP' | 'TTP' | 'MTP';
+  const chainPts: Array<{ pos: number; fav: number; kind: ChainKind }> = [];
+  if (hasStop) chainPts.push({ pos: stopPos, fav: stopFav, kind: 'stop' });
+  chainPts.push({ pos: ltpPos, fav: ltpFav, kind: 'LTP' });
+  if (ttpPos != null) chainPts.push({ pos: ttpPos, fav: ttpFav, kind: 'TTP' });
+  if (hasTp) chainPts.push({ pos: tpPos, fav: tpPct, kind: 'MTP' });
+  const chainSegs = chainPts.slice(0, -1).map((a, i) => {
+    const b = chainPts[i + 1];
+    return { fromPos: a.pos, toPos: b.pos, gapPct: Math.abs(b.fav - a.fav), to: b.kind };
   });
-  // The TSL↔LTP gap is the key number (cushion above the locked stop, or — before
-  // arming — the distance left to activate it), so its % always shows even when
-  // the gap is too thin for the generic width guard.
-  const isTslLtpGap = (s: { from: RewardPoint['kind']; to: RewardPoint['kind'] }) =>
-    (s.from === 'TSL' && s.to === 'LTP') || (s.from === 'LTP' && s.to === 'TSL');
-  // The Entry→TSL gap carries the secured ₹ (profit the trailing stop locks in).
-  const isEntryTslGap = (s: { from: RewardPoint['kind']; to: RewardPoint['kind'] }) =>
-    s.from === 'E' && s.to === 'TSL';
-  // Each gap is tinted by the marker it runs UP TO: yellow toward the TSL
-  // (the activation/locked stop), green toward the LTP, grey toward TP.
-  const SEG_COLOR: Record<RewardPoint['kind'], string> = {
-    E: '#dcfce7',
-    TSL: '#fde68a',
+  const CHAIN_COLOR: Record<ChainKind, string> = {
+    stop: '#fecaca',
     LTP: '#dcfce7',
-    TP: '#e5e7eb',
+    TTP: '#fde68a',
+    MTP: '#e5e7eb',
   };
 
   // Double-headed measurement line spanning from%→to%, centred on the bar.
@@ -566,19 +552,12 @@ export function TradeBar({
           </span>
         )
       )}
-      {/* Top tier: zone % chips — risk over stop→entry, then one chip per
-          reward gap (E→TSL→LTP→TP). Skip a chip when its gap is too thin to read. */}
+      {/* Top tier: % chips for the measurement chain (① stop→LTP · ② LTP→TTP ·
+          ③ TTP→MTP). Skip a chip when its gap is too thin to read. */}
       <div className="relative w-full" style={{ height: "11px" }}>
-        {showRisk && <GapLabel at={riskMid} pct={Math.abs(stopFav)} color="#fecaca" />}
-        {rewardSegs.map((s, i) => {
-          const showSecured = stopLocked && isEntryTslGap(s) && stopProfit != null;
-          if (!(s.toPos - s.fromPos > 6 || isTslLtpGap(s) || showSecured)) return null;
-          // Secured ₹ — the profit the trailing stop locks in — only once the TSL
-          // has actually activated (trailed into profit), shown on its Entry→TSL gap.
-          const suffix = showSecured ? fmtMoney(stopProfit as number) : undefined;
-          return (
-            <GapLabel key={i} at={(s.fromPos + s.toPos) / 2} pct={s.gapPct} color={SEG_COLOR[s.to]} suffix={suffix} />
-          );
+        {chainSegs.map((s, i) => {
+          if (Math.abs(s.toPos - s.fromPos) <= 6) return null; // too thin to read
+          return <GapLabel key={i} at={(s.fromPos + s.toPos) / 2} pct={s.gapPct} color={CHAIN_COLOR[s.to]} />;
         })}
       </div>
 
@@ -634,10 +613,9 @@ export function TradeBar({
           })()}
         </div>
 
-        {/* Zone arrows: stop→entry (risk), then one arrow per reward gap
-            (E→TSL→LTP→TP). Tiny gaps self-skip inside GapLine. */}
-        {showRisk && <GapLine from={stopPos} to={entryPos} color="rgba(255,255,255,0.95)" />}
-        {rewardSegs.map((s, i) => (
+        {/* Measurement arrows: the fixed chain stop→LTP→TTP→MTP. Tiny gaps
+            self-skip inside GapLine. */}
+        {chainSegs.map((s, i) => (
           <GapLine key={i} from={s.fromPos} to={s.toPos} color="rgba(220,252,231,0.9)" />
         ))}
 
