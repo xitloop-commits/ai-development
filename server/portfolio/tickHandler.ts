@@ -804,6 +804,9 @@ class TickHandler extends EventEmitter {
               target: trade.originalTargetPrice ?? null,
               openedAt: trade.openedAt,
               now: Date.now(),
+              // Live zone timers drive the adaptive trail % (red→tight, green→loose).
+              msBelowEntry: trade.msBelowEntry ?? 0,
+              msAboveEntry: trade.msAboveEntry ?? 0,
             },
             lcfg,
             {

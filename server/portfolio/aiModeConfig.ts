@@ -487,6 +487,10 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   const l = e.ladder;
   l.mslEnabled = l.mslEnabled !== false; // safety net ON by default
   l.mslPct = clampNum(l.mslPct, 1, 90, 8);
+  // Adaptive trailing stop (2026-08-04): trail % chosen live from the red/green
+  // zone timers — tight when red-dominant, loose when green-dominant.
+  l.trailTight = clampNum(l.trailTight, 0.5, 90, 3);
+  l.trailLoose = clampNum(l.trailLoose, 0.5, 90, 5);
   l.slStartPct = clampNum(l.slStartPct, 1, 90, 5);
   // Floor can never be wider than the start (SL only tightens toward entry).
   l.slFloorPct = clampNum(l.slFloorPct, 0.1, l.slStartPct, Math.min(1, l.slStartPct));

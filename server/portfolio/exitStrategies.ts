@@ -88,6 +88,11 @@ export interface ExitInput {
   openedAt: number;
   /** Now (ms epoch). */
   now: number;
+  /** Cumulative ms the LTP has spent BELOW entry (red) and ABOVE it (green).
+   *  The Ladder trail % is chosen from their live comparison — red-dominant →
+   *  tight, green-dominant → loose. Absent (→ 0) for the other strategies. */
+  msBelowEntry?: number;
+  msAboveEntry?: number;
 }
 
 export type ExitPhase = "cooling" | "wide" | "breakeven" | "trailing" | "target-bank";
@@ -189,18 +194,20 @@ export function decideExit(
 // staged engine, separate from decideExit's runway/anchor path because its
 // config shape and per-trade state differ. Direction-aware like the rest.
 //
-// Downside, in order of precedence each tick:
-//   SL  — starts slStartPct below entry, STEPS tighter toward slFloorPct every
-//         slStepSec (from entry). Self-close guard: never tighten to within
-//         slLtpGapPct of the LIVE price (it would rise into the price and close
-//         the trade); it HOLDS in that gap and resumes when the gap reopens.
-//   TSL — arms once price holds in favour for tslArmSec; SL then dies, stop
-//         snaps to breakeven and trails (A: % below peak · B: give back % of the
-//         peak gain, default B). Stays at/above breakeven.
-//   MSL — hard safety-net floor (mslPct from entry). The stop can never sit
-//         further against the trade than this; enabled by default.
+// Downside — ONE adaptive plain trailing stop (2026-08-04 redesign):
+//   stop = max(prevStop, MSL, peak × (1 − trail%))   — ratchets up, never down.
+//   • trail% is chosen LIVE each tick from the red/green zone timers:
+//       green-time ≥ red-time → trailLoose (behaving → give it room)
+//       red-time  >  green-time → trailTight (struggling → cut it quicker)
+//   • no arm timer, no gate, no breakeven-snap — the stop crosses into profit on
+//     its own once the peak has risen far enough (the marker just turns from SL
+//     red to TSL yellow at breakeven; same stop).
+//   • the ratchet means a later loosen never LOWERS the stop — it only lets the
+//     stop rise more slowly with new peaks; protected ground is never given back.
+//   MSL — hard safety-net floor (mslPct from entry); enabled by default.
 // Upside:
-//   MTP — the EXIT: a multiple (mtpR) of the INITIAL risk (slStartPct of entry).
+//   MTP — the EXIT: a multiple (mtpR) of the risk basis (slStartPct of entry), or
+//         a plain % of entry ("percent" mode).
 //   TTP — trailing profit line is visual only (drawn from `peak`); no exit here.
 // ES / partial-booking are handled outside the engine (tickHandler / later phase).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -214,18 +221,28 @@ export interface LadderConfig {
   mslEnabled: boolean;
   mslPct: number; // hard floor: % from entry the stop can never cross
 
-  // SL — primary guard, steps tighter over time
-  slStartPct: number; // initial distance below entry (the "risk", also MTP's base)
-  slFloorPct: number; // tightest distance (measured from entry)
-  slStepPct: number; // reduce the distance by this each step
-  slStepSec: number; // seconds between steps
-  slDelaySec: number; // hold the start level this long before stepping begins
-  slLtpGapPct: number; // never tighten SL to within this % of the LIVE price
+  // The stop is now a single ADAPTIVE PLAIN TRAILING STOP: trail % below the
+  // running peak, ratcheting up, MSL as the hard floor. The trail % is chosen
+  // LIVE from the red/green zone timers each tick:
+  //   green-time ≥ red-time → trailLoose (behaving → let it run)
+  //   red-time  >  green-time → trailTight (struggling → cut it quicker)
+  trailTight: number; // trail % when the trade has been red-dominant
+  trailLoose: number; // trail % when green-dominant (or tied)
 
-  // TSL — trailing guard (SL dies when it arms)
-  tslArmSec: number; // seconds price must hold in favour before arming
+  // slStartPct is retained ONLY as the "risk" basis for MTP in "R" mode
+  // (mtpR × slStartPct-of-entry). It is no longer a stop level.
+  slStartPct: number;
+  // ── DEPRECATED (2026-08-04) — the stepping-SL + TSL-arm model was replaced by
+  // the adaptive trailing stop above. Kept so existing config / UI / tests keep
+  // loading; the engine ignores them. Safe to remove once the config drops them.
+  slFloorPct: number;
+  slStepPct: number;
+  slStepSec: number;
+  slDelaySec: number;
+  slLtpGapPct: number;
+  tslArmSec: number;
   tslTrailMode: LadderTrailMode;
-  tslTrailPct: number; // % (below peak, or of peak-gain given back)
+  tslTrailPct: number;
 
   // TTP — trailing take-profit line. VISUAL ONLY (never exits); drawn by the
   // client as max(entry + ttpStartPct, peak + ttpTrailPct). The engine ignores
@@ -245,7 +262,10 @@ export interface LadderConfig {
 export const DEFAULT_LADDER_CFG: LadderConfig = {
   mslEnabled: true,
   mslPct: 8,
+  trailTight: 3,
+  trailLoose: 5,
   slStartPct: 5,
+  // deprecated (inert) — see LadderConfig
   slFloorPct: 1,
   slStepPct: 0.5,
   slStepSec: 30,
@@ -275,60 +295,37 @@ export interface LadderState {
   prevStop: number | null;
 }
 
-/** LADDER — see the block comment above. `s` carries the continuous-in-favour
- *  clock the tick engine maintains; everything else is a pure function of it. */
+/** LADDER — an adaptive plain trailing stop (see the block comment above).
+ *  `s.prevStop` is the ratchet floor; everything else is a pure function of the
+ *  live state + the red/green zone timers on `i`. */
 export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): ExitOutput {
   const d = sign(i);
-  const risk = i.entry * (c.slStartPct / 100); // premium points of the initial stop
+  const risk = i.entry * (c.slStartPct / 100); // risk basis for MTP "R" mode
   // MTP distance in favour: a multiple of the risk ("R"), or a plain % of entry.
   const targetGain = c.mtpMode === "percent" ? i.entry * (c.mtpPct / 100) : c.mtpR * risk;
   const target = i.entry + d * targetGain;
 
-  const tslArmed = s.inFavourSince != null && i.now - s.inFavourSince >= c.tslArmSec * 1000;
+  // Adaptive trail %: red-dominant (more time underwater) → tight; green-dominant
+  // or tied → loose. Chosen fresh every tick from the live zone timers.
+  const green = i.msAboveEntry ?? 0;
+  const red = i.msBelowEntry ?? 0;
+  const trailPct = green >= red ? c.trailLoose : c.trailTight;
 
-  let stop: number;
-  let phase: ExitPhase;
-  if (tslArmed) {
-    // SL is dead. Breakeven floor, then trail — whichever is TIGHTER (further in
-    // favour) wins, and never below breakeven.
-    const be = i.entry;
-    const peakGain = Math.max(0, favour(i, i.peak));
-    const trail =
-      c.tslTrailMode === "peak"
-        ? i.peak * (1 - d * (c.tslTrailPct / 100)) // A: % below the peak
-        : i.entry + d * (peakGain * (1 - c.tslTrailPct / 100)); // B: give back % of peak gain
-    stop = favour(i, trail) > favour(i, be) ? trail : be;
-    phase = "trailing";
-  } else {
-    // SL steps tighter over time. Stepping starts after slDelaySec.
-    const elapsed = i.now - i.openedAt - c.slDelaySec * 1000;
-    const steps = elapsed > 0 ? Math.floor(elapsed / (c.slStepSec * 1000)) : 0;
-    const slPct = Math.max(c.slFloorPct, c.slStartPct - steps * c.slStepPct);
-    const steppedStop = i.entry * (1 - d * (slPct / 100));
-    // Self-close guard: never let the stop sit within slLtpGapPct of the LIVE
-    // price — that close, a tightening step would trip it. So the tightest the
-    // stop may go THIS tick is a gap short of the price; past that it's capped.
-    const holdStop = i.ltp - d * (i.ltp * (c.slLtpGapPct / 100));
-    let sl = favour(i, steppedStop) > favour(i, holdStop) ? holdStop : steppedStop;
-    // Ratchet — the stop only ever tightens or holds, NEVER loosens (moves
-    // backward). Its floor is the TIGHTER of where it already sits (prevStop) and
-    // the start level. Two things fall out of that:
-    //   • a dip in price can't drag the stop down — it HOLDS at prevStop; and
-    //   • the stop is never looser than the start level, so a gap straight THROUGH
-    //     it fires there (a real stop hit) instead of the stop chasing price down.
-    const startStop = i.entry * (1 - d * (c.slStartPct / 100));
-    const floorStop =
-      s.prevStop != null && favour(i, s.prevStop) > favour(i, startStop) ? s.prevStop : startStop;
-    if (favour(i, sl) < favour(i, floorStop)) sl = floorStop;
-    stop = sl;
-    phase = elapsed <= 0 ? "cooling" : "wide";
-  }
+  // Plain trailing stop: trail% below the running peak. Ratchet — never let the
+  // stop sit LESS in favour than where it already is (a dip, or a later loosen of
+  // trail%, can only slow future rises; it never gives back protected ground).
+  let stop = i.peak * (1 - d * (trailPct / 100));
+  if (s.prevStop != null && favour(i, s.prevStop) > favour(i, stop)) stop = s.prevStop;
 
   // MSL hard floor — the stop can never sit further against the trade than this.
   if (c.mslEnabled) {
     const msl = i.entry * (1 - d * (c.mslPct / 100));
     if (favour(i, stop) < favour(i, msl)) stop = msl;
   }
+
+  // Phase is cosmetic: the stop reads as a trailing stop (TSL yellow) once it is
+  // at/above breakeven, otherwise a plain SL (red) still below entry.
+  const phase: ExitPhase = favour(i, stop) >= 0 ? "trailing" : "wide";
 
   // MTP — bank the profit when the live price reaches the target.
   if (favour(i, i.ltp) >= targetGain) {

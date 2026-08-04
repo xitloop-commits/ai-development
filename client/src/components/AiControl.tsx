@@ -50,6 +50,7 @@ interface GlideCfg {
 /** T147 — Ladder: MSL/SL/TSL/MTP knobs (mirrors server LadderConfig). */
 interface LadderCfg {
   mslEnabled: boolean; mslPct: number;
+  trailTight: number; trailLoose: number;
   slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
@@ -356,7 +357,11 @@ const HELP = {
   ladderMslOn:
     "The safety net. A hard floor the stop can NEVER cross, whatever the stepping/trailing does. On by default. Off = only the SL/TSL protect the trade.",
   ladderMslPct:
-    "How far below entry the safety-net floor sits, as a %. It sits wider than the SL start — the stop normally closes the trade first; this only matters on a violent gap.",
+    "How far below entry the safety-net floor sits, as a %. It sits wider than the trail — the trailing stop normally closes the trade first; this only matters on a violent gap.",
+  ladderTrailTight:
+    "The trailing distance used when the trade has spent MORE time below entry than above (red-dominant / struggling). Tighter = cut it quicker. The stop is this % below the running peak.",
+  ladderTrailLoose:
+    "The trailing distance used when the trade has spent MORE (or equal) time above entry (green-dominant / behaving). Looser = give it room to run. The stop is this % below the running peak.",
   ladderSlStart:
     "Where the stop opens, as a % below entry. This is also the 'risk' the target multiplies — a 5% start with a 2× target aims for a 10% gain.",
   ladderSlFloor:
@@ -810,17 +815,14 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     {ed.ladder.mslEnabled && (
                       <Num help={HELP.ladderMslPct} label="MSL distance" value={ed.ladder.mslPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.mslPct = v; })} />
                     )}
-                    <SubGroup>SL · stepping stop</SubGroup>
-                    <Num help={HELP.ladderSlStart} label="SL start" value={ed.ladder.slStartPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStartPct = v; })} />
-                    <Num help={HELP.ladderSlFloor} label="SL floor" value={ed.ladder.slFloorPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFloorPct = v; })} />
-                    <Num help={HELP.ladderSlStep} label="SL step" value={ed.ladder.slStepPct} step={0.1} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStepPct = v; })} />
-                    <Num help={HELP.ladderSlStepSec} label="Step every" value={ed.ladder.slStepSec} step={5} min={1} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slStepSec = v; })} />
-                    <Num help={HELP.ladderSlDelay} label="Step delay" value={ed.ladder.slDelaySec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slDelaySec = v; })} />
-                    <Num help={HELP.ladderSlGap} label="SL-to-LTP gap" value={ed.ladder.slLtpGapPct} step={0.5} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slLtpGapPct = v; })} />
-                    <SubGroup>TSL · trailing stop</SubGroup>
-                    <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
-                    <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
-                    <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
+                    <SubGroup>Trailing stop · adaptive</SubGroup>
+                    <span className="text-[0.5625rem] text-muted-foreground leading-snug">
+                      One trailing stop: trail % below the running peak, ratcheting
+                      up. The % is chosen live from the red/green timers — more time
+                      RED (struggling) → tight; more time GREEN (behaving) → loose.
+                    </span>
+                    <Num help={HELP.ladderTrailTight} label="Trail — tight (red)" value={ed.ladder.trailTight} step={0.5} min={0.5} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.trailTight = v; })} />
+                    <Num help={HELP.ladderTrailLoose} label="Trail — loose (green)" value={ed.ladder.trailLoose} step={0.5} min={0.5} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.trailLoose = v; })} />
                     <SubGroup>TTP · trailing profit (visual)</SubGroup>
                     <Num help={HELP.ladderTtpStart} label="TTP start" value={ed.ladder.ttpStartPct} step={0.5} min={0.5} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpStartPct = v; })} />
                     <Num help={HELP.ladderTtpTrail} label="TTP trail" value={ed.ladder.ttpTrailPct} step={0.5} min={0.5} max={200} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpTrailPct = v; })} />
