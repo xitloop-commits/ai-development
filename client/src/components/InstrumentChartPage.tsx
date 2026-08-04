@@ -159,6 +159,31 @@ function GridIcon({ cols, rows, size = 16 }: { cols: number; rows: number; size?
   );
 }
 
+/** Bottom-centre fullscreen toggle for a chart pane. Expands the pane to fill
+ *  the viewport (parent applies `fixed inset-0`); Esc or a second click restores. */
+function PaneFullscreenBtn({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={active ? "Exit fullscreen (Esc)" : "Fullscreen this pane"}
+      className="absolute bottom-1 left-1/2 -translate-x-1/2 z-30 rounded border border-border/60 bg-background/80 p-1 text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground backdrop-blur transition-opacity"
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {active ? (
+          <>
+            <path d="M9 3v6H3M21 9h-6V3M3 15h6v6M15 21v-6h6" />
+          </>
+        ) : (
+          <>
+            <path d="M8 3H3v5M21 8V3h-5M3 16v5h5M16 21h5v-5" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
 /** One grid pane for a single trade — fetches THIS trade's option contract
  *  candles (its own hooks, so any number of panes is React-safe) and draws it
  *  with the trade's entry/exit markers. T88 step 3. */
@@ -224,6 +249,15 @@ export default function InstrumentChartPage() {
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
+  // Which pane is expanded to fullscreen ("underlying" or a trade's pane key);
+  // null = the normal grid. Esc collapses.
+  const [fullscreenPane, setFullscreenPane] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fullscreenPane) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreenPane(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreenPane]);
 
   // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
   const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
@@ -541,7 +575,7 @@ export default function InstrumentChartPage() {
         }}
       >
         {/* Pane 1 — underlying (full height); trade-reason floats as a card. */}
-        <div className="min-h-0 relative">
+        <div className={fullscreenPane === "underlying" ? "fixed inset-0 z-40 bg-background p-2" : "min-h-0 relative"}>
           <TickChart
             candles={candles}
             markers={markers}
@@ -606,22 +640,28 @@ export default function InstrumentChartPage() {
               </div>
             </div>
           )}
+          <PaneFullscreenBtn active={fullscreenPane === "underlying"} onToggle={() => setFullscreenPane((p) => (p === "underlying" ? null : "underlying"))} />
         </div>
         {/* Panes 2..N — this instrument's open trades (newest first) + the
             clicked/focused trade, each its own contract chart. */}
-        {paneTrades.map((t, i) => (
-          <TradePane
-            key={`${t.contractSecurityId}-${t.entryTime}-${i}`}
-            trade={t}
-            inst={inst ?? ""}
-            date={date}
-            optSeg={optSeg}
-            intervalSec={intervalSec}
-            style={style}
-            indicators={indicators}
-            optionsEnabled={optionsEnabled}
-          />
-        ))}
+        {paneTrades.map((t, i) => {
+          const paneId = `t:${t.contractSecurityId}-${t.entryTime}-${i}`;
+          return (
+            <div key={paneId} className={fullscreenPane === paneId ? "fixed inset-0 z-40 bg-background p-2" : "min-h-0 relative"}>
+              <TradePane
+                trade={t}
+                inst={inst ?? ""}
+                date={date}
+                optSeg={optSeg}
+                intervalSec={intervalSec}
+                style={style}
+                indicators={indicators}
+                optionsEnabled={optionsEnabled}
+              />
+              <PaneFullscreenBtn active={fullscreenPane === paneId} onToggle={() => setFullscreenPane((p) => (p === paneId ? null : paneId))} />
+            </div>
+          );
+        })}
         {/* Spare panes — empty until more trades open. */}
         {Array.from({ length: Math.max(0, (layout.panes - 1) - paneTrades.length) }).map((_, i) => (
           <div key={`ph-${i}`} className="min-h-0 rounded border border-dashed border-border/40 bg-background/20 flex items-center justify-center text-[0.625rem] text-muted-foreground">
