@@ -166,7 +166,7 @@ export function TickChart({
       });
     }
 
-    const addOverlay = (values: (number | null)[], color: string, width = 1) => {
+    const addOverlay = (values: (number | null)[], color: string, width = 1, front = false) => {
       const s = chart.addSeries(LineSeries, {
         color,
         lineWidth: width as 1 | 2 | 3 | 4,
@@ -174,6 +174,7 @@ export function TickChart({
         lastValueVisible: false,
         crosshairMarkerVisible: false,
       });
+      if (front) s.setSeriesOrder(100); // paint on top of the candle bodies
       const data: { time: UTCTimestamp; value: number }[] = [];
       for (let i = 0; i < candles.length; i++) {
         const v = values[i];
@@ -299,7 +300,9 @@ export function TickChart({
     }
     if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5_COLOR);
     // Single SMA-9 in TradingView blue (the paired 9+21 keeps its own colours).
-    if (indicators.has("sma9")) addOverlay(sma(closes, 9), "#2962ff", 2);
+    if (indicators.has("sma9")) addOverlay(sma(closes, 9), "#2962ff", 1, true);
+    // SMA-10 — thin bright yellow, in front of the candles.
+    if (indicators.has("sma10")) addOverlay(sma(closes, 10), "#ffea00", 1, true);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(sma(closes, 21), SMA21_COLOR); }
     if (indicators.has("ema")) { addOverlay(ema(closes, 9), EMA9_COLOR); addOverlay(ema(closes, 21), EMA21_COLOR); }
     if (indicators.has("sma9ema9")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(ema(closes, 9), EMA9_COLOR); }
