@@ -1234,11 +1234,13 @@ def load_thresholds_full(
     raw = json.loads(path.read_text(encoding="utf-8"))
     v2_raw = raw.pop("v2", None)
     wave2_raw = raw.pop("wave2", None)
-    # `trend`, `legstart` and `ma_signal` blocks belong to their own loaders;
-    # drop them here so Thresholds(**raw) below doesn't choke on the unknown kwarg.
+    # `trend`, `legstart`, `ma_signal` and `sma5_signal` blocks belong to their
+    # own loaders; drop them here so Thresholds(**raw) below doesn't choke on the
+    # unknown kwarg.
     raw.pop("trend", None)
     raw.pop("legstart", None)
     raw.pop("ma_signal", None)
+    raw.pop("sma5_signal", None)
     gate_mode = raw.pop("gate_mode", "current")
     if gate_mode not in ("current", "wave1", "wave2", "legstart"):
         raise ValueError(
