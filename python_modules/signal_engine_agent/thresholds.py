@@ -1145,9 +1145,9 @@ class Sma5SignalThresholds:
     # A small value damps whipsaw when price hugs the line.
     buffer_pct: float = 0.0
     # Use Heikin-Ashi candles instead of regular ones. HA smooths the price, so
-    # crossovers are cleaner and far fewer (it lags the true price a little). A/B
-    # lever — false = raw 1-min closes (default), true = HA closes.
-    use_ha: bool = False
+    # crossovers are cleaner and far fewer (it lags the true price a little).
+    # DEFAULT true (HA) — set false to A/B against raw 1-min closes.
+    use_ha: bool = True
     # % stop-loss stamped on the ENTRY when the cohort auto-trades.
     sl_pct: float = 12.0
 

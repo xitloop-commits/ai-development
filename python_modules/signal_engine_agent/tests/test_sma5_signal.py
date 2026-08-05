@@ -27,24 +27,24 @@ def _run(det, closes):
 
 def test_no_event_during_warmup():
     """Fewer closes than the SMA period → never fires."""
-    assert _run(_det(), [1000, 1010, 1020, 1030]) == []
+    assert _run(_det(use_ha=False), [1000, 1010, 1020, 1030]) == []
 
 
 def test_cross_above_fires_call_once():
     """A clean rising series crosses above the SMA-5 and fires ONE call."""
-    assert _run(_det(), [1000, 1010, 1020, 1030, 1040, 1050]) == ["LONG_CE"]
+    assert _run(_det(use_ha=False), [1000, 1010, 1020, 1030, 1040, 1050]) == ["LONG_CE"]
 
 
 def test_cross_below_fires_put_and_exits_call():
     """Rise (CALL) then a drop below the line → EXIT_CE + LONG_PE (symmetric)."""
     closes = [1000, 1010, 1020, 1030, 1040, 1050, 900]
-    assert _run(_det(), closes) == ["LONG_CE", "EXIT_CE", "LONG_PE"]
+    assert _run(_det(use_ha=False), closes) == ["LONG_CE", "EXIT_CE", "LONG_PE"]
 
 
 def test_flip_back_above_exits_put_and_re_enters_call():
     """A down leg then a fresh push above the line flips PE→CE."""
     closes = [1000, 990, 980, 970, 960, 950, 1100]
-    fires = _run(_det(), closes)
+    fires = _run(_det(use_ha=False), closes)
     assert fires[:1] == ["LONG_PE"]
     assert fires[-2:] == ["EXIT_PE", "LONG_CE"]
 
@@ -53,7 +53,7 @@ def test_buffer_deadband_suppresses_marginal_cross():
     """With a buffer, a close only just above the line does NOT flip."""
     # Flat-ish series so the close sits a hair above the SMA; 5% buffer swallows it.
     closes = [1000, 1000, 1000, 1000, 1000, 1001]
-    assert _run(_det(buffer_pct=5.0), closes) == []
+    assert _run(_det(buffer_pct=5.0, use_ha=False), closes) == []
 
 
 def test_ha_mode_fires_on_clean_uptrend():

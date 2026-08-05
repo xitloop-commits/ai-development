@@ -5,9 +5,10 @@ A stateful detector that segments the underlying by a SIMPLE moving average of
 its close (the SMA-5 line on the chart) and fires on a price↔line cross:
 
   • Aggregate live spot ticks into 1-minute candles; keep the last ``period``
-    closes and take their simple mean (the SMA line the chart draws). With
-    ``use_ha`` the Heikin-Ashi close is used instead of the raw close — smoother,
-    so crossovers are cleaner and fewer (an A/B lever for the whipsaw).
+    closes and take their simple mean (the SMA line the chart draws). By default
+    (``use_ha`` true) the Heikin-Ashi close is used instead of the raw close —
+    smoother, so crossovers are cleaner and fewer; set ``use_ha`` false to A/B
+    against raw closes.
   • Classify each closed candle by where the close sits versus the line
     (a small ``buffer_pct`` deadband avoids whipsaw right at the line):
       ABOVE  when close >  sma × (1 + buffer)   (price above → CALL)
