@@ -107,6 +107,9 @@ function OptionChart({
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   // Cohort filter — legend chips toggle a cohort's markers/lines off and on.
   const [hiddenCohorts, setHiddenCohorts] = useState<Set<string>>(() => new Set());
+  // Exit-strategy filter — one signal races several twins (sprint/runway/…);
+  // these switches show only the twin(s) you care about.
+  const [hiddenStrategies, setHiddenStrategies] = useState<Set<string>>(() => new Set());
 
   // ── Candles ────────────────────────────────────────────────────────
   // Minute intervals (1m–5m): broker minute candles — they cover the WHOLE
@@ -158,10 +161,14 @@ function OptionChart({
     { enabled: !!target.channel, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
   const trades = useMemo(() => (tradeQuery.data as ChartTrade[] | undefined) ?? [], [tradeQuery.data]);
-  // Trades surviving the cohort filter (cohortless trades are always shown).
+  // Trades surviving the cohort + strategy filters (untagged trades always show).
   const visibleTrades = useMemo(
-    () => trades.filter((t) => !t.cohort || !hiddenCohorts.has(t.cohort)),
-    [trades, hiddenCohorts],
+    () => trades.filter(
+      (t) =>
+        (!t.cohort || !hiddenCohorts.has(t.cohort)) &&
+        (!t.exitStrategy || !hiddenStrategies.has(t.exitStrategy)),
+    ),
+    [trades, hiddenCohorts, hiddenStrategies],
   );
 
   // Markers follow the instrument-chart convention: cohort colour; entry =
@@ -173,7 +180,10 @@ function OptionChart({
     const out: SeriesMarker<UTCTimestamp>[] = [];
     for (const t of visibleTrades) {
       const color = resolveCohortHex(t.cohort ?? null);
-      const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
+      // Day-trade number (matches the desk row #N — unique per twin); falls
+      // back to the signal # for older records without one.
+      const n = t.tradeNo ?? t.signalSeq;
+      const label = n != null ? `#${n}` : "";
       out.push({
         time: snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS) as UTCTimestamp,
         position: isCall ? "belowBar" : "aboveBar",
@@ -211,6 +221,15 @@ function OptionChart({
     () => Array.from(new Set(trades.map((t) => t.cohort).filter((c): c is string => !!c))).sort(),
     [trades],
   );
+  // Exit-strategy switches in the race's canonical order, limited to what's present.
+  const STRATEGY_ORDER = ["sprint", "runway", "anchor", "glide", "ladder"];
+  const presentStrategies = useMemo<string[]>(() => {
+    const seen = new Set(trades.map((t) => t.exitStrategy).filter((s): s is string => !!s));
+    return STRATEGY_ORDER.filter((s) => seen.has(s)).concat(
+      Array.from(seen).filter((s) => !STRATEGY_ORDER.includes(s)).sort(),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- STRATEGY_ORDER is a constant
+  }, [trades]);
 
   const tvUrl = tradingViewOptionUrl({
     instrument: target.instrumentKey,
@@ -252,7 +271,7 @@ function OptionChart({
           </a>
         )}
         <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums">
-          {hiddenCohorts.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
+          {hiddenCohorts.size > 0 || hiddenStrategies.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
         </span>
         {onClose && (
           <button
@@ -339,6 +358,33 @@ function OptionChart({
                     style={{ background: resolveCohortHex(c), opacity: off ? 0.3 : 1 }}
                   />
                   {cohortLabel(c)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {presentStrategies.length > 0 && (
+          <div className="flex items-center gap-1" title="Click an exit strategy to hide/show its twin trades">
+            <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground/60">exit</span>
+            {presentStrategies.map((s) => {
+              const off = hiddenStrategies.has(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setHiddenStrategies((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(s)) next.delete(s); else next.add(s);
+                    return next;
+                  })}
+                  className={`rounded px-1 py-0.5 text-[0.5625rem] font-semibold border transition-colors cursor-pointer capitalize ${
+                    off
+                      ? "border-transparent text-muted-foreground/40 line-through"
+                      : "bg-secondary/60 border-border/60 text-foreground/80 hover:text-foreground"
+                  }`}
+                  title={off ? `Show ${s} twins` : `Hide ${s} twins`}
+                >
+                  {s}
                 </button>
               );
             })}

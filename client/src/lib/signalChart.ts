@@ -220,6 +220,7 @@ export function tradingViewOptionUrl(opts: {
  *  entry/SL/TP price lines for open trades). */
 export interface ChartTrade {
   signalSeq: number | null;
+  tradeNo?: number | null;       // day-chronological "#N" — matches the desk row
   side: "CE" | "PE";
   entryTime: number;        // epoch SECONDS (real UTC)
   entryPrice: number;
@@ -229,6 +230,7 @@ export interface ChartTrade {
   exitReason?: string;
   pnl: number;
   cohort?: string | null;        // strategy cohort — colours the trade markers
+  exitStrategy?: string | null;  // exit style twin (sprint/runway/anchor/glide/ladder)
   stopLossPrice?: number | null; // current stop (trails) — drawn as a price line
   targetPrice?: number | null;   // current target — drawn as a price line
 }

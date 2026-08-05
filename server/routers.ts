@@ -203,6 +203,11 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const wantFolder = logFolderFor(input.instrument);
         const trades = await getTradesForDate(input.channel as any, input.date);
+        // Day-chronological trade number over the WHOLE day (all instruments,
+        // entry-time order) — matches the desk row "#N" numbering.
+        const dayOrder = new Map(
+          [...trades].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)).map((t, i) => [t, i + 1]),
+        );
         return trades
           .filter((t) => {
             if (logFolderFor(t.instrument) !== wantFolder) return false;
@@ -212,6 +217,7 @@ export const appRouter = router({
           })
           .map((t) => ({
             signalSeq: t.signalSeq ?? null,
+            tradeNo: dayOrder.get(t) ?? null,
             side: input.side,
             entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
             entryPrice: t.entryPrice,
@@ -221,6 +227,7 @@ export const appRouter = router({
             exitReason: t.exitReason,
             pnl: t.pnl,
             cohort: t.cohort ?? null,
+            exitStrategy: t.exitStrategy ?? null,
             // Current SL/TP (they trail) — drawn as price lines on the chart.
             stopLossPrice: t.stopLossPrice ?? null,
             targetPrice: t.targetPrice ?? null,
@@ -275,10 +282,15 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const wantFolder = logFolderFor(input.instrument);
         const trades = await getTradesForDate(input.channel as any, input.date);
+        // Same day-chronological "#N" numbering as the desk rows + strike popup.
+        const dayOrder = new Map(
+          [...trades].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)).map((t, i) => [t, i + 1]),
+        );
         return trades
           .filter((t) => logFolderFor(t.instrument) === wantFolder)
           .map((t) => ({
             signalSeq: t.signalSeq ?? null,
+            tradeNo: dayOrder.get(t) ?? null,
             side: (t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
             strike: t.strike ?? null,
             entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds

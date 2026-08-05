@@ -249,22 +249,25 @@ function _TodayTradeRow({
             {/* The number LEADS the row (Partha, 2026-07-23): it is how a trade
                 is referred to out loud, so it should be the first thing the eye
                 lands on rather than sitting behind the timestamp.
-                Signal # when the trade came from a SEA signal (it matches the
-                tray card). Manual trades have no signalSeq, so they fall back to
-                their 1-based position in the day. */}
-            {trade.signalSeq != null ? (
+                Day-chronological trade # (Partha, 2026-08-05) — UNIQUE per trade,
+                so raced twins of one signal are tellable apart and the chart
+                markers (#N) point back at exactly one row. The signal # (shared
+                by twins, matches the tray card) moved to the tooltip. */}
+            {tradeNo != null ? (
+              <span
+                className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
+                title={trade.signalSeq != null
+                  ? `Trade ${tradeNo} of the day · from signal #${trade.signalSeq} (tray card)`
+                  : `Trade ${tradeNo} of the day`}
+              >
+                #{tradeNo}
+              </span>
+            ) : trade.signalSeq != null ? (
               <span
                 className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
                 title="Signal # — matches the tray card"
               >
                 #{trade.signalSeq}
-              </span>
-            ) : tradeNo != null ? (
-              <span
-                className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
-                title={`Trade ${tradeNo} of the day (manual — no signal)`}
-              >
-                #{tradeNo}
               </span>
             ) : null}
             {/* Entry date + clock time (IST). The date matters once the desk

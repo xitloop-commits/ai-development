@@ -44,6 +44,7 @@ const REPLAY_STEP_MS = 250;
 
 interface ChartTradeRow {
   signalSeq: number | null;
+  tradeNo?: number | null;
   side: "CE" | "PE";
   strike: number | null;
   entryTime: number;
@@ -94,7 +95,8 @@ function buildTradeMarkers(
   for (const t of trades) {
     const isCall = t.side === "CE";
     const color = resolveCohortHex(t.cohort);
-    const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
+    const n = t.tradeNo ?? t.signalSeq;
+    const label = n != null ? `#${n}` : "";
     // Entry — direction arrow on the "home" side (CALL below, PUT above).
     const entT = snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS);
     if (entT <= cutoff)
@@ -235,7 +237,7 @@ function TradePane({
       header={<>
         <span className="font-bold" style={{ color: isCall ? CHART_UP : CHART_DOWN }}>{trade.side}</span>
         <span className="text-muted-foreground">
-          {trade.strike ?? ""} {isCall ? "call" : "put"}{trade.signalSeq != null ? ` · #${trade.signalSeq}` : ""} · {c.tickCount} tk
+          {trade.strike ?? ""} {isCall ? "call" : "put"}{(trade.tradeNo ?? trade.signalSeq) != null ? ` · #${trade.tradeNo ?? trade.signalSeq}` : ""} · {c.tickCount} tk
         </span>
         <span className="ml-auto tabular-nums font-semibold" style={{ color: trade.status === "OPEN" ? CHART_UP : (trade.pnl >= 0 ? CHART_UP : CHART_DOWN) }}>
           {trade.status === "OPEN" ? "OPEN" : `${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(0)}`}
