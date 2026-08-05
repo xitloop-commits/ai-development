@@ -105,6 +105,8 @@ function OptionChart({
     () => new Set<IndicatorKey>(["sma5"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  // Cohort filter — legend chips toggle a cohort's markers/lines off and on.
+  const [hiddenCohorts, setHiddenCohorts] = useState<Set<string>>(() => new Set());
 
   // ── Candles ────────────────────────────────────────────────────────
   // Minute intervals (1m–5m): broker minute candles — they cover the WHOLE
@@ -156,15 +158,20 @@ function OptionChart({
     { enabled: !!target.channel, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
   const trades = useMemo(() => (tradeQuery.data as ChartTrade[] | undefined) ?? [], [tradeQuery.data]);
+  // Trades surviving the cohort filter (cohortless trades are always shown).
+  const visibleTrades = useMemo(
+    () => trades.filter((t) => !t.cohort || !hiddenCohorts.has(t.cohort)),
+    [trades, hiddenCohorts],
+  );
 
   // Markers follow the instrument-chart convention: cohort colour; entry =
   // direction arrow on the "home" side, exit = ● on the opposite side.
   const markers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
-    if (candles.length === 0 || trades.length === 0) return [];
+    if (candles.length === 0 || visibleTrades.length === 0) return [];
     const times = candles.map((c) => c.time as number);
     const isCall = target.side === "CE";
     const out: SeriesMarker<UTCTimestamp>[] = [];
-    for (const t of trades) {
+    for (const t of visibleTrades) {
       const color = resolveCohortHex(t.cohort ?? null);
       const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
       out.push({
@@ -186,11 +193,11 @@ function OptionChart({
     }
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
-  }, [trades, candles, target.side]);
+  }, [visibleTrades, candles, target.side]);
 
   const tradeLines = useMemo(() => {
     const out: { price: number; color: string; title: string }[] = [];
-    for (const t of trades) {
+    for (const t of visibleTrades) {
       if (t.status !== "OPEN") continue;
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
       if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: CHART_ENTRY, title: `${tag}entry` });
@@ -198,7 +205,7 @@ function OptionChart({
       if (t.targetPrice) out.push({ price: t.targetPrice, color: CHART_UP, title: `${tag}TP` });
     }
     return out;
-  }, [trades]);
+  }, [visibleTrades]);
 
   const presentCohorts = useMemo<string[]>(
     () => Array.from(new Set(trades.map((t) => t.cohort).filter((c): c is string => !!c))).sort(),
@@ -245,7 +252,7 @@ function OptionChart({
           </a>
         )}
         <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums">
-          {trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
+          {hiddenCohorts.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
         </span>
         {onClose && (
           <button
@@ -308,13 +315,33 @@ function OptionChart({
           )}
         </div>
         {presentCohorts.length > 0 && (
-          <div className="flex items-center gap-2" title="Trade-marker colour by strategy cohort">
-            {presentCohorts.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 text-[0.5625rem] text-muted-foreground">
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: resolveCohortHex(c) }} />
-                {cohortLabel(c)}
-              </span>
-            ))}
+          <div className="flex items-center gap-1" title="Click a cohort to hide/show its trades">
+            {presentCohorts.map((c) => {
+              const off = hiddenCohorts.has(c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setHiddenCohorts((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(c)) next.delete(c); else next.add(c);
+                    return next;
+                  })}
+                  className={`inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.5625rem] border transition-colors cursor-pointer ${
+                    off
+                      ? "border-transparent text-muted-foreground/40 line-through"
+                      : "border-border/60 text-muted-foreground hover:text-foreground"
+                  }`}
+                  title={off ? `Show ${cohortLabel(c)} trades` : `Hide ${cohortLabel(c)} trades`}
+                >
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ background: resolveCohortHex(c), opacity: off ? 0.3 : 1 }}
+                  />
+                  {cohortLabel(c)}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
