@@ -59,11 +59,11 @@ interface LadderCfg {
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
 interface ModeCfg {
-  cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean };
+  cohorts: { scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; swing: boolean };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean };
   /** T144 — per-cohort strategy race: each cohort's enabled strategies (one
    *  trade placed per enabled strategy on that cohort's signal). */
-  cohortStrategies: Record<"scalp" | "trend" | "ma" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean }>;
+  cohortStrategies: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean }>;
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
@@ -77,7 +77,7 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   masterExits: {
     tp: { enabled: boolean; mode: ExitLevelMode; value: number };
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };
@@ -280,10 +280,11 @@ function SubGroup({ children }: { children: React.ReactNode }) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const COHORTS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
+const COHORTS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: string }[] = [
   { key: "scalp", label: "Scalp" },
   { key: "trend", label: "Trend" },
   { key: "ma", label: "MA" },
+  { key: "sma5", label: "SMA5" },
   { key: "swing", label: "Swing" },
 ];
 /**
@@ -687,7 +688,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                           <span className="text-[0.625rem] text-muted-foreground w-12 shrink-0">{c.label}</span>
                           <div className="flex gap-1 flex-wrap justify-end">
                             {(["sprint", "runway", "anchor", "glide", "ladder"] as const).map((s) => {
-                              if (s === "glide" && c.key !== "ma") return null; // Glide is MA-only
+                              if (s === "glide" && c.key !== "ma" && c.key !== "sma5") return null; // Glide is MA-Signal / SMA-5 only
                               const isDefault = dflt === s;
                               return (
                                 <Pill

@@ -116,6 +116,7 @@ export const COHORT_COLORS: Record<string, string> = {
   swing: '#FBBF24',           // bright amber — 1-2 hr
   multi_day_swing: '#C084FC', // bright violet — overnight+
   ma_signal: '#F472B6',       // bright pink — 20-EMA slope legs (signal-only)
+  sma5_signal: '#FB923C',     // bright orange — SMA-5 price-cross legs
 };
 
 const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
@@ -130,6 +131,7 @@ export function resolveCohortHex(cohort: string | null | undefined): string {
 export function cohortLabel(cohort: string): string {
   if (cohort === 'multi_day_swing') return 'multiday';
   if (cohort === 'ma_signal') return 'MA-Signal';
+  if (cohort === 'sma5_signal') return 'SMA5';
   return cohort;
 }
 

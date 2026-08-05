@@ -23,7 +23,7 @@ try:
 except Exception:  # pragma: no cover — lib is expected to be present
     websockets = None  # type: ignore
 
-_COHORTS = ("scalp", "trend", "ma")
+_COHORTS = ("scalp", "trend", "ma", "sma5")
 
 
 def control_url() -> str:

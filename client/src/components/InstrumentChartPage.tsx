@@ -257,7 +257,7 @@ export default function InstrumentChartPage() {
   // SEA signals still power the MA-line colouring + the trade-reason panel, but
   // are no longer drawn as chart markers (trades only).
   const [showTrades, setShowTrades] = useState(true);
-  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => new Set<IndicatorKey>(["ma"]));
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => new Set<IndicatorKey>(["ma", "sma5"]));
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);

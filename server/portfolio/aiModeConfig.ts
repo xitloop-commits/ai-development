@@ -44,6 +44,7 @@ export interface CohortsConfig {
   scalp: boolean;
   trend: boolean;
   ma: boolean;
+  sma5: boolean; // SMA-5 price-cross cohort (2026-08-05) — rides, exits on the cross
   swing: boolean; // shown in the UI but has no gate — always false for now
   // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
   // (one SEA process), so two books cannot hold different values. It lived here
@@ -161,7 +162,7 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
-export type CohortKey = "scalp" | "trend" | "ma" | "swing";
+export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "swing";
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
@@ -237,7 +238,7 @@ export interface CommonConfig {
    * EXIT and would never close on any other cohort (resolveExitStrategy guards
    * this and falls back to Sprint).
    */
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StrategyName>;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StrategyName>;
 }
 
 /** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
@@ -301,7 +302,7 @@ function baseCommon(): CommonConfig {
     lubasManagedExit: true,
     // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
     // want to run, MA rides to its own EXIT, swing banks at target.
-    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor" },
+    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", sma5: "glide", swing: "anchor" },
     // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
     masterExits: {
       tp: { enabled: false, mode: "percent", value: 10 },
@@ -313,7 +314,7 @@ function baseCommon(): CommonConfig {
 
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, swing: false },
+    cohorts: { scalp: true, trend: false, ma: true, sma5: true, swing: false },
     // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
     // so it must be chosen deliberately, never inherited from a default.
     strategies: { sprint: true, runway: true, anchor: true, glide: false, ladder: false },
@@ -325,6 +326,7 @@ function baseMode(): AiModeConfig {
       scalp: { sprint: true, runway: false, anchor: false, glide: false, ladder: false },
       trend: { sprint: false, runway: true, anchor: false, glide: false, ladder: false },
       ma: { sprint: false, runway: false, anchor: false, glide: true, ladder: false },
+      sma5: { sprint: false, runway: false, anchor: false, glide: true, ladder: false },
       swing: { sprint: false, runway: false, anchor: true, glide: false, ladder: false },
     },
     sizing: {
@@ -349,7 +351,7 @@ function baseMode(): AiModeConfig {
  * accident. */
 function baseManual(): AiModeConfig {
   const m = baseMode();
-  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, swing: false };
+  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, swing: false };
   m.strategies = { sprint: false, runway: false, anchor: false, glide: true, ladder: false };
   return m;
 }
@@ -531,9 +533,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.lubasManagedExit = !!c.lubasManagedExit;
   // T139 — every cohort must map to a real strategy. Back-fill from defaults for
   // an old config that predates the map, and coerce any bad value.
-  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", swing: "anchor" } as const;
+  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", sma5: "glide", swing: "anchor" } as const;
   if (!c.cohortStrategy) (c as CommonConfig).cohortStrategy = { ...dflt };
-  for (const k of ["scalp", "trend", "ma", "swing"] as const) {
+  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) {
     const v = c.cohortStrategy[k];
     c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide", "ladder"] as const).includes(v) ? v : dflt[k];
   }
@@ -559,17 +561,17 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
+  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) c.strategies[s] = !!c.strategies[s];
   // T144 — per-cohort strategy toggles. Back-fill for an old config, coerce
   // booleans, drop Glide off every cohort but `ma`, and FORCE each cohort's
   // Common default ON so a cohort can never be muted (the T139 lesson).
   const dfltMap = getCommonConfig().cohortStrategy;
   if (!c.cohortStrategies) (c as AiModeConfig).cohortStrategies = {} as AiModeConfig["cohortStrategies"];
-  for (const k of ["scalp", "trend", "ma", "swing"] as const) {
+  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) {
     const row = c.cohortStrategies[k] ?? (c.cohortStrategies[k] = {} as Record<StrategyName, boolean>);
     for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) row[s] = !!row[s];
-    if (k !== "ma") row.glide = false; // Glide is MA-only
+    if (k !== "ma" && k !== "sma5") row.glide = false; // Glide is MA-Signal / SMA-5 only (both ride + exit on the cross)
     const dflt = dfltMap?.[k];
     if (dflt && (dflt !== "glide" || k === "ma")) row[dflt] = true; // default locked on
   }

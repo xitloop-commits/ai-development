@@ -262,7 +262,24 @@ export function TickChart({
       }
     };
     if (indicators.has("ma") || indicators.has("reversals")) addMaSlopeLine(closes);
-    if (indicators.has("sma5")) addOverlay(sma(closes, 5), SMA5_COLOR);
+    // SMA-5 line coloured by the price↔line relationship (matches the sma5 cohort:
+    // green when the close is ABOVE the line = long/CE state, red when BELOW = PE).
+    if (indicators.has("sma5")) {
+      const sv = sma(closes, 5);
+      const s = chart.addSeries(LineSeries, {
+        color: UP, lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      const data: { time: UTCTimestamp; value: number; color: string }[] = [];
+      for (let i = 0; i < candles.length; i++) {
+        const v = sv[i];
+        if (v == null) continue;
+        const c = closes[i];
+        const color = c > v ? UP : c < v ? DOWN : (data.length ? data[data.length - 1].color : UP);
+        data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
+      }
+      s.setData(data);
+    }
     if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5_COLOR);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(sma(closes, 21), SMA21_COLOR); }
     if (indicators.has("ema")) { addOverlay(ema(closes, 9), EMA9_COLOR); addOverlay(ema(closes, 21), EMA21_COLOR); }

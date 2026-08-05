@@ -1123,6 +1123,47 @@ def load_thresholds_ma_signal(
     return MASignalThresholds(**ms_raw) if ms_raw else MASignalThresholds()
 
 
+@dataclass(frozen=True)
+class Sma5SignalThresholds:
+    """SMA-5 price-cross gate configuration (cohort="sma5_signal", 2026-08-05).
+
+    Segments the underlying by a simple moving average of its close (the chart's
+    SMA-5 line): CALL when the close crosses ABOVE the line, PUT when it crosses
+    BELOW. Symmetric CE/PE. See ``signal_engine_agent.sma5_signal``.
+
+    Tunable in `config/sea_thresholds/<inst>.json` via:
+      "sma5_signal": {
+        "enabled": true,
+        "period": 5, "buffer_pct": 0.0, "sl_pct": 12
+      }
+    """
+    # Master switch. Default OFF so the cohort is inert unless the JSON opts in.
+    enabled: bool = False
+    # SMA window in 1-minute candles.
+    period: int = 5
+    # Deadband (% of the line) the close must clear to flip — 0 = exact cross.
+    # A small value damps whipsaw when price hugs the line.
+    buffer_pct: float = 0.0
+    # % stop-loss stamped on the ENTRY when the cohort auto-trades.
+    sl_pct: float = 12.0
+
+
+def load_thresholds_sma5_signal(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> Sma5SignalThresholds:
+    """Load the per-instrument SMA-5 config. Returns defaults (enabled=False)
+    when no ``sma5_signal`` block is present in the JSON."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    if not path.exists():
+        return Sma5SignalThresholds()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    s_raw = raw.get("sma5_signal")
+    return Sma5SignalThresholds(**s_raw) if s_raw else Sma5SignalThresholds()
+
+
 def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),

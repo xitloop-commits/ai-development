@@ -62,10 +62,12 @@ from signal_engine_agent.thresholds import (
     load_thresholds_full,
     load_thresholds_legstart,
     load_thresholds_ma_signal,
+    load_thresholds_sma5_signal,
     load_thresholds_trend,
 )
 from signal_engine_agent.leg_start import LegStartDetector
 from signal_engine_agent.ma_signal import MASignalDetector
+from signal_engine_agent.sma5_signal import Sma5SignalDetector
 from signal_engine_agent.control_client import start_control_listener
 
 
@@ -662,6 +664,11 @@ def run(
     # startup flag meant a SEA that booted with MA off could never be switched
     # back on — the toggle updated the flag but the detector was None forever.
     ma_signal_detector = MASignalDetector(ma_signal_thresholds)
+    # SMA-5 price-cross gate (cohort="sma5_signal", 2026-08-05). Independent of
+    # the scalp/trend/ma gates — pure SMA-5-vs-close cross on the underlying.
+    # ALWAYS constructed (live-toggleable), like MA-Signal above.
+    sma5_signal_thresholds = load_thresholds_sma5_signal(instrument, config_dir)
+    sma5_signal_detector = Sma5SignalDetector(sma5_signal_thresholds)
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -814,11 +821,14 @@ def run(
         "trend": trend_thresholds.enabled,
         "ma": ma_signal_thresholds.enabled,
         "rev_pct": ma_signal_thresholds.rev_pct,  # MA reversal size, live-tunable
+        "sma5": sma5_signal_thresholds.enabled,
     }
     start_control_listener(_live_cohorts, instrument)
     # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
     # EXIT signal can close the exact trade — they ride with no auto-exit.
     _ma_open: dict[str, str] = {}
+    # SMA-5 open positions — same role as _ma_open for the sma5_signal cohort.
+    _sma5_open: dict[str, str] = {}
 
     # ── Dashboard setup (2026-07-01, replaces scrolling print heartbeat) ──
     # Rich-based alt-screen showing model + gate config, feed liveness,
@@ -1326,6 +1336,71 @@ def run(
                 except Exception as exc:
                     # Never let the MA-Signal cohort crash the inference loop.
                     print(f"  MA-Signal error: {exc}", file=sys.stderr)
+
+            # ── SMA-5 price-cross cohort (cohort="sma5_signal", 2026-08-05) ──
+            # Independent of every gate above. Pure SMA-5-vs-close cross on the
+            # underlying: LONG_CE when the close crosses ABOVE the line, LONG_PE
+            # when it crosses BELOW; EXIT_* on the opposite cross closes the ride
+            # (same close-by-position mechanism as MA-Signal). Symmetric CE/PE.
+            if sma5_signal_detector is not None:
+                try:
+                    _s5_ts = _finite(row.get("timestamp"))
+                    _s5_spot = _finite(row.get("spot_price"))
+                    sma5_events = (
+                        sma5_signal_detector.on_tick(_s5_ts, _s5_spot)
+                        if _s5_ts is not None and _s5_spot is not None else []
+                    )
+                    # Keep the detector FED even when toggled off (SMA stays
+                    # current); just suppress the emit while off.
+                    if not _live_cohorts["sma5"]:
+                        sma5_events = []
+                    for _ev in sma5_events:
+                        _s5_call = "CE" in _ev
+                        _s5_exit = _ev.startswith("EXIT")
+                        _s5_ltp = _finite(ce_ltp if _s5_call else pe_ltp)
+                        _s5_side = "CE" if _s5_call else "PE"
+                        sma5_signal_out = {
+                            "timestamp": row.get("timestamp"),
+                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "correlationId": uuid.uuid4().hex,
+                            "instrument": instrument.upper(),
+                            "action": _ev,
+                            "cohort": "sma5_signal",
+                            "reason": (
+                                f"SMA5 · {'exit' if _s5_exit else 'enter'} "
+                                f"{'CE (close above line)' if _s5_call else 'PE (close below line)'}"
+                            ),
+                            "regime": regime,
+                            "entry": round(_s5_ltp, 2) if _s5_ltp else None,
+                            "tp": None,
+                            "sl": None,
+                            "rr": 0.0,
+                            "atm_strike": row.get("atm_strike"),
+                            "atm_ce_ltp": ce_ltp,
+                            "atm_pe_ltp": pe_ltp,
+                            "atm_ce_security_id": row.get("atm_ce_security_id"),
+                            "atm_pe_security_id": row.get("atm_pe_security_id"),
+                            "spot_price": row.get("spot_price"),
+                            "model_version": models.version,
+                            "gate_mode": "sma5_signal",
+                            "direction": "GO_CALL" if _s5_call else "GO_PUT",
+                        }
+                        raw_logger.log(sma5_signal_out)
+                        _send_signal_to_tray(sma5_signal_out)  # Mongo + WS (chart)
+                        if _s5_exit:
+                            try:
+                                from signal_engine_agent.risk_control_client import close_glide_position
+                                close_glide_position(sma5_signal_out["instrument"], _s5_side)
+                            except Exception as exc:
+                                print(f"  SMA5 close error: {exc}", file=sys.stderr)
+                            _sma5_open.pop(_s5_side, None)
+                        else:
+                            _tid = _maybe_submit_ai_trade(sma5_signal_out)
+                            if _tid:
+                                _sma5_open[_s5_side] = _tid
+                except Exception as exc:
+                    # Never let the SMA-5 cohort crash the inference loop.
+                    print(f"  SMA5 error: {exc}", file=sys.stderr)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

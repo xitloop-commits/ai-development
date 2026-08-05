@@ -25,11 +25,12 @@ import { tickBus } from "./broker/tickBus";
 import { getAiConfig, getCommonConfig } from "./portfolio/aiModeConfig";
 import { listModelVersions } from "./modelVersions";
 
-export type Cohort = "scalp" | "trend" | "ma";
+export type Cohort = "scalp" | "trend" | "ma" | "sma5";
 export interface CohortState {
   scalp: boolean;
   trend: boolean;
   ma: boolean;
+  sma5: boolean;
   /** MA-Signal reversal size (%). >0 = reversal mode (flip on a peak/trough
    *  pullback of this %); 0 = legacy 20-EMA slope mode. Live-tunable. */
   revPct: number;
@@ -49,13 +50,14 @@ const CONFIG_BLOCK: Record<Cohort, string> = {
   scalp: "legstart",
   trend: "trend",
   ma: "ma_signal",
+  sma5: "sma5_signal",
 };
 const INSTRUMENTS = ["banknifty", "nifty50"];
 const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, revPct: 0.18, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, models: {} };
 let wss: WebSocketServer | null = null;
 
 function readFlag(cohort: Cohort): boolean | null {
@@ -236,11 +238,12 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
     ...(liveOn ? (["live"] as const) : []),
   ];
   const cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
-  const anyWants = (k: "scalp" | "trend" | "ma") => cohortsOf.some((c) => c[k]);
+  const anyWants = (k: "scalp" | "trend" | "ma" | "sma5") => cohortsOf.some((c) => c[k]);
 
   setCohort("scalp", anyWants("scalp"));
   setCohort("trend", anyWants("trend"));
   setCohort("ma", anyWants("ma"));
+  setCohort("sma5", anyWants("sma5"));
 
   // revPct is a single detector parameter and now lives in the common block —
   // no per-book ambiguity to resolve (T129).
