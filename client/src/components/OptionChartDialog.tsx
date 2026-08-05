@@ -101,7 +101,8 @@ function OptionChart({
   const refetchInterval = isToday ? REFRESH_MS : (false as const);
 
   const [intervalSec, setIntervalSec] = useState(60);
-  const [style, setStyle] = useState<ChartStyle>("candle");
+  // Heikin-Ashi by default — matches the SMA5 detector's HA candles (Partha, 2026-08-05).
+  const [style, setStyle] = useState<ChartStyle>("ha");
   // SMA-5 (green above / red below price) on by default (Partha, 2026-08-05).
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
     () => new Set<IndicatorKey>(["sma5"]),
