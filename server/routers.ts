@@ -220,6 +220,7 @@ export const appRouter = router({
             status: t.status,
             exitReason: t.exitReason,
             pnl: t.pnl,
+            cohort: t.cohort ?? null,
             // Current SL/TP (they trail) — drawn as price lines on the chart.
             stopLossPrice: t.stopLossPrice ?? null,
             targetPrice: t.targetPrice ?? null,

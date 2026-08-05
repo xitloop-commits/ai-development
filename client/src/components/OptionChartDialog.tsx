@@ -1,43 +1,41 @@
 /**
- * OptionChartDialog — a small (~1/4-screen) POPUP chart of one option contract,
- * with that day's trades overlaid (entry ↑ / exit ↓ markers + entry/SL/TP price
- * lines) and a live 5-second refresh. Opened from the trade-row chart icon.
+ * OptionChartDialog — a draggable (~1/4-screen) POPUP chart of one option
+ * contract, with that day's trades overlaid (cohort-coloured entry/exit markers
+ * + entry/SL/TP price lines) and a live refresh. Opened from the trade-row
+ * direction pill.
  *
- * Uses lightweight-charts with an INCREMENTAL update (create the chart once,
- * then setData / setMarkers / re-draw price lines on each refresh) so the 5s
- * refresh doesn't flicker or reset zoom.
+ * Rebuilt on the shared TickChart renderer (same as the instrument chart page)
+ * so the popup has the SAME controls: interval buttons (1s–5m today via the
+ * live tick stream; 1m–5m on past dates from broker minute candles),
+ * Candle/HA/Line style, the Indicators menu (SMA-5 green/red on by default),
+ * and a cohort legend for the marker colours.
  */
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import {
-  createChart,
-  CandlestickSeries,
-  createSeriesMarkers,
-  ColorType,
-  CrosshairMode,
-  LineStyle,
-  type IChartApi,
-  type ISeriesApi,
-  type IPriceLine,
-  type UTCTimestamp,
-  type SeriesMarker,
-} from "lightweight-charts";
+import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
-import { useTheme } from "@/contexts/ThemeContext";
-import { chartColors } from "@/lib/chartColors";
 import {
   toCandles,
-  optionInstrumentType,
   IST_OFFSET_SECONDS,
   tradingViewOptionUrl,
   istDateString,
+  optionInstrumentType,
   type RawCandles,
   type Candle,
   type ChartTrade,
 } from "@/lib/signalChart";
+import {
+  CHART_INTERVALS,
+  INDICATOR_OPTIONS,
+  CHART_UP,
+  CHART_DOWN,
+  CHART_ENTRY,
+  type ChartStyle,
+  type IndicatorKey,
+} from "@/lib/instrumentChart";
+import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
+import { TickChart } from "./TickChart";
+import { useLiveCandles } from "@/hooks/useLiveCandles";
 
-const UP = "#22c55e";
-const DOWN = "#ef4444";
-const ENTRY = "#22d3ee";
 const REFRESH_MS = 5000;
 
 export interface OptionChartTargetLite {
@@ -65,6 +63,29 @@ function snapToCandle(times: number[], tShifted: number): number {
   return nearest;
 }
 
+/** Merge 1-minute broker candles into `intervalSec` buckets (past dates only —
+ *  the broker keeps minute granularity, so sub-minute intervals need ticks). */
+function aggregateCandles(oneMin: Candle[], intervalSec: number): Candle[] {
+  if (intervalSec <= 60) return oneMin;
+  const out: Candle[] = [];
+  let cur: Candle | null = null;
+  let curStart = -1;
+  for (const c of oneMin) {
+    const bucketStart = Math.floor((c.time as number) / intervalSec) * intervalSec;
+    if (bucketStart !== curStart) {
+      if (cur) out.push(cur);
+      curStart = bucketStart;
+      cur = { time: bucketStart, open: c.open, high: c.high, low: c.low, close: c.close };
+    } else if (cur) {
+      if (c.high > cur.high) cur.high = c.high;
+      if (c.low < cur.low) cur.low = c.low;
+      cur.close = c.close;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 function OptionChart({
   target,
   onHeaderMouseDown,
@@ -74,17 +95,30 @@ function OptionChart({
   onHeaderMouseDown?: (e: ReactMouseEvent) => void;
   onClose?: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- v5 markers plugin generic
-  const markersRef = useRef<any>(null);
-  const priceLinesRef = useRef<IPriceLine[]>([]);
-  const didFitRef = useRef(false);
-  const { theme } = useTheme();
-
   const isToday = target.date === istDateString();
   const refetchInterval = isToday ? REFRESH_MS : (false as const);
+
+  const [intervalSec, setIntervalSec] = useState(60);
+  const [style, setStyle] = useState<ChartStyle>("candle");
+  // SMA-5 (green above / red below price) on by default (Partha, 2026-08-05).
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
+    () => new Set<IndicatorKey>(["sma5"]),
+  );
+  const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+
+  // ── Candles — today: recorded ticks (seed) + live WS, any interval.
+  //    Past dates: broker minute candles, aggregated to 1m–5m.
+  const histQuery = trpc.trading.optionTicksForContract.useQuery(
+    { instrument: target.instrumentKey, date: target.date, securityId: target.securityId },
+    { enabled: isToday && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+  );
+  const live = useLiveCandles(
+    isToday ? target.securityId : null,
+    target.exchangeSegment,
+    intervalSec,
+    isToday,
+    histQuery.data as { t: number[]; ltp: number[] } | undefined,
+  );
 
   const candleQuery = trpc.broker.intradayData.useQuery(
     {
@@ -95,9 +129,17 @@ function OptionChart({
       fromDate: `${target.date} 00:00:00`,
       toDate: `${target.date} 23:59:59`,
     },
-    { enabled: !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
+    { enabled: !isToday && !!target.securityId, retry: 1, refetchOnWindowFocus: false },
   );
+  const pastCandles = useMemo<Candle[]>(() => {
+    const raw = candleQuery.data as RawCandles | undefined;
+    if (!raw || !Array.isArray(raw.timestamp) || raw.timestamp.length === 0) return [];
+    return aggregateCandles(toCandles(raw), intervalSec);
+  }, [candleQuery.data, intervalSec]);
 
+  const candles = isToday ? live.candles : pastCandles;
+
+  // ── Trades on this strike ──────────────────────────────────────────
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
     {
       channel: target.channel as "paper" | "live",
@@ -108,152 +150,74 @@ function OptionChart({
     },
     { enabled: !!target.channel, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
+  const trades = useMemo(() => (tradeQuery.data as ChartTrade[] | undefined) ?? [], [tradeQuery.data]);
 
-  const candles = useMemo<Candle[]>(() => {
-    const raw = candleQuery.data as RawCandles | undefined;
-    if (!raw || !Array.isArray(raw.timestamp) || raw.timestamp.length === 0) return [];
-    return toCandles(raw);
-  }, [candleQuery.data]);
-
+  // Markers follow the instrument-chart convention: cohort colour; entry =
+  // direction arrow on the "home" side, exit = ● on the opposite side.
   const markers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
-    const trades = (tradeQuery.data as ChartTrade[] | undefined) ?? [];
     if (candles.length === 0 || trades.length === 0) return [];
-    const times = candles.map((c) => c.time);
+    const times = candles.map((c) => c.time as number);
+    const isCall = target.side === "CE";
     const out: SeriesMarker<UTCTimestamp>[] = [];
     for (const t of trades) {
+      const color = resolveCohortHex(t.cohort ?? null);
       const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
       out.push({
         time: snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS) as UTCTimestamp,
-        position: "belowBar",
-        color: ENTRY,
-        shape: "arrowUp",
+        position: isCall ? "belowBar" : "aboveBar",
+        color,
+        shape: isCall ? "arrowUp" : "arrowDown",
         text: label ? `${label} in` : "in",
       });
       if (t.exitTime != null) {
         out.push({
           time: snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS) as UTCTimestamp,
-          position: "aboveBar",
-          color: t.pnl >= 0 ? UP : DOWN,
-          shape: "arrowDown",
+          position: isCall ? "aboveBar" : "belowBar",
+          color,
+          shape: "circle",
           text: label ? `${label} out` : "out",
         });
       }
     }
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
-  }, [tradeQuery.data, candles]);
+  }, [trades, candles, target.side]);
 
   const tradeLines = useMemo(() => {
-    const trades = (tradeQuery.data as ChartTrade[] | undefined) ?? [];
     const out: { price: number; color: string; title: string }[] = [];
     for (const t of trades) {
       if (t.status !== "OPEN") continue;
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
-      if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: ENTRY, title: `${tag}entry` });
-      if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: DOWN, title: `${tag}SL` });
-      if (t.targetPrice) out.push({ price: t.targetPrice, color: UP, title: `${tag}TP` });
+      if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: CHART_ENTRY, title: `${tag}entry` });
+      if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: CHART_DOWN, title: `${tag}SL` });
+      if (t.targetPrice) out.push({ price: t.targetPrice, color: CHART_UP, title: `${tag}TP` });
     }
     return out;
-  }, [tradeQuery.data]);
+  }, [trades]);
 
-  // Create the chart + series ONCE.
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const cc = chartColors(theme);
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: cc.text,
-        fontSize: 10,
-        attributionLogo: false,
-      },
-      grid: {
-        vertLines: { color: cc.grid },
-        horzLines: { color: cc.grid },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: cc.border },
-      timeScale: { borderColor: cc.border, timeVisible: true, secondsVisible: false },
-      autoSize: true,
-    });
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: cc.up,
-      downColor: cc.down,
-      borderUpColor: cc.up,
-      borderDownColor: cc.down,
-      wickUpColor: cc.up,
-      wickDownColor: cc.down,
-    });
-    chartRef.current = chart;
-    seriesRef.current = series;
-    markersRef.current = createSeriesMarkers(series, []);
-    didFitRef.current = false;
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-      markersRef.current = null;
-      priceLinesRef.current = [];
-    };
-  }, []);
+  const presentCohorts = useMemo<string[]>(
+    () => Array.from(new Set(trades.map((t) => t.cohort).filter((c): c is string => !!c))).sort(),
+    [trades],
+  );
 
-  // Re-theme in place when the operator toggles light/dark (no rebuild → keeps
-  // zoom + data). Chart axes/grid + candle colors both switch.
-  useEffect(() => {
-    const cc = chartColors(theme);
-    chartRef.current?.applyOptions({
-      layout: { textColor: cc.text },
-      grid: { vertLines: { color: cc.grid }, horzLines: { color: cc.grid } },
-      rightPriceScale: { borderColor: cc.border },
-      timeScale: { borderColor: cc.border },
-    });
-    seriesRef.current?.applyOptions({
-      upColor: cc.up, downColor: cc.down,
-      borderUpColor: cc.up, borderDownColor: cc.down,
-      wickUpColor: cc.up, wickDownColor: cc.down,
-    });
-  }, [theme]);
-
-  // Push data on each change (incremental — no rebuild, preserves zoom).
-  useEffect(() => {
-    const series = seriesRef.current;
-    if (!series || candles.length === 0) return;
-    series.setData(
-      candles.map((c) => ({
-        time: c.time as UTCTimestamp,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      })),
-    );
-    markersRef.current?.setMarkers(markers);
-    for (const pl of priceLinesRef.current) series.removePriceLine(pl);
-    priceLinesRef.current = tradeLines.map((l) =>
-      series.createPriceLine({
-        price: l.price,
-        color: l.color,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: l.title,
-      }),
-    );
-    if (!didFitRef.current) {
-      chartRef.current?.timeScale().fitContent();
-      didFitRef.current = true;
-    }
-  }, [candles, markers, tradeLines]);
-
-  const trades = (tradeQuery.data as ChartTrade[] | undefined) ?? [];
   const tvUrl = tradingViewOptionUrl({
     instrument: target.instrumentKey,
     strike: target.strike,
     optionType: target.side,
     expiry: target.expiry,
   });
-  const loading = candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
-  const noCandles = !loading && candles.length === 0;
+  const loading = isToday
+    ? histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
+    : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
+
+  const btn = (active: boolean, disabled = false) =>
+    `px-1 py-0.5 rounded text-[0.5625rem] font-semibold border transition-colors ${
+      disabled
+        ? "border-transparent text-muted-foreground/40 cursor-not-allowed"
+        : active
+          ? "bg-secondary border-border text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground"
+    }`;
 
   return (
     <div className="flex flex-col h-full w-full min-h-0">
@@ -262,7 +226,7 @@ function OptionChart({
         onMouseDown={onHeaderMouseDown}
       >
         <span className="font-bold tracking-wide">{target.displayName}</span>
-        <span className="text-[0.5625rem] text-muted-foreground">1m · {target.channel}</span>
+        <span className="text-[0.5625rem] text-muted-foreground">{target.channel}</span>
         {tvUrl && (
           <a
             href={tvUrl}
@@ -276,7 +240,7 @@ function OptionChart({
           </a>
         )}
         <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums">
-          {trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live 5s" : ""}
+          {trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
         </span>
         {onClose && (
           <button
@@ -291,24 +255,83 @@ function OptionChart({
           </button>
         )}
       </div>
-      <div className="relative flex-1 min-h-0 w-full">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-[0.6875rem] text-muted-foreground">
-            Loading…
+      {/* Controls — same set as the instrument chart page, compact. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pb-1 text-xs">
+        <div className="flex items-center gap-0">
+          {CHART_INTERVALS.map((iv) => {
+            // Sub-minute needs the tick stream — only available for today.
+            const disabled = !isToday && iv.seconds < 60;
+            return (
+              <button
+                key={iv.seconds}
+                className={btn(intervalSec === iv.seconds, disabled)}
+                disabled={disabled}
+                title={disabled ? "Sub-minute needs live ticks (today only)" : undefined}
+                onClick={() => setIntervalSec(iv.seconds)}
+              >
+                {iv.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-0">
+          <button className={btn(style === "candle")} onClick={() => setStyle("candle")}>Candle</button>
+          <button className={btn(style === "ha")} onClick={() => setStyle("ha")}>HA</button>
+          <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
+        </div>
+        <div className="relative">
+          <button className={btn(indicators.size > 0)} onClick={() => setIndicatorMenuOpen((v) => !v)}>
+            Indicators{indicators.size ? ` (${indicators.size})` : ""} ▾
+          </button>
+          {indicatorMenuOpen && (
+            <div className="absolute z-20 mt-1 w-40 rounded border border-border bg-background/95 p-1 shadow-xl backdrop-blur">
+              {INDICATOR_OPTIONS.map((opt) => (
+                <label key={opt.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[0.6875rem] hover:bg-secondary/60">
+                  <input
+                    type="checkbox"
+                    checked={indicators.has(opt.key)}
+                    onChange={() => setIndicators((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(opt.key)) next.delete(opt.key); else next.add(opt.key);
+                      return next;
+                    })}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        {presentCohorts.length > 0 && (
+          <div className="flex items-center gap-2" title="Trade-marker colour by strategy cohort">
+            {presentCohorts.map((c) => (
+              <span key={c} className="inline-flex items-center gap-1 text-[0.5625rem] text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: resolveCohortHex(c) }} />
+                {cohortLabel(c)}
+              </span>
+            ))}
           </div>
         )}
-        {noCandles && (
-          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-[0.6875rem] text-muted-foreground">
-            No candle data for this strike (Dhan keeps minute candles only for the last few sessions).
-          </div>
-        )}
-        <div ref={containerRef} className="h-full w-full" />
       </div>
+      <TickChart
+        candles={candles}
+        markers={markers}
+        tradeLines={tradeLines}
+        style={style}
+        indicators={indicators}
+        intervalSec={intervalSec}
+        loading={loading}
+        emptyText={
+          isToday
+            ? "Waiting for ticks on this contract…"
+            : "No candle data for this strike (the broker keeps minute candles only for the last few sessions)."
+        }
+        className="flex-1 min-h-0"
+      />
       <div className="flex items-center gap-3 pt-1 text-[0.5rem] text-muted-foreground">
-        <span style={{ color: ENTRY }}>▲ entry</span>
-        <span style={{ color: UP }}>▼ exit +</span>
-        <span style={{ color: DOWN }}>▼ exit −</span>
+        <span>▲/▼ entry · ● exit (cohort colour)</span>
         <span>· dashed = entry/SL/TP</span>
+        <span>· SMA-5: green above / red below price</span>
       </div>
     </div>
   );

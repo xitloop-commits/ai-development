@@ -228,6 +228,7 @@ export interface ChartTrade {
   status: string;           // OPEN / CLOSED / …
   exitReason?: string;
   pnl: number;
+  cohort?: string | null;        // strategy cohort — colours the trade markers
   stopLossPrice?: number | null; // current stop (trails) — drawn as a price line
   targetPrice?: number | null;   // current target — drawn as a price line
 }
