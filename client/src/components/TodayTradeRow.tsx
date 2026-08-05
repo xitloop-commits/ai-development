@@ -198,6 +198,7 @@ function _TodayTradeRow({
           channel,
           date: istDateString(new Date(trade.openedAt)),
           expiry: trade.expiry,
+          tradeId: trade.id,
         }
       : null;
 

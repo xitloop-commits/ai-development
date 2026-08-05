@@ -216,6 +216,7 @@ export const appRouter = router({
             return side === input.side;
           })
           .map((t) => ({
+            id: t.id ?? null,
             signalSeq: t.signalSeq ?? null,
             tradeNo: dayOrder.get(t) ?? null,
             side: input.side,

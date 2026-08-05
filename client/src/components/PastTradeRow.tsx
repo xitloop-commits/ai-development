@@ -85,6 +85,7 @@ function _PastTradeRow({ trade, showNet, channel, tradeNo }: PastTradeRowProps) 
           channel,
           date: istDateString(new Date(trade.openedAt)),
           expiry: trade.expiry,
+          tradeId: trade.id,
         }
       : null;
   const pnlBright = pnl > 0 ? 'text-bullish' : pnl < 0 ? 'text-destructive' : 'text-foreground';

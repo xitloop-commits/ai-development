@@ -219,6 +219,7 @@ export function tradingViewOptionUrl(opts: {
 /** A trade to plot on the option-strike chart (entry + exit markers, and
  *  entry/SL/TP price lines for open trades). */
 export interface ChartTrade {
+  id?: string | null;            // trade id — lets the popup focus one trade
   signalSeq: number | null;
   tradeNo?: number | null;       // day-chronological "#N" — matches the desk row
   side: "CE" | "PE";

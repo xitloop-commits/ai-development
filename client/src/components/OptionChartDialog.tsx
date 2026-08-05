@@ -48,6 +48,8 @@ export interface OptionChartTargetLite {
   channel: string;
   date: string; // YYYY-MM-DD (IST)
   expiry?: string | null;
+  /** The clicked row's trade id — the popup focuses this trade by default. */
+  tradeId?: string | null;
 }
 
 function snapToCandle(times: number[], tShifted: number): number {
@@ -110,6 +112,9 @@ function OptionChart({
   // Exit-strategy filter — one signal races several twins (sprint/runway/…);
   // these switches show only the twin(s) you care about.
   const [hiddenStrategies, setHiddenStrategies] = useState<Set<string>>(() => new Set());
+  // Focus mode (Partha, 2026-08-05): the popup opens on ONE trade row, so by
+  // default only that trade's in/out is drawn. "All" reveals the whole strike.
+  const [showAll, setShowAll] = useState(false);
 
   // ── Candles ────────────────────────────────────────────────────────
   // Minute intervals (1m–5m): broker minute candles — they cover the WHOLE
@@ -198,15 +203,22 @@ function OptionChart({
     { enabled: !!target.channel, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
   const trades = useMemo(() => (tradeQuery.data as ChartTrade[] | undefined) ?? [], [tradeQuery.data]);
-  // Trades surviving the cohort + strategy filters (untagged trades always show).
-  const visibleTrades = useMemo(
-    () => trades.filter(
+  // Focused trade — the row the popup was opened from (when its id is known).
+  const focusedTrade = useMemo(
+    () => (target.tradeId ? trades.find((t) => t.id === target.tradeId) ?? null : null),
+    [trades, target.tradeId],
+  );
+  const focusMode = !showAll && focusedTrade != null;
+  // Trades surviving the filters. Focus mode shows ONLY the clicked trade;
+  // "All" applies the cohort + strategy switches (untagged trades always show).
+  const visibleTrades = useMemo(() => {
+    if (focusMode && focusedTrade) return [focusedTrade];
+    return trades.filter(
       (t) =>
         (!t.cohort || !hiddenCohorts.has(t.cohort)) &&
         (!t.exitStrategy || !hiddenStrategies.has(t.exitStrategy)),
-    ),
-    [trades, hiddenCohorts, hiddenStrategies],
-  );
+    );
+  }, [trades, hiddenCohorts, hiddenStrategies, focusMode, focusedTrade]);
 
   // Markers follow the instrument-chart convention: cohort colour; entry =
   // direction arrow on the "home" side, exit = ● on the opposite side.
@@ -323,7 +335,7 @@ function OptionChart({
           </a>
         )}
         <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums">
-          {hiddenCohorts.size > 0 || hiddenStrategies.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
+          {focusMode || hiddenCohorts.size > 0 || hiddenStrategies.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
         </span>
         {onClose && (
           <button
@@ -385,7 +397,15 @@ function OptionChart({
             </div>
           )}
         </div>
-        {presentCohorts.length > 0 && (
+        {focusedTrade != null && (
+          <div className="flex items-center gap-0" title="Show only the clicked trade, or every trade on this strike">
+            <button className={btn(!showAll)} onClick={() => setShowAll(false)}>
+              This trade{focusedTrade.tradeNo != null ? ` #${focusedTrade.tradeNo}` : ""}
+            </button>
+            <button className={btn(showAll)} onClick={() => setShowAll(true)}>All</button>
+          </div>
+        )}
+        {!focusMode && presentCohorts.length > 0 && (
           <div className="flex items-center gap-1" title="Click a cohort to hide/show its trades">
             {presentCohorts.map((c) => {
               const off = hiddenCohorts.has(c);
@@ -415,7 +435,7 @@ function OptionChart({
             })}
           </div>
         )}
-        {presentStrategies.length > 0 && (
+        {!focusMode && presentStrategies.length > 0 && (
           <div className="flex items-center gap-1" title="Click an exit strategy to hide/show its twin trades">
             <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground/60">exit</span>
             {presentStrategies.map((s) => {
