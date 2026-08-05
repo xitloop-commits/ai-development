@@ -23,13 +23,14 @@ export const RSI_COLOR = "#a855f7";
 export const MA_PERIOD = 20;
 
 export type ChartStyle = "candle" | "ha" | "line";
-export type IndicatorKey = "ma" | "reversals" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "rsi" | "supertrend";
+export type IndicatorKey = "ma" | "reversals" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "sma9" | "rsi" | "supertrend";
 
 export const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
   { key: "ma", label: "MA (trend colour)" },
   { key: "reversals", label: "Reversals (tops / bottoms)" },
   { key: "sma5", label: "SMA 5" },
   { key: "ema5", label: "EMA 5" },
+  { key: "sma9", label: "SMA 9 (blue)" },
   { key: "sma", label: "SMA 9 + 21" },
   { key: "ema", label: "EMA 9 + 21" },
   { key: "sma9ema9", label: "SMA 9 + EMA 9" },

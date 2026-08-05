@@ -85,6 +85,7 @@ export function TickChart({
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
   const { theme } = useTheme(); // re-theme the chart when the operator toggles
@@ -281,6 +282,8 @@ export function TickChart({
       s.setData(data);
     }
     if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5_COLOR);
+    // Single SMA-9 in TradingView blue (the paired 9+21 keeps its own colours).
+    if (indicators.has("sma9")) addOverlay(sma(closes, 9), "#2962ff", 2);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(sma(closes, 21), SMA21_COLOR); }
     if (indicators.has("ema")) { addOverlay(ema(closes, 9), EMA9_COLOR); addOverlay(ema(closes, 21), EMA21_COLOR); }
     if (indicators.has("sma9ema9")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(ema(closes, 9), EMA9_COLOR); }
@@ -323,6 +326,33 @@ export function TickChart({
       } catch { /* pane API best-effort */ }
     }
 
+    // ── OHLC readout (TradingView-style, top-left) ────────────────────
+    // Follows the crosshair; shows the last candle when idle. Updated
+    // imperatively (innerHTML of our own formatted numbers) so hover doesn't
+    // re-render React on every mouse move.
+    const renderLegend = (c: Candle, prev: Candle | undefined) => {
+      const el = legendRef.current;
+      if (!el) return;
+      const col = c.close >= c.open ? cc.up : cc.down;
+      const ref = prev ? prev.close : c.open;
+      const chg = ref ? ((c.close - ref) / ref) * 100 : 0;
+      const f = (v: number) => v.toFixed(2);
+      const v = (s: string) => `<span style="color:${col}">${s}</span>`;
+      el.innerHTML =
+        `O ${v(f(c.open))} H ${v(f(c.high))} L ${v(f(c.low))} C ${v(f(c.close))} ` +
+        v(`${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`);
+    };
+    if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
+    const timeIndex = new Map(candles.map((c, i) => [c.time as number, i]));
+    chart.subscribeCrosshairMove((param) => {
+      if (param.time == null) {
+        if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
+        return;
+      }
+      const i = timeIndex.get(param.time as number);
+      if (i != null) renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
+    });
+
     if (prevRange) {
       try { chart.timeScale().setVisibleRange(prevRange); } catch { chart.timeScale().fitContent(); }
     } else if (candles.length > 0) {
@@ -351,6 +381,11 @@ export function TickChart({
             {emptyText ?? "No data"}
           </div>
         )}
+        {/* OHLC readout — filled imperatively from the crosshair (see renderLegend). */}
+        <div
+          ref={legendRef}
+          className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
+        />
         <div ref={containerRef} className="h-full w-full" />
       </div>
     </div>

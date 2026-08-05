@@ -378,11 +378,12 @@ export default function OptionChartDialog({
   onOpenChange: (open: boolean) => void;
   target: OptionChartTargetLite | null;
 }) {
-  // Draggable floating window (~1/4 screen), NOT a modal — no backdrop, so the
-  // desk stays visible + interactive and the panel can be dragged by its header.
+  // Draggable floating window sized like the trading desk (near-fullscreen,
+  // Partha 2026-08-05), NOT a modal — no backdrop, and it can still be dragged
+  // by its header (e.g. to peek at a row underneath).
   const [pos, setPos] = useState(() => ({
-    x: Math.round((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.27),
-    y: Math.round((typeof window !== "undefined" ? window.innerHeight : 700) * 0.16),
+    x: Math.round((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.03),
+    y: Math.round((typeof window !== "undefined" ? window.innerHeight : 700) * 0.05),
   }));
 
   if (!open || !target) return null;
@@ -411,7 +412,7 @@ export default function OptionChartDialog({
     <div
       role="dialog"
       className="fixed z-50 flex flex-col rounded-lg border border-border bg-background p-3 shadow-2xl"
-      style={{ left: pos.x, top: pos.y, width: "46vw", height: "54vh" }}
+      style={{ left: pos.x, top: pos.y, width: "94vw", height: "90vh" }}
     >
       <OptionChart target={target} onHeaderMouseDown={onHeaderMouseDown} onClose={() => onOpenChange(false)} />
     </div>
