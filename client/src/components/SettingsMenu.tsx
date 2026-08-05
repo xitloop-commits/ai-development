@@ -31,14 +31,15 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "swing", StratName>;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterLevel };
 }
 
-const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
+const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: string }[] = [
   { key: "scalp", label: "Scalp" },
   { key: "trend", label: "Trend" },
   { key: "ma", label: "MA-Signal" },
+  { key: "sma5", label: "SMA5" },
   { key: "swing", label: "Swing" },
 ];
 const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
@@ -215,7 +216,7 @@ export function SettingsMenu() {
                     onValue={(v) => edit((x) => { x.masterExits.tsl.value = v; })} />
                 </Group>
 
-                <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-only (it rides to the MA leg-end EXIT); set on another cohort it falls back to Sprint.">
+                <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-Signal / SMA-5 only (both ride to their leg-end / cross EXIT); set on another cohort it falls back to Sprint.">
                   {COHORT_ROWS.map((c) => (
                     <div key={c.key} className="flex items-center justify-between gap-2">
                       <span className="text-[0.625rem] text-muted-foreground">{c.label}</span>
@@ -224,11 +225,14 @@ export function SettingsMenu() {
                         onChange={(e) => edit((x) => { x.cohortStrategy[c.key] = e.target.value as StratName; })}
                         className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.625rem] font-semibold capitalize focus:outline-none focus:ring-1 focus:ring-info-cyan"
                       >
-                        {STRATS.map((s) => (
-                          <option key={s} value={s} disabled={s === "glide" && c.key !== "ma"}>
-                            {s}{s === "glide" && c.key !== "ma" ? " (MA only)" : ""}
-                          </option>
-                        ))}
+                        {STRATS.map((s) => {
+                          const glideBlocked = s === "glide" && c.key !== "ma" && c.key !== "sma5";
+                          return (
+                            <option key={s} value={s} disabled={glideBlocked}>
+                              {s}{glideBlocked ? " (MA/SMA5 only)" : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   ))}
