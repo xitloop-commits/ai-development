@@ -1144,6 +1144,10 @@ class Sma5SignalThresholds:
     # Deadband (% of the line) the close must clear to flip — 0 = exact cross.
     # A small value damps whipsaw when price hugs the line.
     buffer_pct: float = 0.0
+    # Use Heikin-Ashi candles instead of regular ones. HA smooths the price, so
+    # crossovers are cleaner and far fewer (it lags the true price a little). A/B
+    # lever — false = raw 1-min closes (default), true = HA closes.
+    use_ha: bool = False
     # % stop-loss stamped on the ENTRY when the cohort auto-trades.
     sl_pct: float = 12.0
 

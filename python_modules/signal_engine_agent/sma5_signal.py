@@ -5,7 +5,9 @@ A stateful detector that segments the underlying by a SIMPLE moving average of
 its close (the SMA-5 line on the chart) and fires on a price↔line cross:
 
   • Aggregate live spot ticks into 1-minute candles; keep the last ``period``
-    closes and take their simple mean (the SMA line the chart draws).
+    closes and take their simple mean (the SMA line the chart draws). With
+    ``use_ha`` the Heikin-Ashi close is used instead of the raw close — smoother,
+    so crossovers are cleaner and fewer (an A/B lever for the whipsaw).
   • Classify each closed candle by where the close sits versus the line
     (a small ``buffer_pct`` deadband avoids whipsaw right at the line):
       ABOVE  when close >  sma × (1 + buffer)   (price above → CALL)
@@ -42,8 +44,15 @@ class Sma5SignalDetector:
         self.cfg = cfg
         self._closes: deque[float] = deque(maxlen=max(1, cfg.period))
         self._cur_minute: int | None = None
-        self._c = 0.0                      # in-progress candle close (last spot)
+        # In-progress 1-min candle OHLC (o/h/l needed for the Heikin-Ashi close).
+        self._o = self._h = self._l = self._c = 0.0
+        # Prior Heikin-Ashi open/close (HA is recursive). None until the 1st close.
+        self._ha_open_prev: float | None = None
+        self._ha_close_prev: float | None = None
         self._state = "FLAT"               # "FLAT" | "ABOVE" | "BELOW"
+
+    def _start_candle(self, spot: float) -> None:
+        self._o = self._h = self._l = self._c = spot
 
     def on_tick(self, ts: float, spot: float) -> list[str]:
         if not (math.isfinite(ts) and math.isfinite(spot)):
@@ -51,20 +60,40 @@ class Sma5SignalDetector:
         minute = int(ts // 60)
         if self._cur_minute is None:
             self._cur_minute = minute
-            self._c = spot
+            self._start_candle(spot)
             return []
         if minute == self._cur_minute:
-            self._c = spot                 # candle close = latest spot in the minute
+            self._c = spot                 # close = latest spot in the minute
+            if spot > self._h:
+                self._h = spot
+            if spot < self._l:
+                self._l = spot
             return []
         # a new minute began → the current candle just CLOSED
         events = self._close_and_eval()
         self._cur_minute = minute
-        self._c = spot
+        self._start_candle(spot)
         return events
+
+    def _candle_value(self) -> float:
+        """The price the SMA + cross use for the just-closed candle: the regular
+        close, or the Heikin-Ashi close when ``use_ha`` is on."""
+        if not self.cfg.use_ha:
+            return self._c
+        ha_close = (self._o + self._h + self._l + self._c) / 4.0
+        ha_open = (
+            (self._o + self._c) / 2.0
+            if self._ha_open_prev is None
+            else (self._ha_open_prev + self._ha_close_prev) / 2.0
+        )
+        self._ha_open_prev = ha_open
+        self._ha_close_prev = ha_close
+        return ha_close
 
     def _close_and_eval(self) -> list[str]:
         cfg = self.cfg
-        self._closes.append(self._c)
+        value = self._candle_value()       # regular close or HA close
+        self._closes.append(value)
         if len(self._closes) < cfg.period:
             return []                      # not enough closes for the SMA yet
         sma = sum(self._closes) / len(self._closes)
@@ -73,9 +102,9 @@ class Sma5SignalDetector:
         buf = cfg.buffer_pct / 100.0
         prev = self._state
         st = prev
-        if self._c > sma * (1.0 + buf):
+        if value > sma * (1.0 + buf):
             st = "ABOVE"
-        elif self._c < sma * (1.0 - buf):
+        elif value < sma * (1.0 - buf):
             st = "BELOW"
         # else: inside the deadband → HOLD the current state
 

@@ -54,3 +54,12 @@ def test_buffer_deadband_suppresses_marginal_cross():
     # Flat-ish series so the close sits a hair above the SMA; 5% buffer swallows it.
     closes = [1000, 1000, 1000, 1000, 1000, 1001]
     assert _run(_det(buffer_pct=5.0), closes) == []
+
+
+def test_ha_mode_fires_on_clean_uptrend():
+    """Heikin-Ashi mode still fires a call on a clean rising series (path works)."""
+    assert _run(_det(use_ha=True), [1000 + i * 10 for i in range(8)]) == ["LONG_CE"]
+
+
+def test_ha_mode_symmetric_put_on_downtrend():
+    assert _run(_det(use_ha=True), [1000 - i * 10 for i in range(8)]) == ["LONG_PE"]
