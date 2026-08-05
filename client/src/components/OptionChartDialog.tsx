@@ -122,14 +122,11 @@ function OptionChart({
     { instrument: target.instrumentKey, date: target.date, securityId: target.securityId },
     { enabled: useTicks && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
-  const live = useLiveCandles(
-    useTicks ? target.securityId : null,
-    target.exchangeSegment,
-    intervalSec,
-    useTicks,
-    histQuery.data as { t: number[]; ltp: number[] } | undefined,
-  );
 
+  // Broker minute candles — the ONLY full-session source for the contract (our
+  // tick recording holds a strike only while it's near the money). Fetched in
+  // both modes: minute intervals chart them directly; sub-minute uses them to
+  // BACKFILL tick gaps so the chart still spans the whole session.
   const candleQuery = trpc.broker.intradayData.useQuery(
     {
       securityId: target.securityId,
@@ -139,7 +136,47 @@ function OptionChart({
       fromDate: `${target.date} 00:00:00`,
       toDate: `${target.date} 23:59:59`,
     },
-    { enabled: !useTicks && !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
+    { enabled: !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
+  );
+
+  // Sub-minute seed = real recorded ticks + pseudo-ticks (O/H/L/C spread inside
+  // the minute) for every broker minute our recording doesn't cover.
+  const tickSeed = useMemo(() => {
+    const real = histQuery.data as { t: number[]; ltp: number[] } | undefined;
+    const raw = candleQuery.data as RawCandles | undefined;
+    if (!raw?.timestamp?.length) return real;
+    const covered = new Set<number>();
+    if (real) for (const ts of real.t) covered.add(Math.floor(ts / 60));
+    const t: number[] = [];
+    const ltp: number[] = [];
+    for (let i = 0; i < raw.timestamp.length; i++) {
+      const m = raw.timestamp[i]; // minute start, epoch seconds UTC
+      if (covered.has(Math.floor(m / 60))) continue;
+      t.push(m, m + 15, m + 30, m + 45);
+      ltp.push(raw.open[i], raw.high[i], raw.low[i], raw.close[i]);
+    }
+    if (!real?.t?.length) return { t, ltp };
+    // Merge the two sorted streams by time.
+    const mt: number[] = [];
+    const ml: number[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < t.length || j < real.t.length) {
+      if (j >= real.t.length || (i < t.length && t[i] <= real.t[j])) {
+        mt.push(t[i]); ml.push(ltp[i]); i++;
+      } else {
+        mt.push(real.t[j]); ml.push(real.ltp[j]); j++;
+      }
+    }
+    return { t: mt, ltp: ml };
+  }, [histQuery.data, candleQuery.data]);
+
+  const live = useLiveCandles(
+    useTicks ? target.securityId : null,
+    target.exchangeSegment,
+    intervalSec,
+    useTicks,
+    tickSeed,
   );
   const brokerCandles = useMemo<Candle[]>(() => {
     const raw = candleQuery.data as RawCandles | undefined;
@@ -177,6 +214,15 @@ function OptionChart({
     if (candles.length === 0 || visibleTrades.length === 0) return [];
     const times = candles.map((c) => c.time as number);
     const isCall = target.side === "CE";
+    // A marker only renders when a candle exists near its trade time.
+    // Tick-built sub-minute charts can stop mid-day (a strike is recorded
+    // only while near the money) — without this guard every later trade
+    // snapped to the chart's last bar and bunched at the tail.
+    const tolerance = Math.max(intervalSec * 2, 120);
+    const snapOrNull = (tShifted: number): number | null => {
+      const nearest = snapToCandle(times, tShifted);
+      return Math.abs(nearest - tShifted) <= tolerance ? nearest : null;
+    };
     const out: SeriesMarker<UTCTimestamp>[] = [];
     for (const t of visibleTrades) {
       const color = resolveCohortHex(t.cohort ?? null);
@@ -184,26 +230,32 @@ function OptionChart({
       // back to the signal # for older records without one.
       const n = t.tradeNo ?? t.signalSeq;
       const label = n != null ? `#${n}` : "";
-      out.push({
-        time: snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS) as UTCTimestamp,
-        position: isCall ? "belowBar" : "aboveBar",
-        color,
-        shape: isCall ? "arrowUp" : "arrowDown",
-        text: label ? `${label} in` : "in",
-      });
-      if (t.exitTime != null) {
+      const entrySnap = snapOrNull(t.entryTime + IST_OFFSET_SECONDS);
+      if (entrySnap != null) {
         out.push({
-          time: snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS) as UTCTimestamp,
-          position: isCall ? "aboveBar" : "belowBar",
+          time: entrySnap as UTCTimestamp,
+          position: isCall ? "belowBar" : "aboveBar",
           color,
-          shape: "circle",
-          text: label ? `${label} out` : "out",
+          shape: isCall ? "arrowUp" : "arrowDown",
+          text: label ? `${label} in` : "in",
         });
+      }
+      if (t.exitTime != null) {
+        const exitSnap = snapOrNull(t.exitTime + IST_OFFSET_SECONDS);
+        if (exitSnap != null) {
+          out.push({
+            time: exitSnap as UTCTimestamp,
+            position: isCall ? "aboveBar" : "belowBar",
+            color,
+            shape: "circle",
+            text: label ? `${label} out` : "out",
+          });
+        }
       }
     }
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
-  }, [visibleTrades, candles, target.side]);
+  }, [visibleTrades, candles, target.side, intervalSec]);
 
   const tradeLines = useMemo(() => {
     const out: { price: number; color: string; title: string }[] = [];
