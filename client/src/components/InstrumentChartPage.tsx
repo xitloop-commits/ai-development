@@ -48,6 +48,9 @@ interface ChartTradeRow {
   strike: number | null;
   entryTime: number;
   entryPrice: number;
+  /** Trailing stop's LAST (frozen-at-close) level + the target — reference lines. */
+  stopLossPrice: number | null;
+  targetPrice: number | null;
   exitTime: number | null;
   exitPrice: number | null;
   status: string;
@@ -207,7 +210,17 @@ function TradePane({
   const c = useLiveCandles(secId || null, optSeg, intervalSec, optionsEnabled, hist.data as { t: number[]; ltp: number[] } | undefined);
   const times = useMemo(() => c.candles.map((k) => k.time as number), [c.candles]);
   const markers = useMemo(() => buildTradeMarkers([trade], times, Infinity), [trade, times]);
-  const entryLine = useMemo(() => [{ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" }], [trade.entryPrice]);
+  // Entry + reference lines. The stop is a TRAILING stop, so its line is the
+  // LAST (frozen-at-close) level — labelled TSL — not a static stop for the whole
+  // trade. Target likewise the last level. Both only drawn when present.
+  const entryLine = useMemo(() => {
+    const lines = [{ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" }];
+    if (trade.stopLossPrice != null && trade.stopLossPrice > 0)
+      lines.push({ price: trade.stopLossPrice, color: CHART_DOWN, title: "TSL" });
+    if (trade.targetPrice != null && trade.targetPrice > 0)
+      lines.push({ price: trade.targetPrice, color: CHART_UP, title: "Target" });
+    return lines;
+  }, [trade.entryPrice, trade.stopLossPrice, trade.targetPrice]);
   const isCall = trade.side === "CE";
   return (
     <TickChart

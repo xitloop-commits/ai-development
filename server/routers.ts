@@ -282,6 +282,11 @@ export const appRouter = router({
             strike: t.strike ?? null,
             entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
             entryPrice: t.entryPrice,
+            // Stop / target — drawn as reference lines on the contract chart. The
+            // stop is a TRAILING stop, so this is its LAST (frozen-at-close) level,
+            // not a static line for the whole trade.
+            stopLossPrice: t.stopLossPrice ?? null,
+            targetPrice: t.targetPrice ?? null,
             exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
             exitPrice: t.exitPrice,
             status: t.status,
