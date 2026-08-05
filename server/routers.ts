@@ -17,7 +17,7 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
-import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion } from "./seaControl";
+import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion, getSma5LineConfig } from "./seaControl";
 import { listModelVersions } from "./modelVersions";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
@@ -102,6 +102,11 @@ export const appRouter = router({
     // (scalp / trend / ma). Read the current state; flip a cohort (persists to
     // config + pushes live to SEA over /ws/sea-control).
     seaCohortState: publicProcedure.query(() => getCohortState()),
+    // The SMA5 detector's candle mode (HA vs raw) + period, so the chart draws
+    // its SMA5 line to match the signals that actually fire.
+    sma5LineConfig: publicProcedure
+      .input(z.object({ instrument: z.string() }))
+      .query(({ input }) => getSma5LineConfig(input.instrument)),
     setSeaCohort: publicProcedure
       .input(
         z.object({

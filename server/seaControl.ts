@@ -60,6 +60,21 @@ const cfgPath = (inst: string) =>
 const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, models: {} };
 let wss: WebSocketServer | null = null;
 
+/** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
+ *  candle mode (Heikin-Ashi vs raw) + period from the per-instrument config so
+ *  the line's green/red flips line up with the signals that actually fire. */
+export function getSma5LineConfig(instrument: string): { useHa: boolean; period: number } {
+  try {
+    const inst = (instrument || "").toLowerCase().replace(/[^a-z0-9]/g, ""); // "NIFTY_50" → "nifty50"
+    const p = cfgPath(inst);
+    if (!existsSync(p)) return { useHa: true, period: 5 };
+    const b = (JSON.parse(readFileSync(p, "utf8")).sma5_signal ?? {}) as { use_ha?: boolean; period?: number };
+    return { useHa: b.use_ha !== false, period: typeof b.period === "number" ? b.period : 5 };
+  } catch {
+    return { useHa: true, period: 5 };
+  }
+}
+
 function readFlag(cohort: Cohort): boolean | null {
   try {
     const p = cfgPath(INSTRUMENTS[0]);

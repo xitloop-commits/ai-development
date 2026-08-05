@@ -60,6 +60,10 @@ export interface TickChartProps {
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   intervalSec: number;
+  /** Draw the SMA5 line on Heikin-Ashi closes (matches the SEA detector's
+   *  candle mode) + its period. Defaults to HA/5 = the detector default. */
+  sma5Ha?: boolean;
+  sma5Period?: number;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -77,6 +81,8 @@ export function TickChart({
   style,
   indicators,
   intervalSec,
+  sma5Ha = true,
+  sma5Period = 5,
   header,
   loading,
   emptyText,
@@ -265,8 +271,12 @@ export function TickChart({
     if (indicators.has("ma") || indicators.has("reversals")) addMaSlopeLine(closes);
     // SMA-5 line coloured by the price↔line relationship (matches the sma5 cohort:
     // green when the close is ABOVE the line = long/CE state, red when BELOW = PE).
+    // The SOURCE closes match the SEA detector's candle mode (Heikin-Ashi vs raw)
+    // so the flips line up with the signals that actually fire — independent of
+    // the chart's own candle style.
     if (indicators.has("sma5")) {
-      const sv = sma(closes, 5);
+      const src = sma5Ha ? heikinAshi(rawCandles).map((k) => k.close) : rawCandles.map((k) => k.close);
+      const sv = sma(src, sma5Period);
       const s = chart.addSeries(LineSeries, {
         color: UP, lineWidth: 2,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
@@ -275,7 +285,7 @@ export function TickChart({
       for (let i = 0; i < candles.length; i++) {
         const v = sv[i];
         if (v == null) continue;
-        const c = closes[i];
+        const c = src[i];
         const color = c > v ? UP : c < v ? DOWN : (data.length ? data[data.length - 1].color : UP);
         data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
       }
@@ -366,7 +376,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period]);
 
   const noData = !loading && rawCandles.length === 0;
   return (

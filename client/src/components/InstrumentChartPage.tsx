@@ -193,7 +193,7 @@ function PaneFullscreenBtn({ active, onToggle }: { active: boolean; onToggle: ()
  *  candles (its own hooks, so any number of panes is React-safe) and draws it
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
-  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled,
+  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -203,6 +203,8 @@ function TradePane({
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   optionsEnabled: boolean;
+  sma5Ha: boolean;
+  sma5Period: number;
 }) {
   const secId = trade.contractSecurityId ?? "";
   const hist = trpc.trading.optionTicksForContract.useQuery(
@@ -232,6 +234,8 @@ function TradePane({
       style={style}
       indicators={indicators}
       intervalSec={intervalSec}
+      sma5Ha={sma5Ha}
+      sma5Period={sma5Period}
       emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
       className="min-h-0 h-full"
       header={<>
@@ -316,6 +320,15 @@ export default function InstrumentChartPage() {
     { channel: "paper", instrument: inst ?? "", date },
     { enabled: !!inst && !!date && showTrades, refetchOnWindowFocus: false, refetchInterval: isToday && showTrades ? 10000 : false },
   );
+
+  // SMA5 line mode (HA vs raw) + period — read from the SEA detector config so
+  // the chart's SMA5 line matches the signals that actually fire.
+  const sma5CfgQuery = trpc.trading.sma5LineConfig.useQuery(
+    { instrument: inst ?? "" },
+    { enabled: !!inst, staleTime: 60_000, refetchOnWindowFocus: false },
+  );
+  const sma5Ha = sma5CfgQuery.data?.useHa ?? true;
+  const sma5Period = sma5CfgQuery.data?.period ?? 5;
 
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
@@ -598,6 +611,8 @@ export default function InstrumentChartPage() {
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}
+            sma5Ha={sma5Ha}
+            sma5Period={sma5Period}
             loading={ticksLoading}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"
@@ -672,6 +687,8 @@ export default function InstrumentChartPage() {
                 style={style}
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
+                sma5Ha={sma5Ha}
+                sma5Period={sma5Period}
               />
               <PaneFullscreenBtn active={fullscreenPane === paneId} onToggle={() => setFullscreenPane((p) => (p === paneId ? null : paneId))} />
             </div>
