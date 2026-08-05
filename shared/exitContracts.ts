@@ -88,7 +88,7 @@ export type DisciplineExitScope =
   | { kind: "ALL" }
   | { kind: "INSTRUMENT"; instrument: string }
   | { kind: "TRADE_IDS"; tradeIds: string[] }
-  | { kind: "GLIDE"; instrument: string; optionType: "CE" | "PE" };
+  | { kind: "GLIDE"; instrument: string; optionType: "CE" | "PE"; cohort?: string };
 
 /**
  * The DA→RCA push payload. Populated by Discipline Agent when:

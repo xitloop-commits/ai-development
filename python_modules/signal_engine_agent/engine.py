@@ -1390,7 +1390,9 @@ def run(
                         if _s5_exit:
                             try:
                                 from signal_engine_agent.risk_control_client import close_glide_position
-                                close_glide_position(sma5_signal_out["instrument"], _s5_side)
+                                # Match by COHORT so the cross closes the sma5 ride
+                                # whatever strategy it runs (ladder) — not glide-only.
+                                close_glide_position(sma5_signal_out["instrument"], _s5_side, cohort="sma5_signal")
                             except Exception as exc:
                                 print(f"  SMA5 close error: {exc}", file=sys.stderr)
                             _sma5_open.pop(_s5_side, None)

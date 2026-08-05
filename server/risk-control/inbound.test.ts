@@ -319,6 +319,28 @@ describe("rcaMonitor.disciplineRequest", () => {
     expect(result.exited).toBe(2);
     expect(result.details.map((d) => d.tradeId).sort()).toEqual(["T-a", "T-b"]);
   });
+
+  it("scope=GLIDE with a cohort closes that cohort's ride (any strategy), not other cohorts' ladder trades", async () => {
+    // SMA-5 rides on Ladder and closes on its cross. The cross-close must match
+    // by COHORT so it hits the sma5 ladder trade but NOT the scalp ladder trade
+    // on the same instrument+side.
+    const t = (id: string, strategy: string, cohort: string) => ({
+      id, instrument: "NIFTY50", type: "CALL_BUY", strike: 24100, entryPrice: 100,
+      exitPrice: null, ltp: 102, qty: 65, capitalPercent: 10, pnl: 0, unrealizedPnl: 130,
+      charges: 0, chargesBreakdown: [], status: "OPEN" as const, exitStrategy: strategy, cohort,
+    });
+    (portfolioAgent.getPositions as any).mockImplementation(async () => [
+      t("T-sma5", "ladder", "sma5_signal"),
+      t("T-scalp", "ladder", "scalp"),
+    ]);
+    const result = await rcaMonitor.disciplineRequest({
+      reason: "AI_EXIT",
+      channels: ["paper"],
+      scope: { kind: "GLIDE", instrument: "NIFTY50", optionType: "CE", cohort: "sma5_signal" },
+    });
+    expect(result.exited).toBe(1);
+    expect(result.details[0].tradeId).toBe("T-sma5");
+  });
 });
 
 // ─── aiSignal ────────────────────────────────────────────────────

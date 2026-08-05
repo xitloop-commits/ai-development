@@ -186,22 +186,26 @@ def close_trade(trade_id: str, reason: str = "AI_EXIT", timeout: float = 5.0) ->
 
 
 def close_glide_position(
-    instrument: str, option_type: str, reason: str = "AI_EXIT", timeout: float = 5.0
+    instrument: str, option_type: str, reason: str = "AI_EXIT", timeout: float = 5.0,
+    cohort: str | None = None,
 ) -> bool:
-    """Close every open GLIDE trade on `instrument` + `option_type` (CE/PE), on
-    the MA-Signal leg-end EXIT.
+    """Close the open ride on `instrument` + `option_type` (CE/PE) at a leg-end /
+    cross EXIT.
 
-    Closes by POSITION, not by a remembered tradeId. One MA entry can create
-    several trades (paper races strategies) and the id captured at entry is the
-    first twin, NOT the Glide one — so closing by id left the Glide trade riding
-    forever. Matching instrument + side + strategy closes the right trade every
-    time, survives a SEA restart, and covers a hand-placed Glide trade too.
+    Closes by POSITION, not by a remembered tradeId. One entry can create several
+    trades (paper races strategies) and the id captured at entry is the first
+    twin, so closing by id left the ride open forever.
+
+    - No `cohort` (MA-Signal): matches instrument + side + strategy=="glide" — the
+      Glide twin only, leaving the sprint/runway/anchor twins to self-manage.
+    - With `cohort` (e.g. "sma5_signal"): matches instrument + side + that cohort,
+      so the ride closes on its cross whatever strategy it runs (e.g. ladder).
     Returns True on HTTP 2xx; never raises."""
     url = f"{_broker_url()}/api/risk-control/discipline-request"
-    payload = {
-        "reason": reason,
-        "scope": {"kind": "GLIDE", "instrument": str(instrument), "optionType": str(option_type)},
-    }
+    scope: dict[str, Any] = {"kind": "GLIDE", "instrument": str(instrument), "optionType": str(option_type)}
+    if cohort:
+        scope["cohort"] = str(cohort)
+    payload = {"reason": reason, "scope": scope}
     try:
         resp = requests.post(url, headers=_headers(), data=json.dumps(payload), timeout=timeout)
         return resp.status_code < 400

@@ -54,6 +54,7 @@ describe("T139 — one strategy per cohort, from the common map", () => {
     expect(resolveExitStrategy("live", "AI", false, "scalp")).toBe("sprint");
     expect(resolveExitStrategy("live", "AI", false, "trend")).toBe("runway");
     expect(resolveExitStrategy("paper", "AI", false, "ma_signal")).toBe("glide");
+    expect(resolveExitStrategy("paper", "AI", false, "sma5_signal")).toBe("ladder");
     expect(resolveExitStrategy("live", "USER", false, "swing")).toBe("anchor");
   });
 
@@ -86,6 +87,7 @@ describe("T144 — enabledStrategiesForCohort (per-cohort race)", () => {
     expect(enabledStrategiesForCohort("paper", "AI", false, "trend")).toEqual(["runway"]);
     expect(enabledStrategiesForCohort("paper", "AI", false, "swing")).toEqual(["anchor"]);
     expect(enabledStrategiesForCohort("paper", "AI", false, "ma_signal")).toEqual(["glide"]);
+    expect(enabledStrategiesForCohort("paper", "AI", false, "sma5_signal")).toEqual(["ladder"]);
   });
 
   it("races every enabled strategy for the cohort", () => {

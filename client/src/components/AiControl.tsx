@@ -688,7 +688,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                           <span className="text-[0.625rem] text-muted-foreground w-12 shrink-0">{c.label}</span>
                           <div className="flex gap-1 flex-wrap justify-end">
                             {(["sprint", "runway", "anchor", "glide", "ladder"] as const).map((s) => {
-                              if (s === "glide" && c.key !== "ma" && c.key !== "sma5") return null; // Glide is MA-Signal / SMA-5 only
+                              if (s === "glide" && c.key !== "ma") return null; // Glide is MA-Signal-only (sma5 rides on Ladder)
                               const isDefault = dflt === s;
                               return (
                                 <Pill

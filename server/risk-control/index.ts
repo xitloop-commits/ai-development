@@ -484,15 +484,22 @@ class RcaMonitor {
         } else if (input.scope.kind === "TRADE_IDS" && input.scope.tradeIds.includes(trade.id)) {
           targets.push({ channel, trade });
         } else if (input.scope.kind === "GLIDE") {
-          // MA-Signal leg-end EXIT. Close every open GLIDE trade on this
-          // instrument + side — never the Sprint/Runway/Anchor comparison twins
-          // from the same entry, which manage their own exits. Matching by
-          // strategy + position (not a remembered id) is what fixes the twin the
+          // Leg-end / cross EXIT. Close the open ride on this instrument + side.
+          //   • no cohort (MA-Signal): match strategy=="glide" — the Glide twin
+          //     only, never the Sprint/Runway/Anchor comparison twins from the
+          //     same entry, which manage their own exits.
+          //   • with cohort (e.g. sma5_signal): match that cohort — so the ride
+          //     closes on its cross whatever strategy it runs (e.g. ladder),
+          //     without touching other cohorts' ladder trades on the same leg.
+          // Matching by position (not a remembered id) is what fixes the twin the
           // old close-by-id path missed.
           const wantCall = input.scope.optionType === "CE";
           const isCall = trade.type.includes("CALL");
+          const matchesRide = input.scope.cohort
+            ? trade.cohort === input.scope.cohort
+            : trade.exitStrategy === "glide";
           if (
-            trade.exitStrategy === "glide" &&
+            matchesRide &&
             trade.instrument === input.scope.instrument &&
             isCall === wantCall
           ) {
