@@ -277,16 +277,22 @@ export function TickChart({
     if (indicators.has("sma5")) {
       const src = sma5Ha ? heikinAshi(rawCandles).map((k) => k.close) : rawCandles.map((k) => k.close);
       const sv = sma(src, sma5Period);
+      // Thin + BRIGHT (Partha, 2026-08-05): width 1 so candles stay readable
+      // underneath, neon green/red so the state still pops at a glance.
+      const SMA5_UP = "#00e676", SMA5_DOWN = "#ff1744";
       const s = chart.addSeries(LineSeries, {
-        color: UP, lineWidth: 2,
+        color: SMA5_UP, lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       });
+      // Draw IN FRONT of the candles — a thin line is otherwise easy to lose
+      // inside HA candle bodies (Partha, 2026-08-05).
+      s.setSeriesOrder(100);
       const data: { time: UTCTimestamp; value: number; color: string }[] = [];
       for (let i = 0; i < candles.length; i++) {
         const v = sv[i];
         if (v == null) continue;
         const c = src[i];
-        const color = c > v ? UP : c < v ? DOWN : (data.length ? data[data.length - 1].color : UP);
+        const color = c > v ? SMA5_UP : c < v ? SMA5_DOWN : (data.length ? data[data.length - 1].color : SMA5_UP);
         data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
       }
       s.setData(data);
