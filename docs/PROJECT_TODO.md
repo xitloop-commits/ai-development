@@ -2,6 +2,23 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T152 [Signal Engine] — SMA-5 price-cross cohort (`sma5`) BUILT 2026-08-05 🚧 (paper-validate)
+New cohort mirroring MA-Signal but on a **5-period SMA of the underlying close**:
+CALL when a 1-min candle **closes above** the line, PUT when it **closes below**;
+the opposite cross exits the ride (close-by-position). Symmetric CE/PE.
+- Detector [sma5_signal.py](../python_modules/signal_engine_agent/sma5_signal.py)
+  (ABOVE/BELOW state machine + `buffer_pct` deadband) + `Sma5SignalThresholds` +
+  engine wiring (emit/submit/close, live-toggle `_live_cohorts["sma5"]`).
+- Wired end-to-end: `CohortsConfig`/`CohortKey`/`cohortStrategy` (default **glide**
+  — rides + exits on the cross, allowed alongside `ma`), both sanitizers,
+  `seaControl` push, discipline cohort map, `control_client`, AI-menu toggle +
+  strategy row, cohort colour (orange) + label.
+- Chart: **SMA-5 line ON by default**, green above / red below the line.
+- Config: `sma5_signal` block (period 5) + `cohorts.sma5` enabled by default.
+- **Takes effect on the next SEA + server restart.** Detector tests green (5);
+  31 threshold + 186 config/discipline tests green. **Next: paper-validate before
+  trusting it live** (it rides with no stop — glide — like MA-Signal).
+
 ## ⚑ BUY-SIDE VERDICT (2026-07-12) — exhaustive test: buying doesn't work; the edge is a SELL signal
 
 The definitive finding after a full session of testing. **The model is good; buying options on it is not.**
