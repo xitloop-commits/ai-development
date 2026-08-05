@@ -106,17 +106,22 @@ function OptionChart({
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
 
-  // ── Candles — today: recorded ticks (seed) + live WS, any interval.
-  //    Past dates: broker minute candles, aggregated to 1m–5m.
+  // ── Candles ────────────────────────────────────────────────────────
+  // Minute intervals (1m–5m): broker minute candles — they cover the WHOLE
+  // day for the contract (our tick recording only holds a strike while it's
+  // near the money, so tick-built candles can stop mid-day and any later
+  // trade would snap to the last bar). Refetched every 5s today.
+  // Sub-minute (1s/15s/30s, today only): recorded ticks (seed) + live WS.
+  const useTicks = isToday && intervalSec < 60;
   const histQuery = trpc.trading.optionTicksForContract.useQuery(
     { instrument: target.instrumentKey, date: target.date, securityId: target.securityId },
-    { enabled: isToday && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    { enabled: useTicks && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
   const live = useLiveCandles(
-    isToday ? target.securityId : null,
+    useTicks ? target.securityId : null,
     target.exchangeSegment,
     intervalSec,
-    isToday,
+    useTicks,
     histQuery.data as { t: number[]; ltp: number[] } | undefined,
   );
 
@@ -129,15 +134,15 @@ function OptionChart({
       fromDate: `${target.date} 00:00:00`,
       toDate: `${target.date} 23:59:59`,
     },
-    { enabled: !isToday && !!target.securityId, retry: 1, refetchOnWindowFocus: false },
+    { enabled: !useTicks && !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
-  const pastCandles = useMemo<Candle[]>(() => {
+  const brokerCandles = useMemo<Candle[]>(() => {
     const raw = candleQuery.data as RawCandles | undefined;
     if (!raw || !Array.isArray(raw.timestamp) || raw.timestamp.length === 0) return [];
     return aggregateCandles(toCandles(raw), intervalSec);
   }, [candleQuery.data, intervalSec]);
 
-  const candles = isToday ? live.candles : pastCandles;
+  const candles = useTicks ? live.candles : brokerCandles;
 
   // ── Trades on this strike ──────────────────────────────────────────
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
@@ -206,7 +211,7 @@ function OptionChart({
     optionType: target.side,
     expiry: target.expiry,
   });
-  const loading = isToday
+  const loading = useTicks
     ? histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
     : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
 
@@ -322,7 +327,7 @@ function OptionChart({
         intervalSec={intervalSec}
         loading={loading}
         emptyText={
-          isToday
+          useTicks
             ? "Waiting for ticks on this contract…"
             : "No candle data for this strike (the broker keeps minute candles only for the last few sessions)."
         }
