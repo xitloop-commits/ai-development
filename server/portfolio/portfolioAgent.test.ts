@@ -297,3 +297,39 @@ describe("portfolioAgent.getPositions — live-field overlay (T86 ③)", () => {
     expect(getDayRecordMock).toHaveBeenCalledTimes(2); // one per distinct dayIndex
   });
 });
+
+describe("settleDayCyclesAtEod — day-cycle advances ONCE at EOD, only on a target hit", () => {
+  const runSettle = (chs: string[]) => (portfolioAgent as any).settleDayCyclesAtEod(chs);
+  beforeEach(() => {
+    updateCapitalStateMock.mockClear();
+    getCapitalStateMock.mockResolvedValue({
+      currentDayIndex: 5, tradingPool: 100000, reservePool: 0, profitHistory: [], targetPercent: 5,
+    });
+  });
+
+  it("target CLEARED at EOD → advances the staircase (currentDayIndex + 1)", async () => {
+    // totalPnl == target (excess 0 → no gift cascade to complicate the assert).
+    getDayRecordMock.mockResolvedValue({
+      dayIndex: 5, totalPnl: 5000, targetAmount: 5000, tradeCapital: 100000, trades: [], status: "ACTIVE",
+    });
+    await runSettle(["paper"]);
+    expect(updateCapitalStateMock).toHaveBeenCalledWith("paper", expect.objectContaining({ currentDayIndex: 6 }));
+  });
+
+  it("target NOT cleared at EOD (under target, no big loss) → does NOT advance (carries over)", async () => {
+    getDayRecordMock.mockResolvedValue({
+      dayIndex: 5, totalPnl: 2000, targetAmount: 5000, tradeCapital: 100000, trades: [], status: "ACTIVE",
+    });
+    await runSettle(["paper"]);
+    expect(updateCapitalStateMock).not.toHaveBeenCalled();
+  });
+
+  it("an open trade in the day blocks settlement (never mid-flatten)", async () => {
+    getDayRecordMock.mockResolvedValue({
+      dayIndex: 5, totalPnl: 9000, targetAmount: 5000, tradeCapital: 100000,
+      trades: [{ id: "T1", status: "OPEN" }], status: "ACTIVE",
+    });
+    await runSettle(["paper"]);
+    expect(updateCapitalStateMock).not.toHaveBeenCalled();
+  });
+});

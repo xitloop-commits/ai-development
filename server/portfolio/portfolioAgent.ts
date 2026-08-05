@@ -1464,7 +1464,15 @@ class PortfolioAgentImpl {
     channel: Channel,
     stateBeforeClose: CapitalState,
     day: DayRecord,
+    atEod = false,
   ): Promise<void> {
+    // The day-cycle is settled ONCE per session, at EOD square-off — NOT on every
+    // intraday trade close. Completing mid-session (the moment P&L first cleared
+    // the +5% target) advanced the staircase repeatedly within a single calendar
+    // day and split one day's trades across many cycles (2026-08-05: 29 cycles in
+    // a day). The completion RULE is unchanged (complete only on a target hit,
+    // clawback on a target-sized loss); only the TIMING moved to EOD.
+    if (!atEod) return;
     // T126 — one live book now, so the "shared staircase, separate wallets" rule
     // that combined two live books into one journey has nothing left to combine.
     // completeOrClawbackLive is kept as the live path (it owns the broker-aware
@@ -1473,6 +1481,27 @@ class PortfolioAgentImpl {
       return this.completeOrClawbackLive();
     }
     return this.completeOrClawbackSingle(channel, day);
+  }
+
+  /**
+   * EOD day-cycle settlement — called once by the square-off scheduler AFTER a
+   * book's open trades are flattened. Runs the same complete-or-clawback rule
+   * that used to fire on every trade close, but exactly once per session: the
+   * day completes only if its final P&L cleared the +5% target (excess → gift
+   * days); otherwise it carries over to the next calendar day (a target-sized
+   * loss still claws back). Best-effort per channel; never throws.
+   */
+  async settleDayCyclesAtEod(channels: Channel[] = ["paper", "live"]): Promise<void> {
+    for (const channel of channels) {
+      try {
+        const state = await getCapitalState(channel);
+        const day = await getDayRecord(channel, state.currentDayIndex);
+        if (!day) continue;
+        await this.maybeCompleteOrClawback(channel, state, day, true);
+      } catch (err) {
+        log.warn(`EOD day-cycle settlement failed for ${channel}: ${(err as Error).message}`);
+      }
+    }
   }
 
   /** Single-book day completion / clawback (paper). Advances that book's own

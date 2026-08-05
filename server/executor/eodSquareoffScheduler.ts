@@ -208,6 +208,12 @@ export async function checkOnce(): Promise<void> {
       doneFor.set(key, date);
       try {
         await runEodSquareoffChannel(channel, exchange, date);
+        // Settle the day-cycle ONCE now the book is flattening at EOD (moved off
+        // the per-trade-close path so the staircase advances at most once/day).
+        // `checkDayCompletion` gates on no-open-trades, so calling this after the
+        // NSE pass is a safe no-op while MCX legs are still open — it completes on
+        // the pass that leaves the book fully flat.
+        await portfolioAgent.settleDayCyclesAtEod([channel]);
       } catch (err) {
         log.error(`${exchange} square-off (${channel}) run failed: ${(err as Error).message ?? err}`);
       }
