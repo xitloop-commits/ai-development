@@ -393,9 +393,9 @@ function _TodayTradeRow({
                 entryPrice={trade.entryPrice}
                 ltp={isOpen ? displayLtp : (trade.exitPrice ?? trade.ltp)}
                 slPercent={
-                  // ES-honour on a Ladder trade → its exits are off; hide the SL/TSL marker.
-                  (trade.exitStrategy === "ladder" && ladderEsHonour) ? undefined
-                    : trade.stopLossPrice && trade.stopLossPrice > 0
+                  // The stop marker shows in every mode: the stepping/TSL stop, or
+                  // (under ES-honour) the safety SL the engine writes to stopLossPrice.
+                  trade.stopLossPrice && trade.stopLossPrice > 0
                     ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
                         trade.entryPrice) * 100
                     : undefined // T86 ④ — no real stop → no phantom SL marker
@@ -406,7 +406,7 @@ function _TodayTradeRow({
                         trade.entryPrice) * 100
                     : undefined
                 }
-                trailingEnabled={serverTrails}
+                trailingEnabled={(trade.exitStrategy === "ladder" && ladderEsHonour) ? false : serverTrails}
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
                 coolingEndsAt={(() => {

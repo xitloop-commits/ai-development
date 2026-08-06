@@ -55,6 +55,7 @@ interface LadderCfg {
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
+  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -388,7 +389,9 @@ const HELP = {
   ladderMtpR:
     "The take-profit exit (MTP). Basis ×risk = a multiple of the initial risk ('SL start'), so 2× with a 5% start banks at +10%. Basis % = a plain % above entry you type directly (e.g. 25 = bank at +25%), independent of the SL.",
   ladderEsHonour:
-    "Whether the trade exits on SEA's exit signal ONLY. Off (default) = the signal is visual-only and the ladder's own SL/TSL/MSL/MTP run the trade. On = the ladder's own exits are ALL disabled and the trade rides until the model's exit signal fires — every other Ladder setting has no effect.",
+    "Whether the trade exits on SEA's exit signal ONLY. Off (default) = the signal is visual-only and the ladder's own SL/TSL/MSL/MTP run the trade. On = the ladder's own TSL/MSL/MTP are disabled and the trade rides until the model's exit signal fires — except for the safety SL below.",
+  ladderEsSl:
+    "The one hard stop kept while riding to the exit signal (ES-honour ON). Basis %: a flat % below entry. Basis ₹: a gross rupee loss (converted to a price via the position size). Its marker is drawn on the bar.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -816,11 +819,25 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                         onClick={() => editExits((x) => { x.ladder.esHonour = !x.ladder.esHonour; })} />
                     </Row>
                     {ed.ladder.esHonour ? (
-                      <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                        ON — the Ladder's own SL / TSL / MSL / MTP are DISABLED. The
-                        trade rides until SEA's exit signal fires. Every setting below
-                        has no effect.
-                      </span>
+                      <>
+                        <span className="text-[0.5625rem] text-warning-amber leading-snug">
+                          ON — the Ladder's own TSL / MSL / MTP are DISABLED and the
+                          trade rides until SEA's exit signal fires. The one exit kept
+                          is the safety SL below (its marker still shows).
+                        </span>
+                        <SubGroup>Safety SL · while riding to the signal</SubGroup>
+                        <Row label="SL basis" help={HELP.ladderEsSl}>
+                          <div className="flex gap-1">
+                            <Pill label="%" on={ed.ladder.esSlMode === "percent"} onClick={() => editExits((x) => { x.ladder.esSlMode = "percent"; })} />
+                            <Pill label="₹" on={ed.ladder.esSlMode === "rupees"} onClick={() => editExits((x) => { x.ladder.esSlMode = "rupees"; })} />
+                          </div>
+                        </Row>
+                        {ed.ladder.esSlMode === "percent" ? (
+                          <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.esSlPct = v; })} />
+                        ) : (
+                          <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esSlValue = v; })} />
+                        )}
+                      </>
                     ) : (
                       <>
                         <span className="text-[0.5625rem] text-muted-foreground leading-snug">

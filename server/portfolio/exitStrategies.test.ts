@@ -366,14 +366,24 @@ describe("LADDER — fixed SL mode (classical flat stop)", () => {
   });
 });
 
-describe("LADDER — ES honour disables the ladder's own exits", () => {
-  const es = { ...lcfg, esHonour: true };
-  it("does NOT exit even when price gaps far through every stop", () => {
-    const o = ladderDecide({ ...lbase, ltp: 80, peak: 100, now: at(5) }, es, noFav);
-    expect(o.exit).toBe(false);
-  });
-  it("does NOT bank MTP either (rides to the model's exit signal)", () => {
+describe("LADDER — ES honour: only the safety SL exits", () => {
+  const es = { ...lcfg, esHonour: true, esSlMode: "percent" as const, esSlPct: 1 };
+  it("does NOT bank MTP (rides to the model's exit signal)", () => {
     const o = ladderDecide({ ...lbase, ltp: 130, peak: 130, now: at(5) }, es, noFav);
     expect(o.exit).toBe(false);
+  });
+  it("safety SL sits at esSlPct below entry (1% → 99) and fires when hit", () => {
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, es, noFav);
+    expect(o.stop).toBeCloseTo(99, 5);
+    expect(o.exit).toBe(true); // tighter than the 5% stepping SL, which is ignored
+  });
+  it("does NOT exit while price holds above the safety SL", () => {
+    const o = ladderDecide({ ...lbase, ltp: 99.5, peak: 100, now: at(5) }, es, noFav);
+    expect(o.exit).toBe(false);
+  });
+  it("rupees mode: gross ₹ loss / qty → premium stop (₹1000 / 100 = 10 → 90)", () => {
+    const rs = { ...lcfg, esHonour: true, esSlMode: "rupees" as const, esSlValue: 1000 };
+    expect(ladderDecide({ ...lbase, ltp: 89, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(true);
+    expect(ladderDecide({ ...lbase, ltp: 91, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
   });
 });

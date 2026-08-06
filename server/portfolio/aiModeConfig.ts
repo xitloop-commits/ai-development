@@ -508,6 +508,10 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.mtpR = clampNum(l.mtpR, 1, 10, 2);
   l.mtpPct = clampNum(l.mtpPct, 1, 500, 25);
   l.esHonour = !!l.esHonour;
+  // ES safety SL (kept while riding to the exit signal).
+  l.esSlMode = l.esSlMode === "rupees" ? "rupees" : "percent";
+  l.esSlPct = clampNum(l.esSlPct, 0.1, 90, 1);
+  l.esSlValue = clampNum(l.esSlValue, 50, 1_000_000, 1000);
   return e;
 }
 

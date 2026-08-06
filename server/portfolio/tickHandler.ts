@@ -804,6 +804,7 @@ class TickHandler extends EventEmitter {
               target: trade.originalTargetPrice ?? null,
               openedAt: trade.openedAt,
               now: Date.now(),
+              qty: trade.qty, // for the ES-honour gross-₹ safety SL
             },
             lcfg,
             {

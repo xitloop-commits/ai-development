@@ -88,6 +88,9 @@ export interface ExitInput {
   openedAt: number;
   /** Now (ms epoch). */
   now: number;
+  /** Position size — used only to convert a gross-₹ safety SL into a premium
+   *  distance (Ladder ES-honour, rupees mode). */
+  qty?: number;
 }
 
 export type ExitPhase = "cooling" | "wide" | "breakeven" | "trailing" | "target-bank";
@@ -246,6 +249,12 @@ export interface LadderConfig {
 
   // ES — honour SEA's exit signal (visual-only when off, the default)
   esHonour: boolean;
+  // ES safety SL — the ONE stop that still exits while riding to the exit signal
+  // (esHonour ON disables every OTHER ladder exit). "percent" = % below entry;
+  // "rupees" = a gross ₹ loss (converted to a premium distance via qty).
+  esSlMode: "percent" | "rupees";
+  esSlPct: number;   // % below entry (percent mode)
+  esSlValue: number; // gross ₹ loss (rupees mode)
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -268,6 +277,9 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   mtpR: 2,
   mtpPct: 25,
   esHonour: false,
+  esSlMode: "percent",
+  esSlPct: 1,
+  esSlValue: 1000,
 };
 
 export interface LadderState {
@@ -344,11 +356,19 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
     if (favour(i, stop) < favour(i, msl)) stop = msl;
   }
 
-  // ES honour — when ON, the Ladder's OWN exits (SL/TSL/MSL/MTP) are disabled;
-  // the trade rides until SEA's exit signal fires (handled outside the engine).
-  // The levels above are still returned for the TradeBar, but never auto-exit.
+  // ES honour — when ON, the Ladder's OWN staged exits (stepping SL / TSL / MSL /
+  // MTP) are disabled; the trade rides until SEA's exit signal fires (handled
+  // outside the engine). The ONE exit kept is a hard safety SL (% below entry, or
+  // a gross-₹ loss converted to a premium distance via qty), whose marker the
+  // TradeBar draws from this stop.
   if (c.esHonour) {
-    return { stop, exit: false, target, phase };
+    const esStop =
+      c.esSlMode === "rupees" && i.qty && i.qty > 0
+        ? i.entry - d * (c.esSlValue / i.qty)      // ₹ loss ÷ qty = per-unit premium
+        : i.entry * (1 - d * (c.esSlPct / 100));   // % below entry
+    const esExit = stopBreached(i, esStop);
+    const esFill = esExit ? (favour(i, i.ltp) < favour(i, esStop) ? i.ltp : esStop) : undefined;
+    return { stop: esStop, exit: esExit, exitPrice: esFill, target, phase: "wide" };
   }
 
   // MTP — bank the profit when the live price reaches the target.
