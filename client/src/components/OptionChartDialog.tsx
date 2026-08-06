@@ -537,15 +537,37 @@ export default function OptionChartDialog({
   onOpenChange: (open: boolean) => void;
   target: OptionChartTargetLite | null;
 }) {
-  // Draggable floating window sized like the trading desk (near-fullscreen,
-  // Partha 2026-08-05), NOT a modal — no backdrop, and it can still be dragged
-  // by its header (e.g. to peek at a row underneath).
-  const [pos, setPos] = useState(() => ({
-    x: Math.round((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.03),
-    y: Math.round((typeof window !== "undefined" ? window.innerHeight : 700) * 0.05),
-  }));
+  // Draggable + resizable floating window sized like the trading desk (near-
+  // fullscreen, Partha 2026-08-05), NOT a modal — no backdrop, and it can still be
+  // dragged by its header (e.g. to peek at a row underneath).
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 700;
+  const [pos, setPos] = useState(() => ({ x: Math.round(vw * 0.03), y: Math.round(vh * 0.05) }));
+  const [size, setSize] = useState(() => ({ w: Math.round(vw * 0.94), h: Math.round(vh * 0.9) }));
 
   if (!open || !target) return null;
+
+  // Bottom-right grip: drag to resize. Clamped to a usable minimum and the
+  // viewport (so the window can't grow off-screen from its current corner).
+  const onResizeMouseDown = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const ow = size.w;
+    const oh = size.h;
+    const move = (ev: MouseEvent) => {
+      const w = Math.max(360, Math.min(window.innerWidth - pos.x, ow + (ev.clientX - startX)));
+      const h = Math.max(260, Math.min(window.innerHeight - pos.y, oh + (ev.clientY - startY)));
+      setSize({ w, h });
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
 
   const onHeaderMouseDown = (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -571,9 +593,19 @@ export default function OptionChartDialog({
     <div
       role="dialog"
       className="fixed z-50 flex flex-col rounded-lg border border-border bg-background p-3 shadow-2xl"
-      style={{ left: pos.x, top: pos.y, width: "94vw", height: "90vh" }}
+      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
     >
       <OptionChart target={target} onHeaderMouseDown={onHeaderMouseDown} onClose={() => onOpenChange(false)} />
+      {/* Resize grip (bottom-right). */}
+      <div
+        onMouseDown={onResizeMouseDown}
+        title="Drag to resize"
+        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
+        style={{
+          background:
+            "linear-gradient(135deg, transparent 0 45%, hsl(var(--border)) 45% 55%, transparent 55% 70%, hsl(var(--border)) 70% 80%, transparent 80%)",
+        }}
+      />
     </div>
   );
 }
