@@ -162,6 +162,10 @@ export interface ReplayStatus {
   speed: number;
   startedAt: number | null;
   ticksEmitted: number;
+  /** Recorded recv_ts (epoch SECONDS) mapped to `startedAt` — the run's t0 anchor.
+   *  A client computes the current replayed time as
+   *  anchorRecvTs + (now − startedAt)/1000 × speed. Null when not running. */
+  anchorRecvTs: number | null;
 }
 
 let running = false;
@@ -169,6 +173,7 @@ let aborted = false;
 let currentDate: string | null = null;
 let currentSpeed = 1;
 let startedAt: number | null = null;
+let anchorRecvTs: number | null = null;
 let ticksEmitted = 0;
 let activeStreams = 0;
 
@@ -258,7 +263,7 @@ export function listReplayDates(): string[] {
 }
 
 export function getReplayStatus(): ReplayStatus {
-  return { running, date: currentDate, speed: currentSpeed, startedAt, ticksEmitted };
+  return { running, date: currentDate, speed: currentSpeed, startedAt, ticksEmitted, anchorRecvTs };
 }
 
 /** True while a replay is streaming. Wall-clock safety exits (RCA age/stale, EOD
@@ -342,6 +347,7 @@ export async function startReplay(
   currentDate = date;
   currentSpeed = speed;
   startedAt = t0Wall;
+  anchorRecvTs = t0RecvTs;
   ticksEmitted = 0;
 
   log.important(`Replay START ${date} @ ${speed}× (${files.length} streams · ${ran.join(", ")})`);
@@ -353,6 +359,7 @@ export async function startReplay(
   // Fire all streams concurrently; flip `running` off when the last one ends.
   void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(async () => {
     running = false;
+    anchorRecvTs = null;
     // Close the run so it stops being the trade sink — otherwise a live signal
     // arriving after the replay finished would be filed into this experiment.
     await endRun(aborted ? "ABORTED" : "COMPLETED");

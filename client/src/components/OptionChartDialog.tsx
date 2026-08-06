@@ -107,6 +107,20 @@ function OptionChart({
   const liveMode = isToday || isReplay;
   const refetchInterval = liveMode ? REFRESH_MS : (false as const);
 
+  // Where the replay has reached, in recorded-day epoch seconds:
+  //   anchorRecvTs + (now − startedAt)/1000 × speed.
+  // The history seed is capped here so the popup never shows the not-yet-replayed
+  // remainder of the day — including in the moment before the first live tick
+  // arrives (when the seam-based trim alone would flash the whole session).
+  // Uses the query's own fetch clock so it steps once per refetch (~2s), stable
+  // between renders; the live ticks fill the forward edge in between.
+  const replayCutoffTs = useMemo(() => {
+    const s = replayStatus.data;
+    if (!isReplay || !s?.startedAt || s.anchorRecvTs == null) return null;
+    const clock = replayStatus.dataUpdatedAt || Date.now();
+    return s.anchorRecvTs + ((clock - s.startedAt) / 1000) * (s.speed || 1);
+  }, [isReplay, replayStatus.data, replayStatus.dataUpdatedAt]);
+
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's HA candles (Partha, 2026-08-05).
   const [style, setStyle] = useState<ChartStyle>("ha");
@@ -134,13 +148,13 @@ function OptionChart({
   // chart follows the run; today keeps its minute intervals on full-day broker
   // candles (they cover the whole session, a strike's tick recording may not).
   const useTicks = isReplay || (isToday && intervalSec < 60);
-  // Recorded-tick seed is for TODAY's sub-minute chart only. During a replay we
-  // deliberately DON'T seed — the chart fills from the live replayed ticks as the
-  // run streams (following it), rather than showing the whole recorded day.
-  const histEnabled = isToday && intervalSec < 60 && !!target.securityId;
+  // The recorded ticks seed the history. useLiveCandles prepends only seed ticks
+  // that predate the first LIVE tick, so during a replay the seam falls at the
+  // run's CURRENT position: history up to now is drawn, the not-yet-replayed
+  // remainder of the day is not, and the live replayed ticks extend it forward.
   const histQuery = trpc.trading.optionTicksForContract.useQuery(
     { instrument: target.instrumentKey, date: target.date, securityId: target.securityId },
-    { enabled: histEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    { enabled: useTicks && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
 
   // Broker minute candles — the ONLY full-session source for the contract (our
@@ -156,7 +170,7 @@ function OptionChart({
       fromDate: `${target.date} 00:00:00`,
       toDate: `${target.date} 23:59:59`,
     },
-    { enabled: !!target.securityId && !isReplay, retry: 1, refetchOnWindowFocus: false, refetchInterval },
+    { enabled: !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
 
   // Sub-minute seed = real recorded ticks + pseudo-ticks (O/H/L/C spread inside
@@ -191,12 +205,23 @@ function OptionChart({
     return { t: mt, ltp: ml };
   }, [histQuery.data, candleQuery.data]);
 
+  // History back-fill, capped at the replay's current position (no-op today).
+  const seedForChart = useMemo(() => {
+    if (replayCutoffTs == null || !tickSeed) return tickSeed;
+    const t: number[] = [];
+    const ltp: number[] = [];
+    for (let i = 0; i < tickSeed.t.length; i++) {
+      if (tickSeed.t[i] <= replayCutoffTs) { t.push(tickSeed.t[i]); ltp.push(tickSeed.ltp[i]); }
+    }
+    return { t, ltp };
+  }, [tickSeed, replayCutoffTs]);
+
   const live = useLiveCandles(
     useTicks ? target.securityId : null,
     target.exchangeSegment,
     intervalSec,
     useTicks,
-    isReplay ? undefined : tickSeed, // no seed during replay → follow the stream
+    seedForChart, // history to the replay's now; the live seam extends it forward
   );
   const brokerCandles = useMemo<Candle[]>(() => {
     const raw = candleQuery.data as RawCandles | undefined;
@@ -317,7 +342,7 @@ function OptionChart({
     expiry: target.expiry,
   });
   const loading = useTicks
-    ? !isReplay && histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
+    ? histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
     : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
 
   const btn = (active: boolean, disabled = false) =>
