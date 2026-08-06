@@ -357,10 +357,13 @@ export default function InstrumentChartPage() {
   // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
   const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
-  // Focus-layout thumbnails can be closed; re-picking a layout re-opens them.
-  const [prevThumbOpen, setPrevThumbOpen] = useState(true);
-  const [undThumbOpen, setUndThumbOpen] = useState(true);
-  useEffect(() => { setPrevThumbOpen(true); setUndThumbOpen(true); }, [layoutId]);
+  // Focus-layout thumbnails are OFF by default — turned on from the top-bar
+  // toggle. Each can also be dismissed with its ✕. Layout switch resets to off.
+  const [prevThumbOpen, setPrevThumbOpen] = useState(false);
+  const [undThumbOpen, setUndThumbOpen] = useState(false);
+  useEffect(() => { setPrevThumbOpen(false); setUndThumbOpen(false); }, [layoutId]);
+  const thumbsOn = prevThumbOpen || undThumbOpen;
+  const toggleThumbs = () => { const on = !thumbsOn; setPrevThumbOpen(on); setUndThumbOpen(on); };
   useEffect(() => {
     try { localStorage.setItem(gridLayoutKey(inst), layoutId); } catch { /* ignore */ }
   }, [inst, layoutId]);
@@ -651,6 +654,12 @@ export default function InstrumentChartPage() {
             </div>
           )}
         </div>
+        {/* Focus-layout thumbnails toggle — off by default. */}
+        {layout.focus && (
+          <div className="flex items-center gap-0.5">
+            <button className={btn(thumbsOn)} onClick={toggleThumbs} title="Show/hide the previous-trade + underlying floating thumbnails">Thumbnails</button>
+          </div>
+        )}
         {/* Layout picker (T88) — pane 1 = underlying, panes 2..N = open trades. */}
         <div className="relative">
           <button className={btn(true)} onClick={() => setLayoutMenuOpen((v) => !v)} title="Chart layout — panes">
