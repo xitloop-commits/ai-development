@@ -85,11 +85,14 @@ function snapToCandle(times: number[], tShifted: number): number {
  *  distinctly:
  *    CE (call): entry ▲ below the bar,  exit ● above.
  *    PE (put):  entry ▼ above the bar,  exit ● below.
- *  `cutoff` hides markers past a replay position (pass Infinity when not replaying). */
+ *  `cutoff` hides markers past a replay position (pass Infinity when not replaying).
+ *  `fixedPos` (option charts): entry ALWAYS below the bar, exit ALWAYS on top —
+ *  the premium behaves the same for CE/PE, so side-based sides don't help there. */
 function buildTradeMarkers(
   trades: ChartTradeRow[],
   times: number[],
   cutoff: number,
+  fixedPos = false,
 ): SeriesMarker<UTCTimestamp>[] {
   const out: SeriesMarker<UTCTimestamp>[] = [];
   for (const t of trades) {
@@ -97,23 +100,23 @@ function buildTradeMarkers(
     const color = resolveCohortHex(t.cohort);
     const n = t.tradeNo ?? t.signalSeq;
     const label = n != null ? `#${n}` : "";
-    // Entry — direction arrow on the "home" side (CALL below, PUT above).
+    // Entry — below the bar (fixed), or the direction arrow's home side.
     const entT = snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS);
     if (entT <= cutoff)
       out.push({
         time: entT as UTCTimestamp,
-        position: isCall ? "belowBar" : "aboveBar",
+        position: fixedPos ? "belowBar" : (isCall ? "belowBar" : "aboveBar"),
         color,
-        shape: isCall ? "arrowUp" : "arrowDown",
+        shape: fixedPos ? "arrowUp" : (isCall ? "arrowUp" : "arrowDown"),
         text: label ? `${label} in` : "in",
       });
-    // Exit — ● circle on the OPPOSITE side (CALL above, PUT below).
+    // Exit — on top of the bar (fixed), or the opposite side of entry.
     if (t.exitTime != null) {
       const exT = snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS);
       if (exT <= cutoff)
         out.push({
           time: exT as UTCTimestamp,
-          position: isCall ? "aboveBar" : "belowBar",
+          position: fixedPos ? "aboveBar" : (isCall ? "aboveBar" : "belowBar"),
           color,
           shape: "circle",
           text: label ? `${label} out` : "out",
@@ -289,18 +292,22 @@ function TradePane({
   );
   const c = useLiveCandles(secId || null, optSeg, intervalSec, optionsEnabled, hist.data as { t: number[]; ltp: number[] } | undefined);
   const times = useMemo(() => c.candles.map((k) => k.time as number), [c.candles]);
-  const markers = useMemo(() => buildTradeMarkers([trade, ...(alsoMark ?? [])], times, Infinity), [trade, alsoMark, times]);
-  // Entry + reference lines. The stop is a TRAILING stop, so its line is the
-  // LAST (frozen-at-close) level — labelled TSL — not a static stop for the whole
-  // trade. Target likewise the last level. Both only drawn when present.
+  // Option chart: entry marker always at the BOTTOM, exit on TOP (fixedPos).
+  const markers = useMemo(() => buildTradeMarkers([trade, ...(alsoMark ?? [])], times, Infinity, true), [trade, alsoMark, times]);
+  // Entry + Exit price lines (+ the frozen TSL / target). A CLOSED trade's lines
+  // are DIMMED so an OPEN trade's levels stand out.
   const entryLine = useMemo(() => {
-    const lines = [{ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" }];
+    const isClosed = trade.status !== "OPEN";
+    const dim = (c: string) => (isClosed ? c + "66" : c); // 40% alpha for closed
+    const lines = [{ price: trade.entryPrice, color: dim(CHART_ENTRY), title: "Entry" }];
+    if (trade.exitPrice != null && trade.exitPrice > 0)
+      lines.push({ price: trade.exitPrice, color: dim("#94a3b8"), title: "Exit" });
     if (trade.stopLossPrice != null && trade.stopLossPrice > 0)
-      lines.push({ price: trade.stopLossPrice, color: CHART_DOWN, title: "TSL" });
+      lines.push({ price: trade.stopLossPrice, color: dim(CHART_DOWN), title: "TSL" });
     if (trade.targetPrice != null && trade.targetPrice > 0)
-      lines.push({ price: trade.targetPrice, color: CHART_UP, title: "Target" });
+      lines.push({ price: trade.targetPrice, color: dim(CHART_UP), title: "Target" });
     return lines;
-  }, [trade.entryPrice, trade.stopLossPrice, trade.targetPrice]);
+  }, [trade.entryPrice, trade.exitPrice, trade.stopLossPrice, trade.targetPrice, trade.status]);
   const isCall = trade.side === "CE";
   return (
     <TickChart
