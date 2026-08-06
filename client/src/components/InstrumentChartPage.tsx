@@ -130,11 +130,13 @@ function buildTradeMarkers(
 // menu; pane 1 is ALWAYS the underlying, panes 2..N auto-fill with this
 // instrument's OPEN trade charts (newest first). The set matches the layout
 // picker: even grids of 1 / 2 / 4 / 6 / 8 / 9 / 10 panes. Default 2×4.
-type ChartGridLayout = { id: string; cols: number; rows: number; panes: number; focus?: boolean };
+type ChartGridLayout = { id: string; cols: number; rows: number; panes: number; focus?: boolean; split?: boolean };
 const CHART_GRID_LAYOUTS: ChartGridLayout[] = [
   // Focus — the current OPEN trade full-screen, with the previous trade (if a
   // different strike) + the underlying as draggable/resizable floating thumbnails.
   { id: "focus", cols: 1, rows: 1, panes: 1, focus: true },
+  // CE|PE split — two columns, the current CALL trade on the left, PUT on the right.
+  { id: "cepe", cols: 2, rows: 1, panes: 2, split: true },
   { id: "1", cols: 1, rows: 1, panes: 1 },
   { id: "2", cols: 2, rows: 1, panes: 2 },
   { id: "2x2", cols: 2, rows: 2, panes: 4 },
@@ -591,6 +593,21 @@ export default function InstrumentChartPage() {
     const others = tradeRows.filter((t) => t !== focusTrade && t.contractSecurityId === focusTrade.contractSecurityId);
     return others.length ? others : undefined;
   }, [tradeRows, focusTrade]);
+  // CE|PE split layout: per-side focus trade (open of that side, else the most
+  // recent) + all trades on that side's focus contract.
+  const sideFocus = (side: "CE" | "PE"): ChartTradeRow | null => {
+    const st = tradeRows.filter((t) => t.side === side);
+    return st.find((t) => t.status === "OPEN") ?? st.reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null);
+  };
+  const focusCe = useMemo(() => sideFocus("CE"), [tradeRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const focusPe = useMemo(() => sideFocus("PE"), [tradeRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sideAlsoMark = (f: ChartTradeRow | null) => {
+    if (!f?.contractSecurityId) return undefined;
+    const others = tradeRows.filter((t) => t !== f && t.contractSecurityId === f.contractSecurityId);
+    return others.length ? others : undefined;
+  };
+  const ceAlsoMark = useMemo(() => sideAlsoMark(focusCe), [tradeRows, focusCe]); // eslint-disable-line react-hooks/exhaustive-deps
+  const peAlsoMark = useMemo(() => sideAlsoMark(focusPe), [tradeRows, focusPe]); // eslint-disable-line react-hooks/exhaustive-deps
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -687,11 +704,13 @@ export default function InstrumentChartPage() {
                 <button
                   key={l.id}
                   onClick={() => { setLayoutId(l.id); setLayoutMenuOpen(false); }}
-                  title={l.focus ? "Focus — open trade full-view + previous-trade & underlying floating thumbnails" : `${l.panes} panes (${l.cols}×${l.rows})`}
+                  title={l.focus ? "Focus — open trade full-view + previous-trade & underlying floating thumbnails" : l.split ? "CE | PE split — current CALL trade left, PUT right" : `${l.panes} panes (${l.cols}×${l.rows})`}
                   className={`p-1 rounded border transition-colors ${l.id === layoutId ? "border-info-cyan text-info-cyan bg-info-cyan/10" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
                   {l.focus
                     ? <span className="inline-flex h-5 items-center px-1 text-[0.625rem] font-bold">Focus</span>
+                    : l.split
+                    ? <span className="inline-flex h-5 items-center px-1 text-[0.625rem] font-bold">CE|PE</span>
                     : <GridIcon cols={l.cols} rows={l.rows} size={20} />}
                 </button>
               ))}
@@ -714,7 +733,36 @@ export default function InstrumentChartPage() {
         </div>
       </div>
 
-      {layout.focus ? (
+      {layout.split ? (
+        /* CE|PE split — the current CALL trade (left) + PUT trade (right). Each
+           stays on its side's last trade after close, keyed by contract so a next
+           same-strike trade reuses the chart. */
+        <div className="grid flex-1 min-h-0 gap-2" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          {([["CE", focusCe, ceAlsoMark], ["PE", focusPe, peAlsoMark]] as const).map(([side, ft, marks]) => (
+            <div key={side} className={fullscreenPane === `split:${side}` ? "fixed inset-0 z-40 bg-background p-2" : "min-h-0 relative"}>
+              {ft ? (
+                <TradePane
+                  key={ft.contractSecurityId ?? "?"}
+                  trade={ft}
+                  inst={inst ?? ""}
+                  date={date}
+                  optSeg={optSeg}
+                  intervalSec={intervalSec}
+                  style={style}
+                  indicators={indicators}
+                  optionsEnabled={optionsEnabled}
+                  sma5Ha={sma5Ha}
+                  sma5Period={sma5Period}
+                  alsoMark={marks}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No {side === "CE" ? "CALL" : "PUT"} trades yet.</div>
+              )}
+              <PaneFullscreenBtn active={fullscreenPane === `split:${side}`} onToggle={() => setFullscreenPane((p) => (p === `split:${side}` ? null : `split:${side}`))} />
+            </div>
+          ))}
+        </div>
+      ) : layout.focus ? (
         /* Focus layout — the current trade full-view (stays on the last trade
            after it closes, until the next), with the previous trade (different
            strike) + the underlying as floating thumbnails. */
