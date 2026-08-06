@@ -55,7 +55,8 @@ interface LadderCfg {
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
-  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number; esMtpPct: number;
+  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
+  esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -393,7 +394,7 @@ const HELP = {
   ladderEsSl:
     "The one hard stop kept while riding to the exit signal (ES-honour ON). Basis %: a flat % below entry. Basis ₹: a gross rupee loss (converted to a price via the position size). Its marker is drawn on the bar.",
   ladderEsMtp:
-    "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this % above entry, even before the model says exit. Default 10%.",
+    "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis ₹: a gross rupee profit (converted via the position size). Its own toggle, separate from the SL's.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -839,7 +840,17 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                         ) : (
                           <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esSlValue = v; })} />
                         )}
-                        <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.esMtpPct = v; })} />
+                        <Row label="MTP basis" help={HELP.ladderEsMtp}>
+                          <div className="flex gap-1">
+                            <Pill label="%" on={ed.ladder.esMtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.esMtpMode = "percent"; })} />
+                            <Pill label="₹" on={ed.ladder.esMtpMode === "rupees"} onClick={() => editExits((x) => { x.ladder.esMtpMode = "rupees"; })} />
+                          </div>
+                        </Row>
+                        {ed.ladder.esMtpMode === "percent" ? (
+                          <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.esMtpPct = v; })} />
+                        ) : (
+                          <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esMtpValue = v; })} />
+                        )}
                       </>
                     ) : (
                       <>

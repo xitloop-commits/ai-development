@@ -393,4 +393,11 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
     expect(ladderDecide({ ...lbase, ltp: 89, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(true);
     expect(ladderDecide({ ...lbase, ltp: 91, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
   });
+  it("MTP rupees mode banks at ₹ profit / qty (₹5000 / 100 = 50 → 150), its own basis", () => {
+    const rs = { ...lcfg, esHonour: true, esMtpMode: "rupees" as const, esMtpValue: 5000 };
+    const o = ladderDecide({ ...lbase, ltp: 150, peak: 150, now: at(5), qty: 100 }, rs, noFav);
+    expect(o.phase).toBe("target-bank");
+    expect(o.exitPrice).toBeCloseTo(150, 5);
+    expect(ladderDecide({ ...lbase, ltp: 149, peak: 149, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
+  });
 });
