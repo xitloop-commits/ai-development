@@ -335,7 +335,7 @@ export default function InstrumentChartPage() {
 
   const [date, setDate] = useState<string>("");
   const [intervalSec, setIntervalSec] = useState<number>(DEFAULT_INTERVAL_SECONDS);
-  const [style, setStyle] = useState<ChartStyle>("candle");
+  const [style, setStyle] = useState<ChartStyle>("ha"); // Heikin-Ashi by default (matches the SMA5 detector)
   // SEA signals still power the MA-line colouring + the trade-reason panel, but
   // are no longer drawn as chart markers (trades only).
   const [showTrades, setShowTrades] = useState(true);
