@@ -11,6 +11,7 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
+import * as signalsStore from '@/stores/signalsStore';
 import { TodayPnlBar } from './TodayPnlBar';
 import { TradeFilterBar, EMPTY_TRADE_FILTER, istDateOf, type TradeFilter } from './TradeFilterBar';
 import { AiControl } from './AiControl';
@@ -112,7 +113,14 @@ export default function TradingDesk({
   // isn't sitting permanently in the chrome. clearWorkspace resets the channel.
   const utils = trpc.useUtils();
   const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
-    onSuccess: () => { void utils.portfolio.allDays.invalidate(); refetchAll?.(); },
+    onSuccess: () => {
+      void utils.portfolio.allDays.invalidate();
+      // The server also cleared today's SEA signals — empty the tray store and
+      // refetch so the signal feed clears in step with the wiped book.
+      signalsStore.clear();
+      void utils.trading.signals.invalidate();
+      refetchAll?.();
+    },
   });
   const canClear = channel === 'paper' && !run;
 

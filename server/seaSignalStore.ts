@@ -210,6 +210,26 @@ export async function insertSeaSignal(raw: Record<string, any>): Promise<SeaSign
 }
 
 /**
+ * Clear stored SEA signals (the tray's source of truth). Called by the paper
+ * CLEAR so wiping the book also empties the signal tray. Defaults to TODAY only
+ * (the visible tray) and resets today's sequence counter so numbering restarts
+ * at #1 with the fresh book; pass `allDays` to purge history too. Returns the
+ * number of signal rows removed.
+ */
+export async function clearSeaSignals(opts: { allDays?: boolean } = {}): Promise<number> {
+  const date = todayIST();
+  const filter = opts.allDays ? {} : { date };
+  const res = await SeaSignalModel.deleteMany(filter);
+  // Reset the daily sequence counter(s) so the next signal is #1 again.
+  if (opts.allDays) {
+    await CounterModel.deleteMany({ _id: { $regex: /^seaSignalSeq:/ } });
+  } else {
+    await CounterModel.deleteOne({ _id: `seaSignalSeq:${date}` });
+  }
+  return res?.deletedCount ?? 0;
+}
+
+/**
  * Query signals recent-first for the tray. `before` is the `ts` cursor for
  * lazy-loading older pages (pass the oldest ts already loaded); omit for the
  * newest page. Defaults to today only unless `allDays` is set.

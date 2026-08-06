@@ -19,6 +19,7 @@ import {
   replaceCapitalState,
 } from "./state";
 import { deleteAllPositions } from "./storage";
+import { clearSeaSignals } from "../seaSignalStore";
 import { recordCapitalEvent, getPoolBooks, reconcile } from "./capitalLedger";
 import type { Channel, DayRecord } from "./state";
 import {
@@ -731,6 +732,9 @@ export const portfolioRouter = router({
       // Also wipe position_state — otherwise a still-OPEN position lingers here
       // (RCA reads it) and fires endless "Trade not found" age exits after clear.
       await deleteAllPositions(input.channel);
+      // Clear today's SEA signals too — wiping the book empties the signal tray
+      // so the two stay in step (the trades that referenced them are gone).
+      const clearedSignals = await clearSeaSignals().catch(() => 0);
 
       const freshState = {
         tradingPool: Math.round(input.initialFunding * 100) / 100,
@@ -761,7 +765,7 @@ export const portfolioRouter = router({
       // upsertDayRecord — resurrecting every trade the clear just removed.
       tickHandler.clearStateCache();
 
-      return { success: true, deletedDayRecords: deleted, newState };
+      return { success: true, deletedDayRecords: deleted, clearedSignals, newState };
     }),
 
   // ─── Portfolio Agent Spec §7.1 — Query APIs ────────────────────

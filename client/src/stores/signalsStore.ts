@@ -61,6 +61,13 @@ export function setInitial(list: SEASignal[]): void {
   notify();
 }
 
+/** Empty the tray (paper CLEAR wiped the book + its signals server-side). */
+export function clear(): void {
+  seen.clear();
+  signals = [];
+  notify();
+}
+
 /** Prepend one live signal pushed over the WS. No-op if already present. */
 export function addLive(sig: SEASignal): void {
   if (!sig) return;
