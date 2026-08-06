@@ -27,8 +27,12 @@ import { createLogger } from "../broker/logger";
 
 const log = createLogger("Replay", "TickReplay");
 
-/** NSE instruments we replay (option = exit-engine ticks, underlying = context). */
+/** NSE instruments we CAN replay (option = exit-engine ticks, underlying = context).
+ *  A run replays a chosen subset of these (defaults to all). */
 const REPLAY_INSTRUMENTS = ["banknifty", "nifty50"] as const;
+export type ReplayInstrument = (typeof REPLAY_INSTRUMENTS)[number];
+/** The instruments a replay can be run against — surfaced to the UI picker. */
+export const REPLAYABLE_INSTRUMENTS: readonly ReplayInstrument[] = REPLAY_INSTRUMENTS;
 
 /** data/raw root — override with REPLAY_DATA_DIR if the server cwd differs. */
 const RAW_DIR = process.env.REPLAY_DATA_DIR || path.join(process.cwd(), "data", "raw");
@@ -59,13 +63,13 @@ let featureProcs: ChildProcess[] = [];
 /** Spawn the Python live-replay for every replayed instrument. Best-effort: a
  *  spawn failure is logged (with the REPLAY_PYTHON hint) but never blocks the
  *  Node tick replay — the exit engine still runs, only SEA won't have a feed. */
-function startFeatureReplay(date: string, speed: number): void {
+function startFeatureReplay(date: string, speed: number, instruments: readonly string[]): void {
   stopFeatureReplay(); // clear any stragglers from a prior run
   const cwd = process.cwd();
   const pythonPath = [path.join(cwd, "python_modules"), process.env.PYTHONPATH]
     .filter(Boolean)
     .join(path.delimiter);
-  featureProcs = REPLAY_INSTRUMENTS.map((inst) => {
+  featureProcs = instruments.map((inst) => {
     // Fresh feature file per replay so SEA sees only this run's rows.
     const outFile = path.join(cwd, "data", "features", `${inst}_live.ndjson`);
     try {
@@ -237,7 +241,9 @@ async function streamFile(file: string, t0RecvTs: number, t0Wall: number, speed:
   }
 }
 
-/** Dates that have replayable NSE recordings (both instruments' option files). */
+/** Dates that have replayable NSE recordings — ANY replayable instrument's option
+ *  file (the run picks which instruments to use, so a date with only one still
+ *  qualifies). */
 export function listReplayDates(): string[] {
   if (!fs.existsSync(RAW_DIR)) return [];
   return fs
@@ -245,7 +251,7 @@ export function listReplayDates(): string[] {
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .filter((date) =>
-      REPLAY_INSTRUMENTS.every((inst) => fs.existsSync(optionFile(date, inst))),
+      REPLAY_INSTRUMENTS.some((inst) => fs.existsSync(optionFile(date, inst))),
     )
     .sort()
     .reverse(); // newest first
@@ -272,11 +278,18 @@ export function isReplayActive(): boolean {
 export async function startReplay(
   date: string,
   speed = 1,
-  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number } = {},
+  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number; instruments?: string[] } = {},
 ): Promise<{ runId: string }> {
   if (running) throw new Error("A replay is already running — stop it first.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Bad date: ${date}`);
   if (!(speed > 0)) throw new Error(`Bad speed: ${speed}`);
+
+  // Which instruments this run replays — a subset of the replayable set (default
+  // all). Unknown names are dropped; the ones with no recording for this date are
+  // skipped below (a date can have only one instrument's ticks).
+  const chosen = (opts.instruments?.length ? opts.instruments : REPLAY_INSTRUMENTS)
+    .filter((i): i is ReplayInstrument => (REPLAY_INSTRUMENTS as readonly string[]).includes(i));
+  if (chosen.length === 0) throw new Error("No valid instruments selected for replay.");
 
   // ── Model selection (T97) ────────────────────────────────────────
   // Point SEA at the versions under test BEFORE the run opens, so every trade
@@ -290,13 +303,19 @@ export async function startReplay(
   }
 
   const files: string[] = [];
-  for (const inst of REPLAY_INSTRUMENTS) {
+  const ran: ReplayInstrument[] = [];
+  for (const inst of chosen) {
     const opt = optionFile(date, inst);
-    if (!fs.existsSync(opt)) throw new Error(`No recording for ${inst} on ${date}`);
+    if (!fs.existsSync(opt)) {
+      log.warn(`Replay: no recording for ${inst} on ${date} — skipping it`);
+      continue;
+    }
     files.push(opt);
+    ran.push(inst);
     const und = underlyingFile(date, inst);
     if (fs.existsSync(und)) files.push(und);
   }
+  if (ran.length === 0) throw new Error(`No recording for the selected instrument(s) on ${date}`);
 
   // Shared anchor = earliest recv_ts across all files → mapped to "now".
   const firsts = (await Promise.all(files.map(firstRecvTs))).filter((t): t is number => t != null);
@@ -325,10 +344,11 @@ export async function startReplay(
   startedAt = t0Wall;
   ticksEmitted = 0;
 
-  log.important(`Replay START ${date} @ ${speed}× (${files.length} streams)`);
+  log.important(`Replay START ${date} @ ${speed}× (${files.length} streams · ${ran.join(", ")})`);
 
-  // Drive SEA too: spawn the Python feature feeders (best-effort, non-blocking).
-  startFeatureReplay(date, speed);
+  // Drive SEA too: spawn the Python feature feeders for the instruments actually
+  // being replayed (best-effort, non-blocking).
+  startFeatureReplay(date, speed, ran);
 
   // Fire all streams concurrently; flip `running` off when the last one ends.
   void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(async () => {

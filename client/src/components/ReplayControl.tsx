@@ -20,6 +20,13 @@ const SEA_OFF_TIP = 'Live simulation program is off — start the signal engine 
 
 const SPEEDS = [1, 3, 5, 10, 30, 60] as const;
 
+/** Instruments a replay can run against (subset chosen per run). Mirrors the
+ *  server's REPLAYABLE_INSTRUMENTS. */
+const REPLAY_INSTS = [
+  { key: 'nifty50', label: 'Nifty' },
+  { key: 'banknifty', label: 'BankN' },
+] as const;
+
 export function ReplayControl() {
   const utils = trpc.useUtils();
   const datesQ = trpc.replay.dates.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
@@ -51,6 +58,12 @@ export function ReplayControl() {
   const [speed, setSpeed] = useState<number>(1);
   const selectedDate = date || dates[0] || '';
 
+  // Which instruments this run replays — both by default. The model pickers +
+  // the started run follow this selection.
+  const [insts, setInsts] = useState<string[]>(REPLAY_INSTS.map((i) => i.key));
+  const toggleInst = (k: string) =>
+    setInsts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+
   // Model under test (T97). One picker PER INSTRUMENT: the two books are trained
   // separately and their version strings differ (nifty50 20260718_161937 vs
   // banknifty 20260718_204202), so a single shared value would be invalid for
@@ -70,6 +83,7 @@ export function ReplayControl() {
   };
   const chosenModels = Object.fromEntries(
     (['nifty50', 'banknifty'] as const)
+      .filter((i) => insts.includes(i)) // only the instruments being replayed
       .map((i) => [i, pickFor(i).selected])
       .filter(([, v]) => !!v),
   ) as Record<string, string>;
@@ -148,6 +162,27 @@ export function ReplayControl() {
           ? <option value="">no recordings</option>
           : dates.map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
+      {/* Instruments to replay — pick one or both. */}
+      <div className="flex items-center gap-1.5" title="Which instruments to replay">
+        <span className="text-[0.5625rem] font-semibold uppercase tracking-wide text-muted-foreground">Instruments</span>
+        <div className="flex gap-1">
+          {REPLAY_INSTS.map((i) => {
+            const on = insts.includes(i.key);
+            return (
+              <button
+                key={i.key}
+                type="button"
+                onClick={() => toggleInst(i.key)}
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors ${
+                  on ? 'bg-primary/20 text-primary border-primary/40' : 'bg-muted/30 text-muted-foreground border-border hover:text-foreground'
+                }`}
+              >
+                {i.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <select
         value={speed}
         onChange={(e) => setSpeed(Number(e.target.value))}
@@ -160,6 +195,7 @@ export function ReplayControl() {
           differ — see the comment above). SEA hot-swaps to these before the
           replay starts, and the run records them so results are attributable. */}
       {(['nifty50', 'banknifty'] as const).map((inst) => {
+        if (!insts.includes(inst)) return null; // only for instruments being replayed
         const { list, selected } = pickFor(inst);
         if (list.length === 0) return null;
         return (
@@ -186,14 +222,15 @@ export function ReplayControl() {
       <button
         type="button"
         onClick={() =>
-          selectedDate &&
+          selectedDate && insts.length > 0 &&
           startMut.mutate({
             date: selectedDate,
             speed,
+            instruments: insts,
             models: Object.keys(chosenModels).length ? chosenModels : undefined,
           })
         }
-        disabled={!selectedDate || startMut.isPending || seaOff}
+        disabled={!selectedDate || insts.length === 0 || startMut.isPending || seaOff}
         className="w-full flex items-center justify-center gap-1 rounded px-2 py-1.5 mt-1 text-[0.6875rem] font-bold bg-bullish/15 text-bullish hover:bg-bullish/25 transition-colors disabled:opacity-40"
         title={seaOff ? SEA_OFF_TIP : 'Replay this day\'s recorded ticks as a live simulation (available outside market hours)'}
       >

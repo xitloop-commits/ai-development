@@ -48,6 +48,10 @@ export const replayRouter = router({
          *  `{ nifty50: "20260718_161937" }`. Omitted instruments keep whatever
          *  SEA is already on. */
         models: z.record(z.string(), z.string()).optional(),
+        /** Instruments to replay — a subset of the replayable set. Omitted =
+         *  all. Unknown names are dropped; ones with no recording for the date
+         *  are skipped server-side. */
+        instruments: z.array(z.string()).optional(),
         /** Notional capital the run sizes against — never a real pool. */
         openingCapital: z.number().positive().optional(),
         note: z.string().max(200).optional(),
@@ -93,6 +97,7 @@ export const replayRouter = router({
       try {
         const { runId } = await startReplay(input.date, input.speed, {
           models: input.models,
+          instruments: input.instruments,
           openingCapital: input.openingCapital,
           note: input.note ?? null,
         });
