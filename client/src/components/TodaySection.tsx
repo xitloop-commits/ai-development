@@ -105,6 +105,11 @@ export function TodaySection({
     const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
     return l ? { start: l.ttpStartPct ?? 5, trail: l.ttpTrailPct ?? 5 } : null;
   }, [aiConfigQuery.data, exitBook]);
+  // ES-honour ON → the ladder's own exits are off; its TSL + TTP markers are
+  // hidden (the trade rides to the model's exit signal, not the ladder).
+  const ladderEsHonour = useMemo(() => {
+    return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esHonour;
+  }, [aiConfigQuery.data, exitBook]);
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -293,6 +298,7 @@ export function TodaySection({
           coolingSecByStrategy={coolingSecByStrategy}
           ladderMslPct={ladderMslPct}
           ladderTtp={ladderTtp}
+          ladderEsHonour={ladderEsHonour}
           tradeNo={trades.indexOf(trade) + 1}
         />
       ))}

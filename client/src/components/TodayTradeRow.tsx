@@ -63,6 +63,8 @@ export interface TodayTradeRowProps {
   /** T147 — Ladder's TTP (trailing-TP line) start % + trail %. The row draws the
    *  marker at max(start, peakFav + trail). null when unavailable. */
   ladderTtp?: { start: number; trail: number } | null;
+  /** ES-honour ON → the ladder's own exits are off; hide its TSL + TTP markers. */
+  ladderEsHonour?: boolean;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
 }
@@ -87,6 +89,7 @@ function _TodayTradeRow({
   coolingSecByStrategy,
   ladderMslPct,
   ladderTtp,
+  ladderEsHonour,
   tradeNo,
   liveLtp,
 }: RenderProps) {
@@ -390,7 +393,9 @@ function _TodayTradeRow({
                 entryPrice={trade.entryPrice}
                 ltp={isOpen ? displayLtp : (trade.exitPrice ?? trade.ltp)}
                 slPercent={
-                  trade.stopLossPrice && trade.stopLossPrice > 0
+                  // ES-honour on a Ladder trade → its exits are off; hide the SL/TSL marker.
+                  (trade.exitStrategy === "ladder" && ladderEsHonour) ? undefined
+                    : trade.stopLossPrice && trade.stopLossPrice > 0
                     ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
                         trade.entryPrice) * 100
                     : undefined // T86 ④ — no real stop → no phantom SL marker
@@ -423,7 +428,7 @@ function _TodayTradeRow({
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
                 stopReadoutTop={trade.exitStrategy === "ladder"}
                 ttpPercent={
-                  trade.exitStrategy === "ladder" && ladderTtp && trade.entryPrice > 0
+                  trade.exitStrategy === "ladder" && !ladderEsHonour && ladderTtp && trade.entryPrice > 0
                     ? (() => {
                         const peak = trade.peakLtp ?? trade.entryPrice;
                         const peakFav = Math.max(0, ((isBuy ? peak - trade.entryPrice : trade.entryPrice - peak) / trade.entryPrice) * 100);
@@ -722,6 +727,7 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.tslHoldSeconds === b.tslHoldSeconds &&
     a.ladderMslPct === b.ladderMslPct &&
     a.ladderTtp === b.ladderTtp &&
+    a.ladderEsHonour === b.ladderEsHonour &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&
     // By-value compare neutralises the per-poll reference + undefined/absent churn.
