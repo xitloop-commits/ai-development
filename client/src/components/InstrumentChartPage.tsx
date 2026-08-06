@@ -550,7 +550,13 @@ export default function InstrumentChartPage() {
   }, [tradeRows]);
   const prevSameContract = !!(openTrade && prevTrade && openTrade.contractSecurityId === prevTrade.contractSecurityId);
   const showPrevThumb = !!prevTrade && !prevSameContract;              // different strike → its own chart
-  const prevMarksOnMain = openTrade && prevTrade && prevSameContract ? [prevTrade] : undefined;
+  // Every OTHER trade on the SAME security (same strike + side) is marked on the
+  // main chart alongside the open trade — so all trades on that contract show.
+  const mainAlsoMark = useMemo(() => {
+    if (!openTrade?.contractSecurityId) return undefined;
+    const others = tradeRows.filter((t) => t !== openTrade && t.contractSecurityId === openTrade.contractSecurityId);
+    return others.length ? others : undefined;
+  }, [tradeRows, openTrade]);
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -685,7 +691,7 @@ export default function InstrumentChartPage() {
                 optionsEnabled={optionsEnabled}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
-                alsoMark={prevMarksOnMain}
+                alsoMark={mainAlsoMark}
               />
             </div>
           ) : (
