@@ -2,6 +2,15 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T154 [ML] — sma-model: learned SMA5 leg-riding entry/exit model — SPEC DRAFT 2026-08-07, awaiting review 🆕
+Brand-new nifty-only model (existing 84-head model untouched): 1-min Heikin-Ashi
+candles + SMA5 on **futures ticks**; model (not rules) decides enter CALL/PUT on
+crossings and hold-vs-exit on wrong-side candles, from raw-tick evidence.
+Graded in ₹ after real costs via recorded ATM weekly option bid/ask. One trade,
+1 lot. Three gates: backtest → ~2wk paper → live discussion.
+Full spec: [docs/systems/11_sma_model.md](systems/11_sma_model.md).
+**Next: Partha reviews the spec line-by-line; no code until sign-off.**
+
 ### T152 [Signal Engine] — SMA-5 price-cross cohort (`sma5`) BUILT 2026-08-05 🚧 (paper-validate)
 New cohort mirroring MA-Signal but on a **5-period SMA of the underlying close**:
 CALL when a 1-min candle **closes above** the line, PUT when it **closes below**;

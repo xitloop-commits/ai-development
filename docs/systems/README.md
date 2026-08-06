@@ -22,6 +22,7 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 | 08 | [UI Desktop](08_ui_desktop.md) | MainScreen + TradingDesk + Settings + InstrumentCard + Notifications (Tauri) |
 | 09 | [Control Bot](09_control_bot.md) | yow-partha — Telegram phone-based control surface |
 | 10 | [Launcher & Ops](10_launcher_ops.md) | Lubas launcher + scheduled tasks + AI canary + RUNBOOK |
+| 11 | [SMA-Model](11_sma_model.md) | Learned SMA5 leg-riding entry/exit model (SPEC DRAFT — no code yet) |
 
 ## End-to-end data flow
 
