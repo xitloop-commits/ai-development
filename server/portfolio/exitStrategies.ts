@@ -255,6 +255,7 @@ export interface LadderConfig {
   esSlMode: "percent" | "rupees";
   esSlPct: number;   // % below entry (percent mode)
   esSlValue: number; // gross ₹ loss (rupees mode)
+  esMtpPct: number;  // ES-honour take-profit cap: % above entry
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -280,6 +281,7 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   esSlMode: "percent",
   esSlPct: 1,
   esSlValue: 1000,
+  esMtpPct: 10,
 };
 
 export interface LadderState {
@@ -362,13 +364,20 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
   // a gross-₹ loss converted to a premium distance via qty), whose marker the
   // TradeBar draws from this stop.
   if (c.esHonour) {
+    // Upside MTP cap — bank if the live price reaches esMtpPct above entry.
+    const esTargetGain = i.entry * (c.esMtpPct / 100);
+    const esTarget = i.entry + d * esTargetGain;
+    if (favour(i, i.ltp) >= esTargetGain) {
+      return { stop, exit: true, exitPrice: esTarget, target: esTarget, phase: "target-bank" };
+    }
+    // Downside safety SL — % below entry, or a gross-₹ loss converted via qty.
     const esStop =
       c.esSlMode === "rupees" && i.qty && i.qty > 0
         ? i.entry - d * (c.esSlValue / i.qty)      // ₹ loss ÷ qty = per-unit premium
         : i.entry * (1 - d * (c.esSlPct / 100));   // % below entry
     const esExit = stopBreached(i, esStop);
     const esFill = esExit ? (favour(i, i.ltp) < favour(i, esStop) ? i.ltp : esStop) : undefined;
-    return { stop: esStop, exit: esExit, exitPrice: esFill, target, phase: "wide" };
+    return { stop: esStop, exit: esExit, exitPrice: esFill, target: esTarget, phase: "wide" };
   }
 
   // MTP — bank the profit when the live price reaches the target.

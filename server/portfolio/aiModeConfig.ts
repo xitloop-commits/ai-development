@@ -512,6 +512,7 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.esSlMode = l.esSlMode === "rupees" ? "rupees" : "percent";
   l.esSlPct = clampNum(l.esSlPct, 0.1, 90, 1);
   l.esSlValue = clampNum(l.esSlValue, 50, 1_000_000, 1000);
+  l.esMtpPct = clampNum(l.esMtpPct, 1, 500, 10);
   return e;
 }
 

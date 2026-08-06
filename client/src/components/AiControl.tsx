@@ -55,7 +55,7 @@ interface LadderCfg {
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
-  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
+  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number; esMtpPct: number;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -392,6 +392,8 @@ const HELP = {
     "Whether the trade exits on SEA's exit signal ONLY. Off (default) = the signal is visual-only and the ladder's own SL/TSL/MSL/MTP run the trade. On = the ladder's own TSL/MSL/MTP are disabled and the trade rides until the model's exit signal fires — except for the safety SL below.",
   ladderEsSl:
     "The one hard stop kept while riding to the exit signal (ES-honour ON). Basis %: a flat % below entry. Basis ₹: a gross rupee loss (converted to a price via the position size). Its marker is drawn on the bar.",
+  ladderEsMtp:
+    "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this % above entry, even before the model says exit. Default 10%.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -821,9 +823,9 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     {ed.ladder.esHonour ? (
                       <>
                         <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                          ON — the Ladder's own TSL / MSL / MTP are DISABLED and the
-                          trade rides until SEA's exit signal fires. The one exit kept
-                          is the safety SL below (its marker still shows).
+                          ON — the Ladder's own staged SL / TSL / MSL are DISABLED and
+                          the trade rides until SEA's exit signal fires, EXCEPT the two
+                          caps below: a safety SL (down) and an MTP (up).
                         </span>
                         <SubGroup>Safety SL · while riding to the signal</SubGroup>
                         <Row label="SL basis" help={HELP.ladderEsSl}>
@@ -837,6 +839,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                         ) : (
                           <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esSlValue = v; })} />
                         )}
+                        <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.esMtpPct = v; })} />
                       </>
                     ) : (
                       <>

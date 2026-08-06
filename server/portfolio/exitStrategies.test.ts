@@ -366,11 +366,18 @@ describe("LADDER — fixed SL mode (classical flat stop)", () => {
   });
 });
 
-describe("LADDER — ES honour: only the safety SL exits", () => {
-  const es = { ...lcfg, esHonour: true, esSlMode: "percent" as const, esSlPct: 1 };
-  it("does NOT bank MTP (rides to the model's exit signal)", () => {
-    const o = ladderDecide({ ...lbase, ltp: 130, peak: 130, now: at(5) }, es, noFav);
+describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
+  const es = { ...lcfg, esHonour: true, esSlMode: "percent" as const, esSlPct: 1, esMtpPct: 10 };
+  it("does NOT exit on the ladder's own MTP (rides to the signal) below the ES cap", () => {
+    // 5% up: past the ladder's mtpR target (110) but under the 10% ES cap → no exit.
+    const o = ladderDecide({ ...lbase, ltp: 105, peak: 105, now: at(5) }, es, noFav);
     expect(o.exit).toBe(false);
+  });
+  it("banks at the ES MTP cap (10% → 110)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, es, noFav);
+    expect(o.phase).toBe("target-bank");
+    expect(o.exit).toBe(true);
+    expect(o.exitPrice).toBeCloseTo(110, 5);
   });
   it("safety SL sits at esSlPct below entry (1% → 99) and fires when hit", () => {
     const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, es, noFav);
