@@ -567,21 +567,30 @@ export default function InstrumentChartPage() {
     const candle = baseCandles.find((c) => c.time === t);
     return candle ? [{ price: candle.close, color: CHART_ENTRY, title: "Entry" }] : [];
   }, [openTrade, baseCandles]);
-  // Focus layout: the previous (last CLOSED) trade. If it shares the open trade's
-  // CONTRACT (same strike) its markers ride the main chart; else its own thumbnail.
+  // Focus layout: the trade the main view is anchored on — the OPEN trade, or
+  // (after it closes) the most-recent trade, so the chart PERSISTS until the next
+  // trade. The main TradePane is keyed by this trade's CONTRACT, so a next trade
+  // on the SAME strike + side reuses the same chart; a different one remounts.
+  const focusTrade = useMemo(
+    () => openTrade ?? tradeRows.reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null),
+    [openTrade, tradeRows],
+  );
+  // Previous trade = the most-recent trade opened BEFORE the focus trade. If it
+  // shares the focus contract (same strike) its markers ride the main chart; else
+  // it gets its own thumbnail.
   const prevTrade = useMemo(() => {
-    const closed = tradeRows.filter((t) => t.status !== "OPEN").sort((a, b) => b.entryTime - a.entryTime);
-    return closed[0] ?? null;
-  }, [tradeRows]);
-  const prevSameContract = !!(openTrade && prevTrade && openTrade.contractSecurityId === prevTrade.contractSecurityId);
+    if (!focusTrade) return null;
+    return tradeRows.filter((t) => t.entryTime < focusTrade.entryTime).sort((a, b) => b.entryTime - a.entryTime)[0] ?? null;
+  }, [tradeRows, focusTrade]);
+  const prevSameContract = !!(focusTrade && prevTrade && focusTrade.contractSecurityId === prevTrade.contractSecurityId);
   const showPrevThumb = !!prevTrade && !prevSameContract;              // different strike → its own chart
-  // Every OTHER trade on the SAME security (same strike + side) is marked on the
-  // main chart alongside the open trade — so all trades on that contract show.
+  // Every OTHER trade on the focus trade's security (same strike + side) is marked
+  // on the main chart alongside it — so all trades on that contract show.
   const mainAlsoMark = useMemo(() => {
-    if (!openTrade?.contractSecurityId) return undefined;
-    const others = tradeRows.filter((t) => t !== openTrade && t.contractSecurityId === openTrade.contractSecurityId);
+    if (!focusTrade?.contractSecurityId) return undefined;
+    const others = tradeRows.filter((t) => t !== focusTrade && t.contractSecurityId === focusTrade.contractSecurityId);
     return others.length ? others : undefined;
-  }, [tradeRows, openTrade]);
+  }, [tradeRows, focusTrade]);
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -706,13 +715,15 @@ export default function InstrumentChartPage() {
       </div>
 
       {layout.focus ? (
-        /* Focus layout — the current OPEN trade full-view, with the previous
-           trade (different strike) + the underlying as floating thumbnails. */
+        /* Focus layout — the current trade full-view (stays on the last trade
+           after it closes, until the next), with the previous trade (different
+           strike) + the underlying as floating thumbnails. */
         <div className="relative flex-1 min-h-0">
-          {openTrade ? (
+          {focusTrade ? (
             <div className="absolute inset-0">
               <TradePane
-                trade={openTrade}
+                key={focusTrade.contractSecurityId ?? "?"}
+                trade={focusTrade}
                 inst={inst ?? ""}
                 date={date}
                 optSeg={optSeg}
@@ -726,7 +737,7 @@ export default function InstrumentChartPage() {
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No open trade for {meta.displayName}.</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No trades yet for {meta.displayName}.</div>
           )}
           {/* Bottom-left — previous trade (different strike) as a floating thumbnail. */}
           {showPrevThumb && prevTrade && prevThumbOpen && (
