@@ -143,7 +143,9 @@ const CHART_GRID_LAYOUTS: ChartGridLayout[] = [
 const DEFAULT_GRID_LAYOUT = "focus";
 // Focus-layout floating thumbnail default size (persisted per instrument after first drag/resize).
 const FLOAT_W = 360, FLOAT_H = 240;
-const gridLayoutKey = (inst: string | null) => `chartGridLayout:${inst ?? "?"}`;
+// v2 — bumped for the Focus-layout revamp so an existing saved grid choice no
+// longer pins the old design; everyone lands on the new default (Focus) once.
+const gridLayoutKey = (inst: string | null) => `chartGridLayout2:${inst ?? "?"}`;
 function loadGridLayout(inst: string | null): string {
   try {
     return localStorage.getItem(gridLayoutKey(inst)) || DEFAULT_GRID_LAYOUT;
