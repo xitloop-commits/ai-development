@@ -98,7 +98,14 @@ function OptionChart({
   onClose?: () => void;
 }) {
   const isToday = target.date === istDateString();
-  const refetchInterval = isToday ? REFRESH_MS : (false as const);
+  // A running SYSTEM replay of THIS popup's date streams the recorded ticks over
+  // the same live WS the chart already listens to — so treat it like a live day
+  // and FOLLOW the replayed ticks, instead of painting the whole recorded
+  // session at once (which is what a plain historical date does).
+  const replayStatus = trpc.replay.status.useQuery(undefined, { refetchInterval: 2000, refetchOnWindowFocus: false });
+  const isReplay = !!replayStatus.data?.running && replayStatus.data.date === target.date;
+  const liveMode = isToday || isReplay;
+  const refetchInterval = liveMode ? REFRESH_MS : (false as const);
 
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's HA candles (Partha, 2026-08-05).
@@ -123,10 +130,17 @@ function OptionChart({
   // near the money, so tick-built candles can stop mid-day and any later
   // trade would snap to the last bar). Refetched every 5s today.
   // Sub-minute (1s/15s/30s, today only): recorded ticks (seed) + live WS.
-  const useTicks = isToday && intervalSec < 60;
+  // During a replay, build EVERY interval from the (replayed) live ticks so the
+  // chart follows the run; today keeps its minute intervals on full-day broker
+  // candles (they cover the whole session, a strike's tick recording may not).
+  const useTicks = isReplay || (isToday && intervalSec < 60);
+  // Recorded-tick seed is for TODAY's sub-minute chart only. During a replay we
+  // deliberately DON'T seed — the chart fills from the live replayed ticks as the
+  // run streams (following it), rather than showing the whole recorded day.
+  const histEnabled = isToday && intervalSec < 60 && !!target.securityId;
   const histQuery = trpc.trading.optionTicksForContract.useQuery(
     { instrument: target.instrumentKey, date: target.date, securityId: target.securityId },
-    { enabled: useTicks && !!target.securityId, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    { enabled: histEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
 
   // Broker minute candles — the ONLY full-session source for the contract (our
@@ -142,7 +156,7 @@ function OptionChart({
       fromDate: `${target.date} 00:00:00`,
       toDate: `${target.date} 23:59:59`,
     },
-    { enabled: !!target.securityId, retry: 1, refetchOnWindowFocus: false, refetchInterval },
+    { enabled: !!target.securityId && !isReplay, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
 
   // Sub-minute seed = real recorded ticks + pseudo-ticks (O/H/L/C spread inside
@@ -182,7 +196,7 @@ function OptionChart({
     target.exchangeSegment,
     intervalSec,
     useTicks,
-    tickSeed,
+    isReplay ? undefined : tickSeed, // no seed during replay → follow the stream
   );
   const brokerCandles = useMemo<Candle[]>(() => {
     const raw = candleQuery.data as RawCandles | undefined;
@@ -303,7 +317,7 @@ function OptionChart({
     expiry: target.expiry,
   });
   const loading = useTicks
-    ? histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
+    ? !isReplay && histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
     : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
 
   const btn = (active: boolean, disabled = false) =>
@@ -336,7 +350,7 @@ function OptionChart({
           </a>
         )}
         <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums">
-          {focusMode || hiddenCohorts.size > 0 || hiddenStrategies.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isToday ? " · live" : ""}
+          {focusMode || hiddenCohorts.size > 0 || hiddenStrategies.size > 0 ? `${visibleTrades.length}/${trades.length}` : trades.length} trade{trades.length === 1 ? "" : "s"}{isReplay ? " · replay" : isToday ? " · live" : ""}
         </span>
         {onClose && (
           <button
@@ -355,8 +369,9 @@ function OptionChart({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pb-1 text-xs">
         <div className="flex items-center gap-0">
           {CHART_INTERVALS.map((iv) => {
-            // Sub-minute needs the tick stream — only available for today.
-            const disabled = !isToday && iv.seconds < 60;
+            // Sub-minute needs the tick stream — available today OR while a
+            // replay of this date is streaming ticks.
+            const disabled = !liveMode && iv.seconds < 60;
             return (
               <button
                 key={iv.seconds}
