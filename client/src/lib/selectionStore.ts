@@ -17,6 +17,14 @@ export function setSelectedSignalSeq(seq: number | null): void {
   listeners.forEach((l) => l());
 }
 
+/** Set the selection WITHOUT the toggle-off (for the trade row → tray link, so a
+ *  click that bubbles from a child control can't accidentally deselect). */
+export function selectSignalSeq(seq: number | null): void {
+  if (selectedSignalSeq === seq) return;
+  selectedSignalSeq = seq;
+  listeners.forEach((l) => l());
+}
+
 function getSelectedSignalSeq(): number | null {
   return selectedSignalSeq;
 }

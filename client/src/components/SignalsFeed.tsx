@@ -133,6 +133,11 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
   }, [currentDay]);
   const activeSeqs = activeSignalSeqs ?? openSeqs;
   const selectedSeq = useSelectedSignalSeq();
+  // Desk→tray link: when a trade row selects its signal, scroll that card into view.
+  const selectedCardRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (selectedSeq != null) selectedCardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedSeq]);
   const canTrade = channel !== 'live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
@@ -225,6 +230,7 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
             return (
               <div
                 key={signal.id}
+                ref={isSelected ? selectedCardRef : undefined}
                 onClick={() => setSelectedSignalSeq(signal.signalSeq ?? null)}
                 title={signal.signalSeq != null ? 'Click to highlight the matching trade on the desk' : undefined}
                 className={`group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden cursor-pointer ${isActive ? 'animate-pulse ' : ''}${isSelected ? 'ring-2 ring-info-cyan' : isActive ? 'ring-1 ring-info-cyan/60' : ''}`}

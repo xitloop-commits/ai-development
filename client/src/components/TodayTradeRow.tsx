@@ -24,7 +24,7 @@ import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strateg
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { istDateString } from '@/lib/signalChart';
 import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
-import { useSelectedSignalSeq } from '@/lib/selectionStore';
+import { useSelectedSignalSeq, selectSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { trpc } from '@/lib/trpc';
 import { InstrumentTag } from './InstrumentTag';
@@ -221,10 +221,12 @@ function _TodayTradeRow({
     <>
     <tr
       ref={attachRow}
+      onClick={trade.signalSeq != null ? () => selectSignalSeq(trade.signalSeq ?? null) : undefined}
       className={`border-b border-border transition-colors text-foreground border-l-2 ${
         isFirst ? theme.borderStrong : theme.borderSoft
-      } ${isOpen ? '' : 'opacity-60'} ${isSelected ? 'outline outline-2 -outline-offset-2 outline-info-cyan' : ''}`}
+      } ${isOpen ? '' : 'opacity-60'} ${trade.signalSeq != null ? 'cursor-pointer' : ''} ${isSelected ? 'outline outline-2 -outline-offset-2 outline-info-cyan' : ''}`}
       style={{ backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08) }}
+      title={trade.signalSeq != null ? 'Click to highlight the matching signal in the tray' : undefined}
     >
       {/* Trade identity, packed into the five FIXED day-level columns (Day, Date,
           Capital, Profit+, Capital+ = 22.5rem) which carry no per-trade value.
