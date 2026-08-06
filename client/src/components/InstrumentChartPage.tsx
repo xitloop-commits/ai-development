@@ -10,7 +10,7 @@
  * overlays, replay) drive every panel. Clicking a trade focuses it into the
  * first trade pane + opens its reason card.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -127,8 +127,11 @@ function buildTradeMarkers(
 // menu; pane 1 is ALWAYS the underlying, panes 2..N auto-fill with this
 // instrument's OPEN trade charts (newest first). The set matches the layout
 // picker: even grids of 1 / 2 / 4 / 6 / 8 / 9 / 10 panes. Default 2×4.
-type ChartGridLayout = { id: string; cols: number; rows: number; panes: number };
+type ChartGridLayout = { id: string; cols: number; rows: number; panes: number; focus?: boolean };
 const CHART_GRID_LAYOUTS: ChartGridLayout[] = [
+  // Focus — the current OPEN trade full-screen, with the previous trade (if a
+  // different strike) + the underlying as draggable/resizable floating thumbnails.
+  { id: "focus", cols: 1, rows: 1, panes: 1, focus: true },
   { id: "1", cols: 1, rows: 1, panes: 1 },
   { id: "2", cols: 2, rows: 1, panes: 2 },
   { id: "2x2", cols: 2, rows: 2, panes: 4 },
@@ -137,7 +140,9 @@ const CHART_GRID_LAYOUTS: ChartGridLayout[] = [
   { id: "3x3", cols: 3, rows: 3, panes: 9 },
   { id: "2x5", cols: 5, rows: 2, panes: 10 },
 ];
-const DEFAULT_GRID_LAYOUT = "2x4";
+const DEFAULT_GRID_LAYOUT = "focus";
+// Focus-layout floating thumbnail default size (persisted per instrument after first drag/resize).
+const FLOAT_W = 360, FLOAT_H = 240;
 const gridLayoutKey = (inst: string | null) => `chartGridLayout:${inst ?? "?"}`;
 function loadGridLayout(inst: string | null): string {
   try {
@@ -189,11 +194,65 @@ function PaneFullscreenBtn({ active, onToggle }: { active: boolean; onToggle: ()
   );
 }
 
+/** A floating, draggable + resizable thumbnail overlay (Focus layout). Position
+ *  + size persist per storageKey. Drag by the header; resize from the corner. */
+type FloatBox = { x: number; y: number; w: number; h: number };
+function loadFloatBox(key: string, dflt: FloatBox): FloatBox {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) { const b = JSON.parse(raw); if (b && typeof b.x === "number") return b; }
+  } catch { /* ignore */ }
+  return dflt;
+}
+function FloatingPane({ storageKey, title, defaultBox, children }: {
+  storageKey: string; title: string; defaultBox: FloatBox; children: ReactNode;
+}) {
+  const [box, setBox] = useState<FloatBox>(() => loadFloatBox(storageKey, defaultBox));
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(box)); } catch { /* ignore */ }
+  }, [box, storageKey]);
+  // Persist size when the operator drags the CSS resize grip.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      setBox((b) => (Math.round(r.width) === b.w && Math.round(r.height) === b.h ? b : { ...b, w: Math.round(r.width), h: Math.round(r.height) }));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const onDragStart = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const start = { mx: e.clientX, my: e.clientY, x: box.x, y: box.y };
+    const move = (ev: MouseEvent) => setBox((b) => ({ ...b, x: Math.max(0, start.x + (ev.clientX - start.mx)), y: Math.max(0, start.y + (ev.clientY - start.my)) }));
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  };
+  return (
+    <div
+      ref={ref}
+      className="absolute z-30 flex flex-col overflow-hidden rounded border border-border bg-background shadow-2xl"
+      style={{ left: box.x, top: box.y, width: box.w, height: box.h, resize: "both", minWidth: 160, minHeight: 110 }}
+    >
+      <div
+        className="flex shrink-0 cursor-move items-center gap-1 bg-secondary/70 px-1.5 py-0.5 text-[0.5625rem] font-semibold backdrop-blur"
+        onMouseDown={onDragStart}
+        title="Drag to move · resize from the bottom-right corner"
+      >
+        <span className="truncate text-muted-foreground">{title}</span>
+      </div>
+      <div className="relative min-h-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
 /** One grid pane for a single trade — fetches THIS trade's option contract
  *  candles (its own hooks, so any number of panes is React-safe) and draws it
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
-  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period,
+  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, alsoMark,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -205,6 +264,10 @@ function TradePane({
   optionsEnabled: boolean;
   sma5Ha: boolean;
   sma5Period: number;
+  /** Extra trades on the SAME contract to also mark (e.g. the previous trade when
+   *  it shares the strike — Focus layout draws its markers here instead of a
+   *  separate thumbnail). */
+  alsoMark?: ChartTradeRow[];
 }) {
   const secId = trade.contractSecurityId ?? "";
   const hist = trpc.trading.optionTicksForContract.useQuery(
@@ -213,7 +276,7 @@ function TradePane({
   );
   const c = useLiveCandles(secId || null, optSeg, intervalSec, optionsEnabled, hist.data as { t: number[]; ltp: number[] } | undefined);
   const times = useMemo(() => c.candles.map((k) => k.time as number), [c.candles]);
-  const markers = useMemo(() => buildTradeMarkers([trade], times, Infinity), [trade, times]);
+  const markers = useMemo(() => buildTradeMarkers([trade, ...(alsoMark ?? [])], times, Infinity), [trade, alsoMark, times]);
   // Entry + reference lines. The stop is a TRAILING stop, so its line is the
   // LAST (frozen-at-close) level — labelled TSL — not a static stop for the whole
   // trade. Target likewise the last level. Both only drawn when present.
@@ -477,6 +540,15 @@ export default function InstrumentChartPage() {
     const candle = baseCandles.find((c) => c.time === t);
     return candle ? [{ price: candle.close, color: CHART_ENTRY, title: "Entry" }] : [];
   }, [openTrade, baseCandles]);
+  // Focus layout: the previous (last CLOSED) trade. If it shares the open trade's
+  // CONTRACT (same strike) its markers ride the main chart; else its own thumbnail.
+  const prevTrade = useMemo(() => {
+    const closed = tradeRows.filter((t) => t.status !== "OPEN").sort((a, b) => b.entryTime - a.entryTime);
+    return closed[0] ?? null;
+  }, [tradeRows]);
+  const prevSameContract = !!(openTrade && prevTrade && openTrade.contractSecurityId === prevTrade.contractSecurityId);
+  const showPrevThumb = !!prevTrade && !prevSameContract;              // different strike → its own chart
+  const prevMarksOnMain = openTrade && prevTrade && prevSameContract ? [prevTrade] : undefined;
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -567,10 +639,12 @@ export default function InstrumentChartPage() {
                 <button
                   key={l.id}
                   onClick={() => { setLayoutId(l.id); setLayoutMenuOpen(false); }}
-                  title={`${l.panes} panes (${l.cols}×${l.rows})`}
+                  title={l.focus ? "Focus — open trade full-view + previous-trade & underlying floating thumbnails" : `${l.panes} panes (${l.cols}×${l.rows})`}
                   className={`p-1 rounded border transition-colors ${l.id === layoutId ? "border-info-cyan text-info-cyan bg-info-cyan/10" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
-                  <GridIcon cols={l.cols} rows={l.rows} size={20} />
+                  {l.focus
+                    ? <span className="inline-flex h-5 items-center px-1 text-[0.625rem] font-bold">Focus</span>
+                    : <GridIcon cols={l.cols} rows={l.rows} size={20} />}
                 </button>
               ))}
             </div>
@@ -592,9 +666,71 @@ export default function InstrumentChartPage() {
         </div>
       </div>
 
-      {/* Panes (T88): pane 1 = underlying (+ trade-reason); panes 2..N = this
-          instrument's open-trade charts. Interim step: CE/PE occupy panes 2-3
-          until step 3 swaps them for the per-trade contract charts. */}
+      {layout.focus ? (
+        /* Focus layout — the current OPEN trade full-view, with the previous
+           trade (different strike) + the underlying as floating thumbnails. */
+        <div className="relative flex-1 min-h-0">
+          {openTrade ? (
+            <div className="absolute inset-0">
+              <TradePane
+                trade={openTrade}
+                inst={inst ?? ""}
+                date={date}
+                optSeg={optSeg}
+                intervalSec={intervalSec}
+                style={style}
+                indicators={indicators}
+                optionsEnabled={optionsEnabled}
+                sma5Ha={sma5Ha}
+                sma5Period={sma5Period}
+                alsoMark={prevMarksOnMain}
+              />
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No open trade for {meta.displayName}.</div>
+          )}
+          {/* Bottom-left — previous trade (different strike) as a floating thumbnail. */}
+          {showPrevThumb && prevTrade && (
+            <FloatingPane
+              storageKey={`chartFloatPrev:${inst ?? "?"}`}
+              title={`Prev · ${prevTrade.side} ${prevTrade.strike ?? ""}${prevTrade.signalSeq != null ? ` #${prevTrade.signalSeq}` : ""}`}
+              defaultBox={{ x: 8, y: Math.max(60, window.innerHeight - FLOAT_H - 56), w: FLOAT_W, h: FLOAT_H }}
+            >
+              <TradePane
+                trade={prevTrade}
+                inst={inst ?? ""}
+                date={date}
+                optSeg={optSeg}
+                intervalSec={intervalSec}
+                style={style}
+                indicators={indicators}
+                optionsEnabled={optionsEnabled}
+                sma5Ha={sma5Ha}
+                sma5Period={sma5Period}
+              />
+            </FloatingPane>
+          )}
+          {/* Bottom-right — the underlying asset, floating thumbnail. */}
+          <FloatingPane
+            storageKey={`chartFloatUnd:${inst ?? "?"}`}
+            title={`${meta.displayName} · underlying`}
+            defaultBox={{ x: Math.max(8, window.innerWidth - FLOAT_W - 16), y: Math.max(60, window.innerHeight - FLOAT_H - 56), w: FLOAT_W, h: FLOAT_H }}
+          >
+            <TickChart
+              candles={candles}
+              markers={markers}
+              tradeLines={underlyingEntryLine}
+              style={style}
+              indicators={indicators}
+              intervalSec={intervalSec}
+              sma5Ha={sma5Ha}
+              sma5Period={sma5Period}
+              loading={ticksLoading}
+              className="h-full"
+            />
+          </FloatingPane>
+        </div>
+      ) : (
       <div
         className="flex-1 min-h-0 grid gap-2"
         style={{
@@ -701,6 +837,7 @@ export default function InstrumentChartPage() {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
