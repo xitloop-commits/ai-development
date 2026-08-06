@@ -2,14 +2,20 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-### T154 [ML] — sma-model: learned SMA5 leg-riding entry/exit model — SPEC DRAFT 2026-08-07, awaiting review 🆕
+### T154 [ML] — sma-model: learned SMA5 leg-riding entry/exit model — BUILT, GATE 1 FAILED 2026-08-07 🚧
 Brand-new nifty-only model (existing 84-head model untouched): 1-min Heikin-Ashi
-candles + SMA5 on **futures ticks**; model (not rules) decides enter CALL/PUT on
-crossings and hold-vs-exit on wrong-side candles, from raw-tick evidence.
-Graded in ₹ after real costs via recorded ATM weekly option bid/ask. One trade,
-1 lot. Three gates: backtest → ~2wk paper → live discussion.
-Full spec: [docs/systems/11_sma_model.md](systems/11_sma_model.md).
-**Next: Partha reviews the spec line-by-line; no code until sign-off.**
+candles + SMA5 on **futures ticks**; model decides enter CALL/PUT and
+hold-vs-exit from raw-tick evidence; graded in ₹ after real charges via
+recorded ATM weekly option bid/ask; 1 trade, 1 lot.
+- Code `python_modules/sma_model/` (pipeline → events → features → train/backtest),
+  10 unit tests green. Artifacts `models/sma_model/nifty50/`.
+- **Gate 1 (42 OOS days): 645 trades, ₹−41,482, 30% win — FAIL.** Ranking edge
+  real (AUC ~0.55) but smaller than the ~₹100 spread+charges floor; reconfirms
+  the 2026-07-12 buy-side verdict. Learning curve: last fold near breakeven.
+- 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
+- **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
+  ITM strike / sell-side variant / wait for more data) — see spec §12.
+Full spec + result: [docs/systems/11_sma_model.md](systems/11_sma_model.md).
 
 ### T152 [Signal Engine] — SMA-5 price-cross cohort (`sma5`) BUILT 2026-08-05 🚧 (paper-validate)
 New cohort mirroring MA-Signal but on a **5-period SMA of the underlying close**:

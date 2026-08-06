@@ -1,6 +1,6 @@
 # 11 — SMA-Model (learned SMA5 leg-riding model)
 
-**STATUS: SPEC DRAFT — brainstormed & decided 2026-08-07, awaiting Partha's line-by-line review. NO CODE EXISTS YET. Nothing in this spec touches the existing 84-head model, its trainer, or the live pointers.**
+**STATUS: BUILT + GATE 1 RUN 2026-08-07 — Gate 1 FAILED (see §12). Code at `python_modules/sma_model/` (10 unit tests green). Nothing here touches the existing 84-head model, its trainer, or the live pointers.**
 
 ## 1. The idea in plain words
 
@@ -110,6 +110,31 @@ Every historical candle-close decision point becomes a training example, graded 
 - Warm-up handling (first ~5 candles of the day have no SMA5; 09:15 open volatility policy).
 - Expiry-day behaviour (Tue weekly expiry: trade the expiring contract or next week's?).
 - Where the live decision engine runs (inside SEA as a cohort vs standalone process).
+
+## 12. Gate 1 result (2026-08-07) — FAIL, with a learning curve
+
+First full walk-forward backtest (57 days data, 42 traded out-of-sample;
+2026-08-05 raw option file corrupt — skipped; entry head = expected-₹
+regression, exit head = hold-vs-exit classifier, both active):
+
+- **645 trades, TOTAL NET ₹−41,482, win rate 30%, green days 12/42.**
+- Model ranking is real but weak (entry AUC ≈ 0.55; worst-confidence decile
+  −₹120/trade vs best −₹17/trade) — after spread + charges (~₹100/round-trip
+  hurdle) no confidence slice clears zero out-of-sample.
+- Learning curve: fold 1 (15 train days) −₹14k over 11 days → fold 4
+  (47 train days) −₹953 over 10 days, near breakeven with fewer, better trades.
+- Independently reconfirms the 2026-07-12 BUY-SIDE VERDICT (PROJECT_TODO):
+  after real costs, *buying* ATM weeklies on short-horizon signals is
+  structurally cost-dominated; the ranking edge exists but is smaller than
+  the cost floor.
+
+Levers discussed for a v2 attempt (Partha to choose): pullback entries
+(enter on the retest, not the cross — halves the spread+adverse cost),
+bigger-leg selectivity (trade only when predicted leg size ≫ cost floor),
+ITM strike (higher delta per point), sell-side variant (aligns with the
+buy-side verdict), or simply accumulate more days (learning curve suggests
+data helps). No further tuning done — stopping at the honest number rather
+than data-mining the backtest.
 
 ## 11. Cross-refs
 
