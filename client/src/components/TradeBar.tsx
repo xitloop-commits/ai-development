@@ -707,6 +707,29 @@ export function TradeBar({
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
         {ttpPos != null && <Label at={ttpPos} color={TTP_COLOR} text="TTP" price={ttpPrice} hideText={compact} align="left" />}
         {hasTp && <Label at={tpPos} color={TP_COLOR} text={tpLabel} price={tpPrice} hideText={compact} />}
+
+        {/* Excursion readouts at the bottom corners — the trade's net ₹ P&L + %
+            at its WORST point (max adverse, left) and its BEST point (max
+            favourable, right). No label, just the value. Frozen on close, so
+            they read on past trades too. */}
+        {troughFav != null && profitAtFav(troughFav) != null && (
+          <span
+            className="absolute left-0 bottom-0 z-20 px-0.5 rounded text-[0.5rem] font-bold leading-none tabular-nums whitespace-nowrap"
+            style={{ color: RED, background: "rgba(0,0,0,0.6)" }}
+            title={`Max drawdown — worst the trade got: ${fmtMoney(profitAtFav(troughFav) as number)} (${fmtSign(troughFav)}, dipped to ${formatPrice(troughLtp as number)})`}
+          >
+            {fmtMoney(profitAtFav(troughFav) as number)} {fmtSign(troughFav)}
+          </span>
+        )}
+        {peakFav != null && profitAtFav(peakFav) != null && (
+          <span
+            className="absolute right-0 bottom-0 z-20 px-0.5 rounded text-[0.5rem] font-bold leading-none tabular-nums whitespace-nowrap"
+            style={{ color: GREEN, background: "rgba(0,0,0,0.6)" }}
+            title={`Max profit — best the trade got: ${fmtMoney(profitAtFav(peakFav) as number)} (${fmtSign(peakFav)}, ran up to ${formatPrice(peakLtp as number)})`}
+          >
+            {fmtMoney(profitAtFav(peakFav) as number)} {fmtSign(peakFav)}
+          </span>
+        )}
       </div>
     </div>
   );
