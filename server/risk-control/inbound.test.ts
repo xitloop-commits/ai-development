@@ -45,7 +45,20 @@ vi.mock("../executor/tradeExecutor", () => ({
 vi.mock("../portfolio", () => ({
   portfolioAgent: {
     getPositions: vi.fn(async () => []),
+    closeTrade: vi.fn(async () => ({ trade: {}, day: {}, pnl: 0, charges: 0 })),
   },
+}));
+
+// Replay run accessors — default: no run active, so disciplineRequest uses the
+// live-book (getPositions) path. A test flips getActiveRunId on to exercise the
+// replay path where trades live in the run, not position_state.
+const { getActiveRunIdMock, getRunMock } = vi.hoisted(() => ({
+  getActiveRunIdMock: vi.fn((): string | null => null),
+  getRunMock: vi.fn(async (): Promise<any> => null),
+}));
+vi.mock("../replay/replayRuns", () => ({
+  getActiveRunId: getActiveRunIdMock,
+  getRun: getRunMock,
 }));
 
 vi.mock("../broker/tickBus", () => ({
@@ -340,6 +353,37 @@ describe("rcaMonitor.disciplineRequest", () => {
     });
     expect(result.exited).toBe(1);
     expect(result.details[0].tradeId).toBe("T-sma5");
+  });
+
+  // ── scope=GLIDE during a REPLAY (T97 follow-up) ───────────────────────────
+  // Replay trades live in the RUN, never in position_state, so getPositions()
+  // returns nothing and the OLD path found no target — the cross/leg-end EXIT
+  // signal arrived but the trade never exited. Now the run is scanned and the
+  // trade closes through the run-aware closeTrade.
+  it("scope=GLIDE closes a REPLAY-run trade the position_state path would miss", async () => {
+    getActiveRunIdMock.mockReturnValueOnce("run_test");
+    getRunMock.mockResolvedValueOnce({
+      runId: "run_test",
+      trades: [
+        { id: "T-run", instrument: "NIFTY50", type: "CALL_BUY", status: "OPEN",
+          entryPrice: 100, ltp: 105, qty: 65, cohort: "sma5_signal", exitStrategy: "ladder" },
+        { id: "T-run-closed", instrument: "NIFTY50", type: "CALL_BUY", status: "CLOSED",
+          entryPrice: 100, ltp: 90, qty: 65, cohort: "sma5_signal", exitStrategy: "ladder" },
+      ],
+    });
+    (portfolioAgent.getPositions as any).mockResolvedValue([]); // empty during replay
+
+    const result = await rcaMonitor.disciplineRequest({
+      reason: "AI_EXIT",
+      channels: ["paper"],
+      scope: { kind: "GLIDE", instrument: "NIFTY50", optionType: "CE", cohort: "sma5_signal" },
+    });
+
+    expect(result.exited).toBe(1);
+    expect(result.details[0].tradeId).toBe("T-run");
+    // Closed via the run-aware path at the live LTP, not exitTrade.
+    expect(portfolioAgent.closeTrade).toHaveBeenCalledWith("paper", "T-run", 105, "AI_EXIT");
+    expect(portfolioAgent.getPositions).not.toHaveBeenCalled();
   });
 });
 

@@ -37,6 +37,7 @@ import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
 import { resolveExitStrategy, enabledStrategiesForCohort, getAiConfig, globalExitsForChannel, resolveBook, originKind } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
+import { getActiveRunId, getRun } from "../replay/replayRuns";
 import { notifyTelegram } from "../_core/telegram";
 import type {
   DisciplineExitRequest,
@@ -467,44 +468,47 @@ class RcaMonitor {
     const channels = input.channels ?? this.channels;
     const targets: Array<{ channel: Channel; trade: TradeRecord }> = [];
 
-    for (const channel of channels) {
-      let positions: TradeRecord[] = [];
-      try {
-        positions = await portfolioAgent.getPositions(channel);
-      } catch (err: any) {
-        log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
-        continue;
+    // Does this trade fall in scope? Shared by the live-book and replay-run paths.
+    //   • GLIDE (leg-end / cross EXIT): match the open ride on instrument + side.
+    //     - no cohort (MA-Signal): strategy=="glide" only (leave the comparison
+    //       twins to self-manage).
+    //     - with cohort (e.g. sma5_signal): that cohort, whatever strategy it
+    //       runs (ladder), so the ride closes on its cross.
+    const inScope = (trade: TradeRecord): boolean => {
+      const s = input.scope;
+      if (s.kind === "ALL") return true;
+      if (s.kind === "INSTRUMENT") return trade.instrument === s.instrument;
+      if (s.kind === "TRADE_IDS") return s.tradeIds.includes(trade.id);
+      if (s.kind === "GLIDE") {
+        const wantCall = s.optionType === "CE";
+        const isCall = trade.type.includes("CALL");
+        const matchesRide = s.cohort ? trade.cohort === s.cohort : trade.exitStrategy === "glide";
+        return matchesRide && trade.instrument === s.instrument && isCall === wantCall;
       }
-      for (const trade of positions) {
-        if (trade.status !== "OPEN") continue;
-        if (input.scope.kind === "ALL") {
-          targets.push({ channel, trade });
-        } else if (input.scope.kind === "INSTRUMENT" && trade.instrument === input.scope.instrument) {
-          targets.push({ channel, trade });
-        } else if (input.scope.kind === "TRADE_IDS" && input.scope.tradeIds.includes(trade.id)) {
-          targets.push({ channel, trade });
-        } else if (input.scope.kind === "GLIDE") {
-          // Leg-end / cross EXIT. Close the open ride on this instrument + side.
-          //   • no cohort (MA-Signal): match strategy=="glide" — the Glide twin
-          //     only, never the Sprint/Runway/Anchor comparison twins from the
-          //     same entry, which manage their own exits.
-          //   • with cohort (e.g. sma5_signal): match that cohort — so the ride
-          //     closes on its cross whatever strategy it runs (e.g. ladder),
-          //     without touching other cohorts' ladder trades on the same leg.
-          // Matching by position (not a remembered id) is what fixes the twin the
-          // old close-by-id path missed.
-          const wantCall = input.scope.optionType === "CE";
-          const isCall = trade.type.includes("CALL");
-          const matchesRide = input.scope.cohort
-            ? trade.cohort === input.scope.cohort
-            : trade.exitStrategy === "glide";
-          if (
-            matchesRide &&
-            trade.instrument === input.scope.instrument &&
-            isCall === wantCall
-          ) {
-            targets.push({ channel, trade });
-          }
+      return false;
+    };
+
+    // T97 — during a replay the open trades live in the RUN, never in
+    // position_state, so getPositions() returns nothing and the SEA cross/leg-end
+    // EXIT found no target (the reported "exit signal received but trade not
+    // exited"). Scan the run instead and close through the run-aware closeTrade.
+    const runId = getActiveRunId();
+    if (runId) {
+      const run = await getRun(runId).catch(() => null);
+      for (const trade of run?.trades ?? []) {
+        if (trade.status === "OPEN" && inScope(trade)) targets.push({ channel: "paper", trade });
+      }
+    } else {
+      for (const channel of channels) {
+        let positions: TradeRecord[] = [];
+        try {
+          positions = await portfolioAgent.getPositions(channel);
+        } catch (err: any) {
+          log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
+          continue;
+        }
+        for (const trade of positions) {
+          if (trade.status === "OPEN" && inScope(trade)) targets.push({ channel, trade });
         }
       }
     }
@@ -513,8 +517,18 @@ class RcaMonitor {
     let exited = 0;
     let failed = 0;
     for (const { channel, trade } of targets) {
-      const positionId = `POS-${trade.id.replace(/^T/, "")}`;
       try {
+        if (runId) {
+          // Replay trade → close via the run-aware path. exitTrade can't be used:
+          // it looks the trade up in the channel's day record (which a run trade
+          // isn't in) and would throw "Trade not found".
+          const exitPrice = trade.ltp && trade.ltp > 0 ? trade.ltp : trade.entryPrice;
+          await portfolioAgent.closeTrade(channel, trade.id, exitPrice, input.reason);
+          details.push({ tradeId: trade.id, ok: true });
+          exited++;
+          continue;
+        }
+        const positionId = `POS-${trade.id.replace(/^T/, "")}`;
         const resp = await tradeExecutor.exitTrade({
           executionId: `RCA-DISCIPLINE-${trade.id}-${Date.now()}`,
           positionId,
