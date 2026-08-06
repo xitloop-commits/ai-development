@@ -50,6 +50,7 @@ interface GlideCfg {
 /** T147 — Ladder: MSL/SL/TSL/MTP knobs (mirrors server LadderConfig). */
 interface LadderCfg {
   mslEnabled: boolean; mslPct: number;
+  slMode: "stepping" | "fixed"; slFixedPct: number;
   slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
@@ -358,6 +359,10 @@ const HELP = {
     "The safety net. A hard floor the stop can NEVER cross, whatever the stepping/trailing does. On by default. Off = only the SL/TSL protect the trade.",
   ladderMslPct:
     "How far below entry the safety-net floor sits, as a %. It sits wider than the SL start — the stop normally closes the trade first; this only matters on a violent gap.",
+  ladderSlMode:
+    "Current = the staged SL that tightens over time + the TSL that arms once you're in profit. Fixed = a classical flat stop at 'Fixed SL' below entry that never moves (no stepping, no TSL) — the trade exits there or at MTP.",
+  ladderSlFixed:
+    "The fixed classical stop, as a % below entry. It never moves — the trade rides until price hits it or reaches MTP.",
   ladderSlStart:
     "Where the stop opens, as a % below entry. This is also the 'risk' the target multiplies — a 5% start with a 2× target aims for a 10% gain.",
   ladderSlFloor:
@@ -383,7 +388,7 @@ const HELP = {
   ladderMtpR:
     "The take-profit exit (MTP). Basis ×risk = a multiple of the initial risk ('SL start'), so 2× with a 5% start banks at +10%. Basis % = a plain % above entry you type directly (e.g. 25 = bank at +25%), independent of the SL.",
   ladderEsHonour:
-    "Whether to ACT on SEA's exit signal. Off (default) = the signal is shown on the bar but the trade keeps running — you watch where the model said 'get out' vs where the price markers actually exited, to build proof. On = close the trade immediately on the signal.",
+    "Whether the trade exits on SEA's exit signal ONLY. Off (default) = the signal is visual-only and the ladder's own SL/TSL/MSL/MTP run the trade. On = the ladder's own exits are ALL disabled and the trade rides until the model's exit signal fires — every other Ladder setting has no effect.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -803,50 +808,71 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                   </Group>
 
                   <Group title="Ladder" help={HELP.ladder} collapsible>
-                    <SubGroup>MSL · safety net</SubGroup>
-                    <Row label="Max stop (MSL)" help={HELP.ladderMslOn}>
-                      <Pill label={ed.ladder.mslEnabled ? "ON" : "OFF"} on={ed.ladder.mslEnabled}
-                        onClick={() => editExits((x) => { x.ladder.mslEnabled = !x.ladder.mslEnabled; })} />
-                    </Row>
-                    {ed.ladder.mslEnabled && (
-                      <Num help={HELP.ladderMslPct} label="MSL distance" value={ed.ladder.mslPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.mslPct = v; })} />
-                    )}
-                    <SubGroup>SL · stepping stop</SubGroup>
-                    <Num help={HELP.ladderSlStart} label="SL start" value={ed.ladder.slStartPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStartPct = v; })} />
-                    <Num help={HELP.ladderSlFloor} label="SL floor" value={ed.ladder.slFloorPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFloorPct = v; })} />
-                    <Num help={HELP.ladderSlStep} label="SL step" value={ed.ladder.slStepPct} step={0.1} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStepPct = v; })} />
-                    <Num help={HELP.ladderSlStepSec} label="Step every" value={ed.ladder.slStepSec} step={5} min={1} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slStepSec = v; })} />
-                    <Num help={HELP.ladderSlDelay} label="Step delay" value={ed.ladder.slDelaySec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slDelaySec = v; })} />
-                    <Num help={HELP.ladderSlGap} label="SL-to-LTP gap" value={ed.ladder.slLtpGapPct} step={0.5} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slLtpGapPct = v; })} />
-                    <SubGroup>TSL · trailing stop</SubGroup>
-                    <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
-                    <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
-                    <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
-                    <SubGroup>TTP · trailing profit (visual)</SubGroup>
-                    <Num help={HELP.ladderTtpStart} label="TTP start" value={ed.ladder.ttpStartPct} step={0.5} min={0.5} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpStartPct = v; })} />
-                    <Num help={HELP.ladderTtpTrail} label="TTP trail" value={ed.ladder.ttpTrailPct} step={0.5} min={0.5} max={200} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpTrailPct = v; })} />
-                    <SubGroup>MTP · take-profit exit</SubGroup>
-                    <Row label="MTP (Max TP) basis" help={HELP.ladderMtpR}>
-                      <div className="flex gap-1">
-                        <Pill label="×risk" on={ed.ladder.mtpMode === "R"} onClick={() => editExits((x) => { x.ladder.mtpMode = "R"; })} />
-                        <Pill label="%" on={ed.ladder.mtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.mtpMode = "percent"; })} />
-                      </div>
-                    </Row>
-                    {ed.ladder.mtpMode === "R" ? (
-                      <Num help={HELP.ladderMtpR} label="MTP ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
-                    ) : (
-                      <Num help={HELP.ladderMtpR} label="MTP %" value={ed.ladder.mtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.mtpPct = v; })} />
-                    )}
+                    {/* ES honour at the TOP — when ON, the ladder's own exits are
+                        OFF and everything below is inert (rides to the signal). */}
                     <SubGroup>ES · model exit signal</SubGroup>
                     <Row label="Honour exit signal" help={HELP.ladderEsHonour}>
                       <Pill label={ed.ladder.esHonour ? "ON" : "OFF"} on={ed.ladder.esHonour}
                         onClick={() => editExits((x) => { x.ladder.esHonour = !x.ladder.esHonour; })} />
                     </Row>
-                    {!ed.ladder.esHonour && (
-                      <span className="text-[0.5625rem] text-muted-foreground leading-snug">
-                        Exit-signal marker is visual-only — the trade keeps running
-                        when SEA says exit. Turn on once you trust it.
+                    {ed.ladder.esHonour ? (
+                      <span className="text-[0.5625rem] text-warning-amber leading-snug">
+                        ON — the Ladder's own SL / TSL / MSL / MTP are DISABLED. The
+                        trade rides until SEA's exit signal fires. Every setting below
+                        has no effect.
                       </span>
+                    ) : (
+                      <>
+                        <span className="text-[0.5625rem] text-muted-foreground leading-snug">
+                          OFF — the exit-signal marker is visual-only; the ladder's own stops run the trade.
+                        </span>
+                        <SubGroup>MSL · safety net</SubGroup>
+                        <Row label="Max stop (MSL)" help={HELP.ladderMslOn}>
+                          <Pill label={ed.ladder.mslEnabled ? "ON" : "OFF"} on={ed.ladder.mslEnabled}
+                            onClick={() => editExits((x) => { x.ladder.mslEnabled = !x.ladder.mslEnabled; })} />
+                        </Row>
+                        {ed.ladder.mslEnabled && (
+                          <Num help={HELP.ladderMslPct} label="MSL distance" value={ed.ladder.mslPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.mslPct = v; })} />
+                        )}
+                        <SubGroup>SL · stop mode</SubGroup>
+                        <Row label="SL mode" help={HELP.ladderSlMode}>
+                          <div className="flex gap-1">
+                            <Pill label="Current" on={ed.ladder.slMode === "stepping"} onClick={() => editExits((x) => { x.ladder.slMode = "stepping"; })} />
+                            <Pill label="Fixed" on={ed.ladder.slMode === "fixed"} onClick={() => editExits((x) => { x.ladder.slMode = "fixed"; })} />
+                          </div>
+                        </Row>
+                        {ed.ladder.slMode === "fixed" ? (
+                          <Num help={HELP.ladderSlFixed} label="Fixed SL" value={ed.ladder.slFixedPct} step={0.5} min={0.5} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFixedPct = v; })} />
+                        ) : (
+                          <>
+                            <Num help={HELP.ladderSlStart} label="SL start" value={ed.ladder.slStartPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStartPct = v; })} />
+                            <Num help={HELP.ladderSlFloor} label="SL floor" value={ed.ladder.slFloorPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFloorPct = v; })} />
+                            <Num help={HELP.ladderSlStep} label="SL step" value={ed.ladder.slStepPct} step={0.1} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStepPct = v; })} />
+                            <Num help={HELP.ladderSlStepSec} label="Step every" value={ed.ladder.slStepSec} step={5} min={1} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slStepSec = v; })} />
+                            <Num help={HELP.ladderSlDelay} label="Step delay" value={ed.ladder.slDelaySec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slDelaySec = v; })} />
+                            <Num help={HELP.ladderSlGap} label="SL-to-LTP gap" value={ed.ladder.slLtpGapPct} step={0.5} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slLtpGapPct = v; })} />
+                            <SubGroup>TSL · trailing stop</SubGroup>
+                            <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
+                            <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
+                            <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
+                          </>
+                        )}
+                        <SubGroup>TTP · trailing profit (visual)</SubGroup>
+                        <Num help={HELP.ladderTtpStart} label="TTP start" value={ed.ladder.ttpStartPct} step={0.5} min={0.5} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpStartPct = v; })} />
+                        <Num help={HELP.ladderTtpTrail} label="TTP trail" value={ed.ladder.ttpTrailPct} step={0.5} min={0.5} max={200} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpTrailPct = v; })} />
+                        <SubGroup>MTP · take-profit exit</SubGroup>
+                        <Row label="MTP (Max TP) basis" help={HELP.ladderMtpR}>
+                          <div className="flex gap-1">
+                            <Pill label="×risk" on={ed.ladder.mtpMode === "R"} onClick={() => editExits((x) => { x.ladder.mtpMode = "R"; })} />
+                            <Pill label="%" on={ed.ladder.mtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.mtpMode = "percent"; })} />
+                          </div>
+                        </Row>
+                        {ed.ladder.mtpMode === "R" ? (
+                          <Num help={HELP.ladderMtpR} label="MTP ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
+                        ) : (
+                          <Num help={HELP.ladderMtpR} label="MTP %" value={ed.ladder.mtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.mtpPct = v; })} />
+                        )}
+                      </>
                     )}
                   </Group>
                 </div>

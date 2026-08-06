@@ -214,6 +214,12 @@ export interface LadderConfig {
   mslEnabled: boolean;
   mslPct: number; // hard floor: % from entry the stop can never cross
 
+  // SL MODE — "stepping" = the staged SL that tightens over time + TSL arming
+  // (the current setup); "fixed" = a classical flat stop at slFixedPct below
+  // entry that never moves (no stepping, no TSL). MTP still books the upside.
+  slMode: "stepping" | "fixed";
+  slFixedPct: number; // fixed-mode stop distance below entry (%)
+
   // SL — primary guard, steps tighter over time
   slStartPct: number; // initial distance below entry (the "risk", also MTP's base)
   slFloorPct: number; // tightest distance (measured from entry)
@@ -245,6 +251,8 @@ export interface LadderConfig {
 export const DEFAULT_LADDER_CFG: LadderConfig = {
   mslEnabled: true,
   mslPct: 8,
+  slMode: "stepping",
+  slFixedPct: 5,
   slStartPct: 5,
   slFloorPct: 1,
   slStepPct: 0.5,
@@ -284,10 +292,15 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
   const targetGain = c.mtpMode === "percent" ? i.entry * (c.mtpPct / 100) : c.mtpR * risk;
   const target = i.entry + d * targetGain;
 
-  const tslArmed = s.inFavourSince != null && i.now - s.inFavourSince >= c.tslArmSec * 1000;
-
   let stop: number;
   let phase: ExitPhase;
+  if (c.slMode === "fixed") {
+    // Classical fixed SL — a flat % below entry that never moves (no stepping,
+    // no TSL). The trade exits at this hard stop, MSL, or MTP.
+    stop = i.entry * (1 - d * (c.slFixedPct / 100));
+    phase = "wide";
+  } else {
+  const tslArmed = s.inFavourSince != null && i.now - s.inFavourSince >= c.tslArmSec * 1000;
   if (tslArmed) {
     // SL is dead. Breakeven floor, then trail — whichever is TIGHTER (further in
     // favour) wins, and never below breakeven.
@@ -323,11 +336,19 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
     stop = sl;
     phase = elapsed <= 0 ? "cooling" : "wide";
   }
+  }
 
   // MSL hard floor — the stop can never sit further against the trade than this.
   if (c.mslEnabled) {
     const msl = i.entry * (1 - d * (c.mslPct / 100));
     if (favour(i, stop) < favour(i, msl)) stop = msl;
+  }
+
+  // ES honour — when ON, the Ladder's OWN exits (SL/TSL/MSL/MTP) are disabled;
+  // the trade rides until SEA's exit signal fires (handled outside the engine).
+  // The levels above are still returned for the TradeBar, but never auto-exit.
+  if (c.esHonour) {
+    return { stop, exit: false, target, phase };
   }
 
   // MTP — bank the profit when the live price reaches the target.

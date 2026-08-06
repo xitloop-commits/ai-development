@@ -489,6 +489,9 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   const l = e.ladder;
   l.mslEnabled = l.mslEnabled !== false; // safety net ON by default
   l.mslPct = clampNum(l.mslPct, 1, 90, 8);
+  // SL mode: "fixed" (classical flat stop) vs "stepping" (default, the staged SL + TSL).
+  l.slMode = l.slMode === "fixed" ? "fixed" : "stepping";
+  l.slFixedPct = clampNum(l.slFixedPct, 0.5, 90, 5);
   l.slStartPct = clampNum(l.slStartPct, 1, 90, 5);
   // Floor can never be wider than the start (SL only tightens toward entry).
   l.slFloorPct = clampNum(l.slFloorPct, 0.1, l.slStartPct, Math.min(1, l.slStartPct));

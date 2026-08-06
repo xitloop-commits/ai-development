@@ -342,3 +342,38 @@ describe("LADDER — SHORT mirrors around entry", () => {
     expect(o.exitPrice).toBeCloseTo(90, 5);
   });
 });
+
+describe("LADDER — fixed SL mode (classical flat stop)", () => {
+  const fixed = { ...lcfg, slMode: "fixed" as const, slFixedPct: 5, mslEnabled: false };
+  it("opens a flat stop at slFixedPct below entry (5% → 95)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 99, peak: 100, now: at(0) }, fixed, noFav);
+    expect(o.stop).toBeCloseTo(95, 5);
+  });
+  it("never moves — same 95 with a high peak + long after open (no stepping / no TSL)", () => {
+    // ltp 108 stays under the MTP target (110); peak 130 would trail a normal SL.
+    const o = ladderDecide({ ...lbase, ltp: 108, peak: 130, now: at(30) }, fixed, { inFavourSince: at(30) - 60_000, prevStop: null });
+    expect(o.stop).toBeCloseTo(95, 5);
+    expect(o.exit).toBe(false);
+  });
+  it("fires when price hits the fixed stop", () => {
+    const o = ladderDecide({ ...lbase, ltp: 95, peak: 100, now: at(0) }, fixed, noFav);
+    expect(o.exit).toBe(true);
+  });
+  it("MTP still books the upside in fixed mode", () => {
+    const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(0) }, fixed, noFav);
+    expect(o.phase).toBe("target-bank");
+    expect(o.exit).toBe(true);
+  });
+});
+
+describe("LADDER — ES honour disables the ladder's own exits", () => {
+  const es = { ...lcfg, esHonour: true };
+  it("does NOT exit even when price gaps far through every stop", () => {
+    const o = ladderDecide({ ...lbase, ltp: 80, peak: 100, now: at(5) }, es, noFav);
+    expect(o.exit).toBe(false);
+  });
+  it("does NOT bank MTP either (rides to the model's exit signal)", () => {
+    const o = ladderDecide({ ...lbase, ltp: 130, peak: 130, now: at(5) }, es, noFav);
+    expect(o.exit).toBe(false);
+  });
+});
