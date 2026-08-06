@@ -55,8 +55,8 @@ interface LadderCfg {
   tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
   ttpStartPct: number; ttpTrailPct: number;
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
-  esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
-  esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
+  esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
+  esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -204,6 +204,38 @@ function LevelNum({ label, help, value, mode, onValue, onMode }: {
           className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan"
         />
         <span className="text-[0.5625rem] text-muted-foreground w-6">{rs ? "₹" : "%"}</span>
+      </div>
+    </Row>
+  );
+}
+
+/**
+ * An ES-honour CAP row: an ON/OFF toggle, then — right in front of the input —
+ * a SINGLE button that flips the unit % ↔ ₹ (one control, both actions), then
+ * the value box. Used for the safety SL and the MTP cap (each independent).
+ */
+function CapRow({ label, help, enabled, onToggle, mode, onMode, value, onValue }: {
+  label: string; help?: string; enabled: boolean; onToggle: () => void;
+  mode: "percent" | "rupees"; onMode: () => void; value: number; onValue: (v: number) => void;
+}) {
+  const rs = mode === "rupees";
+  return (
+    <Row label={label} help={help}>
+      <div className="flex items-center gap-1">
+        <Pill label={enabled ? "ON" : "OFF"} on={enabled} onClick={onToggle} />
+        <button
+          type="button" onClick={onMode} disabled={!enabled}
+          title="Switch % / ₹"
+          className="w-6 rounded border border-border bg-muted/30 py-0.5 text-[0.6875rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
+        >
+          {rs ? "₹" : "%"}
+        </button>
+        <input
+          type="number" disabled={!enabled}
+          step={rs ? 100 : 0.5} min={rs ? 50 : 0.1} max={rs ? 1000000 : 500} value={value}
+          onChange={(e) => onValue(e.target.value === "" ? 0 : Number(e.target.value))}
+          className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
+        />
       </div>
     </Row>
   );
@@ -829,29 +861,25 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                           the trade rides until SEA's exit signal fires, EXCEPT the two
                           caps below: a safety SL (down) and an MTP (up).
                         </span>
-                        <SubGroup>Safety SL · while riding to the signal</SubGroup>
-                        <Row label="SL basis" help={HELP.ladderEsSl}>
-                          <div className="flex gap-1">
-                            <Pill label="%" on={ed.ladder.esSlMode === "percent"} onClick={() => editExits((x) => { x.ladder.esSlMode = "percent"; })} />
-                            <Pill label="₹" on={ed.ladder.esSlMode === "rupees"} onClick={() => editExits((x) => { x.ladder.esSlMode = "rupees"; })} />
-                          </div>
-                        </Row>
-                        {ed.ladder.esSlMode === "percent" ? (
-                          <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.esSlPct = v; })} />
-                        ) : (
-                          <Num help={HELP.ladderEsSl} label="Safety SL" value={ed.ladder.esSlValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esSlValue = v; })} />
-                        )}
-                        <Row label="MTP basis" help={HELP.ladderEsMtp}>
-                          <div className="flex gap-1">
-                            <Pill label="%" on={ed.ladder.esMtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.esMtpMode = "percent"; })} />
-                            <Pill label="₹" on={ed.ladder.esMtpMode === "rupees"} onClick={() => editExits((x) => { x.ladder.esMtpMode = "rupees"; })} />
-                          </div>
-                        </Row>
-                        {ed.ladder.esMtpMode === "percent" ? (
-                          <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.esMtpPct = v; })} />
-                        ) : (
-                          <Num help={HELP.ladderEsMtp} label="MTP cap" value={ed.ladder.esMtpValue} step={100} min={50} max={1000000} unit="₹" onChange={(v) => editExits((x) => { x.ladder.esMtpValue = v; })} />
-                        )}
+                        <SubGroup>Caps · while riding to the signal</SubGroup>
+                        <CapRow
+                          label="Safety SL" help={HELP.ladderEsSl}
+                          enabled={ed.ladder.esSlEnabled}
+                          onToggle={() => editExits((x) => { x.ladder.esSlEnabled = !x.ladder.esSlEnabled; })}
+                          mode={ed.ladder.esSlMode}
+                          onMode={() => editExits((x) => { x.ladder.esSlMode = x.ladder.esSlMode === "percent" ? "rupees" : "percent"; })}
+                          value={ed.ladder.esSlMode === "percent" ? ed.ladder.esSlPct : ed.ladder.esSlValue}
+                          onValue={(v) => editExits((x) => { if (x.ladder.esSlMode === "percent") x.ladder.esSlPct = v; else x.ladder.esSlValue = v; })}
+                        />
+                        <CapRow
+                          label="MTP cap" help={HELP.ladderEsMtp}
+                          enabled={ed.ladder.esMtpEnabled}
+                          onToggle={() => editExits((x) => { x.ladder.esMtpEnabled = !x.ladder.esMtpEnabled; })}
+                          mode={ed.ladder.esMtpMode}
+                          onMode={() => editExits((x) => { x.ladder.esMtpMode = x.ladder.esMtpMode === "percent" ? "rupees" : "percent"; })}
+                          value={ed.ladder.esMtpMode === "percent" ? ed.ladder.esMtpPct : ed.ladder.esMtpValue}
+                          onValue={(v) => editExits((x) => { if (x.ladder.esMtpMode === "percent") x.ladder.esMtpPct = v; else x.ladder.esMtpValue = v; })}
+                        />
                       </>
                     ) : (
                       <>

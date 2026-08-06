@@ -520,10 +520,13 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.mtpR = clampNum(l.mtpR, 1, 10, 2);
   l.mtpPct = clampNum(l.mtpPct, 1, 500, 25);
   l.esHonour = !!l.esHonour;
-  // ES safety SL (kept while riding to the exit signal).
+  // ES safety SL (kept while riding to the exit signal). Enabled defaults ON for
+  // a config that predates the toggle (back-fill via `!== false`).
+  l.esSlEnabled = l.esSlEnabled !== false;
   l.esSlMode = l.esSlMode === "rupees" ? "rupees" : "percent";
   l.esSlPct = clampNum(l.esSlPct, 0.1, 90, 1);
   l.esSlValue = clampNum(l.esSlValue, 50, 1_000_000, 1000);
+  l.esMtpEnabled = l.esMtpEnabled !== false;
   l.esMtpMode = l.esMtpMode === "rupees" ? "rupees" : "percent";
   l.esMtpPct = clampNum(l.esMtpPct, 1, 500, 10);
   l.esMtpValue = clampNum(l.esMtpValue, 50, 1_000_000, 5000);

@@ -821,10 +821,16 @@ class TickHandler extends EventEmitter {
           const stopImproves = isBuy
             ? out.stop > (trade.stopLossPrice ?? -Infinity)
             : out.stop < (trade.stopLossPrice ?? Infinity);
-          if ((!trade.slOverridden || (stopIsTrail && stopImproves)) && !(mSL || mTSL)) {
+          // ES-honour with the safety SL toggled off → no stop at all (clear it).
+          if (out.stopActive === false) {
+            if (!trade.slOverridden && !(mSL || mTSL)) trade.stopLossPrice = null;
+          } else if ((!trade.slOverridden || (stopIsTrail && stopImproves)) && !(mSL || mTSL)) {
             trade.stopLossPrice = out.stop;
           }
-          if (!trade.tpOverridden && !mTP) {
+          // ES-honour with the MTP cap toggled off → no target (clear it).
+          if (out.targetActive === false) {
+            if (!trade.tpOverridden && !mTP) trade.targetPrice = null;
+          } else if (!trade.tpOverridden && !mTP) {
             trade.targetPrice = Math.round(out.target * 100) / 100;
           }
           anyUpdated = true;

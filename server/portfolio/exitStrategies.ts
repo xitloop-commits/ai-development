@@ -107,6 +107,14 @@ export interface ExitOutput {
   target: number;
   /** Phase label for the TradeBar. */
   phase: ExitPhase;
+  /** When explicitly false, the stop is INACTIVE — the tick engine clears the
+   *  trade's SL (no marker, no exit). Undefined = active (the normal case). Used
+   *  by ES-honour when its safety SL is toggled off. */
+  stopActive?: boolean;
+  /** When explicitly false, the target is INACTIVE — the tick engine clears the
+   *  trade's TP (no marker, no bank). Undefined = active. Used by ES-honour when
+   *  its MTP cap is toggled off. */
+  targetActive?: boolean;
 }
 
 /**
@@ -252,10 +260,12 @@ export interface LadderConfig {
   // ES safety SL — the ONE stop that still exits while riding to the exit signal
   // (esHonour ON disables every OTHER ladder exit). "percent" = % below entry;
   // "rupees" = a gross ₹ loss (converted to a premium distance via qty).
+  esSlEnabled: boolean; // safety SL on/off (independent of the MTP cap)
   esSlMode: "percent" | "rupees";
   esSlPct: number;    // % below entry (percent mode)
   esSlValue: number;  // gross ₹ loss (rupees mode)
-  // ES-honour take-profit cap — its OWN %/₹ basis, independent of the SL's.
+  // ES-honour take-profit cap — its OWN on/off + %/₹ basis, independent of the SL's.
+  esMtpEnabled: boolean; // MTP cap on/off
   esMtpMode: "percent" | "rupees";
   esMtpPct: number;   // % above entry (percent mode)
   esMtpValue: number; // gross ₹ profit (rupees mode)
@@ -281,9 +291,11 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   mtpR: 2,
   mtpPct: 25,
   esHonour: false,
+  esSlEnabled: true,
   esSlMode: "percent",
   esSlPct: 1,
   esSlValue: 1000,
+  esMtpEnabled: true,
   esMtpMode: "percent",
   esMtpPct: 10,
   esMtpValue: 5000,
@@ -369,23 +381,27 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
   // a gross-₹ loss converted to a premium distance via qty), whose marker the
   // TradeBar draws from this stop.
   if (c.esHonour) {
-    // Upside MTP cap — % above entry, or a gross-₹ profit converted via qty.
+    // Each cap is independently on/off. Upside MTP cap — % above entry, or a
+    // gross-₹ profit converted via qty; banks only when ENABLED.
     const esTargetGain =
       c.esMtpMode === "rupees" && i.qty && i.qty > 0
         ? c.esMtpValue / i.qty
         : i.entry * (c.esMtpPct / 100);
     const esTarget = i.entry + d * esTargetGain;
-    if (favour(i, i.ltp) >= esTargetGain) {
-      return { stop, exit: true, exitPrice: esTarget, target: esTarget, phase: "target-bank" };
+    if (c.esMtpEnabled && favour(i, i.ltp) >= esTargetGain) {
+      return { stop, exit: true, exitPrice: esTarget, target: esTarget, phase: "target-bank",
+        stopActive: c.esSlEnabled, targetActive: true };
     }
-    // Downside safety SL — % below entry, or a gross-₹ loss converted via qty.
+    // Downside safety SL — % below entry, or a gross-₹ loss converted via qty;
+    // exits only when ENABLED.
     const esStop =
       c.esSlMode === "rupees" && i.qty && i.qty > 0
         ? i.entry - d * (c.esSlValue / i.qty)      // ₹ loss ÷ qty = per-unit premium
         : i.entry * (1 - d * (c.esSlPct / 100));   // % below entry
-    const esExit = stopBreached(i, esStop);
+    const esExit = c.esSlEnabled && stopBreached(i, esStop);
     const esFill = esExit ? (favour(i, i.ltp) < favour(i, esStop) ? i.ltp : esStop) : undefined;
-    return { stop: esStop, exit: esExit, exitPrice: esFill, target: esTarget, phase: "wide" };
+    return { stop: esStop, exit: esExit, exitPrice: esFill, target: esTarget, phase: "wide",
+      stopActive: c.esSlEnabled, targetActive: c.esMtpEnabled };
   }
 
   // MTP — bank the profit when the live price reaches the target.

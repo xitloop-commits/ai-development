@@ -400,4 +400,39 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
     expect(o.exitPrice).toBeCloseTo(150, 5);
     expect(ladderDecide({ ...lbase, ltp: 149, peak: 149, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
   });
+
+  // ── Per-cap ON/OFF toggles (independent) ──────────────────────────────
+  it("safety SL OFF: does NOT exit on the stop, and clears it (stopActive false)", () => {
+    const noSl = { ...es, esSlEnabled: false };
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, noSl, noFav);
+    expect(o.exit).toBe(false);         // 1% stop would have fired; it's off
+    expect(o.stopActive).toBe(false);   // tick engine clears the SL marker
+  });
+  it("safety SL OFF but MTP ON: still banks at the MTP cap", () => {
+    const noSl = { ...es, esSlEnabled: false };
+    const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, noSl, noFav);
+    expect(o.phase).toBe("target-bank");
+    expect(o.exit).toBe(true);
+    expect(o.stopActive).toBe(false);
+  });
+  it("MTP cap OFF: does NOT bank at the cap, and clears the target (targetActive false)", () => {
+    const noMtp = { ...es, esMtpEnabled: false };
+    const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, noMtp, noFav);
+    expect(o.exit).toBe(false);         // 10% cap would have banked; it's off
+    expect(o.targetActive).toBe(false); // tick engine clears the TP marker
+  });
+  it("MTP cap OFF but safety SL ON: the SL still fires", () => {
+    const noMtp = { ...es, esMtpEnabled: false };
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, noMtp, noFav);
+    expect(o.exit).toBe(true);
+    expect(o.targetActive).toBe(false);
+  });
+  it("both caps OFF: rides with no exit, both markers cleared", () => {
+    const none = { ...es, esSlEnabled: false, esMtpEnabled: false };
+    expect(ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, none, noFav).exit).toBe(false);
+    expect(ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, none, noFav).exit).toBe(false);
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, none, noFav);
+    expect(o.stopActive).toBe(false);
+    expect(o.targetActive).toBe(false);
+  });
 });
