@@ -206,8 +206,8 @@ function loadFloatBox(key: string, dflt: FloatBox): FloatBox {
   } catch { /* ignore */ }
   return dflt;
 }
-function FloatingPane({ storageKey, title, defaultBox, children }: {
-  storageKey: string; title: string; defaultBox: FloatBox; children: ReactNode;
+function FloatingPane({ storageKey, title, defaultBox, children, onClose }: {
+  storageKey: string; title: string; defaultBox: FloatBox; children: ReactNode; onClose?: () => void;
 }) {
   const [box, setBox] = useState<FloatBox>(() => loadFloatBox(storageKey, defaultBox));
   const ref = useRef<HTMLDivElement>(null);
@@ -244,6 +244,17 @@ function FloatingPane({ storageKey, title, defaultBox, children }: {
         title="Drag to move · resize from the bottom-right corner"
       >
         <span className="truncate text-muted-foreground">{title}</span>
+        {onClose && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onClose}
+            className="ml-auto shrink-0 rounded px-1 text-muted-foreground hover:text-foreground"
+            title="Close"
+          >
+            ✕
+          </button>
+        )}
       </div>
       <div className="relative min-h-0 flex-1">{children}</div>
     </div>
@@ -346,6 +357,10 @@ export default function InstrumentChartPage() {
   // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
   const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  // Focus-layout thumbnails can be closed; re-picking a layout re-opens them.
+  const [prevThumbOpen, setPrevThumbOpen] = useState(true);
+  const [undThumbOpen, setUndThumbOpen] = useState(true);
+  useEffect(() => { setPrevThumbOpen(true); setUndThumbOpen(true); }, [layoutId]);
   useEffect(() => {
     try { localStorage.setItem(gridLayoutKey(inst), layoutId); } catch { /* ignore */ }
   }, [inst, layoutId]);
@@ -698,11 +713,12 @@ export default function InstrumentChartPage() {
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No open trade for {meta.displayName}.</div>
           )}
           {/* Bottom-left — previous trade (different strike) as a floating thumbnail. */}
-          {showPrevThumb && prevTrade && (
+          {showPrevThumb && prevTrade && prevThumbOpen && (
             <FloatingPane
               storageKey={`chartFloatPrev:${inst ?? "?"}`}
               title={`Prev · ${prevTrade.side} ${prevTrade.strike ?? ""}${prevTrade.signalSeq != null ? ` #${prevTrade.signalSeq}` : ""}`}
               defaultBox={{ x: 8, y: Math.max(60, window.innerHeight - FLOAT_H - 56), w: FLOAT_W, h: FLOAT_H }}
+              onClose={() => setPrevThumbOpen(false)}
             >
               <TradePane
                 trade={prevTrade}
@@ -719,10 +735,12 @@ export default function InstrumentChartPage() {
             </FloatingPane>
           )}
           {/* Bottom-right — the underlying asset, floating thumbnail. */}
+          {undThumbOpen && (
           <FloatingPane
             storageKey={`chartFloatUnd:${inst ?? "?"}`}
             title={`${meta.displayName} · underlying`}
             defaultBox={{ x: Math.max(8, window.innerWidth - FLOAT_W - 16), y: Math.max(60, window.innerHeight - FLOAT_H - 56), w: FLOAT_W, h: FLOAT_H }}
+            onClose={() => setUndThumbOpen(false)}
           >
             <TickChart
               candles={candles}
@@ -737,6 +755,7 @@ export default function InstrumentChartPage() {
               className="h-full"
             />
           </FloatingPane>
+          )}
         </div>
       ) : (
       <div
