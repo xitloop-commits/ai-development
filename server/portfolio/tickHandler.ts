@@ -1137,12 +1137,42 @@ class TickHandler extends EventEmitter {
     }
     this.lastPersistAt.set(channel, Date.now());
 
-    // T97 — a replay run persists to its own document. No merge-on-fresh-read
-    // dance is needed: the run is single-writer (nothing else appends to it
-    // while it is the active sink), so writing the trades we hold is safe.
+    // T97 — a replay run persists to its own document. It is NOT single-writer:
+    // the SEA cross/leg-end EXIT closes run trades (closeTradeInRun) and each new
+    // signal appends one (appendTradeToRun), both reading the run fresh. Blindly
+    // writing back our cached array clobbered those — a just-closed trade came
+    // back OPEN, a just-added trade vanished. So MERGE our live fields onto a
+    // fresh read (same as the paper path below): overlay only OPEN trades, never
+    // touch a CLOSED one, never drop a trade the fresh read carries.
     const activeRun = getActiveRunId();
     if (activeRun && channel === "paper") {
-      await updateRunTrades(activeRun, day.trades);
+      const freshRun = await getRun(activeRun);
+      if (!freshRun) { this.stateCache.delete(channel); return; }
+      const liveById = new Map(day.trades.map((t) => [t.id, t]));
+      for (const ft of freshRun.trades) {
+        if (ft.status !== "OPEN") continue; // a concurrent close stays closed
+        const live = liveById.get(ft.id);
+        if (!live) continue; // a concurrently-appended trade we haven't cached yet
+        ft.ltp = live.ltp;
+        ft.lastTickAt = live.lastTickAt;
+        ft.entryPending = live.entryPending;
+        if (live.peakLtp != null) ft.peakLtp = live.peakLtp;
+        if (live.troughLtp != null) ft.troughLtp = live.troughLtp;
+        if (live.msBelowEntry != null) ft.msBelowEntry = live.msBelowEntry;
+        if (live.msAboveEntry != null) ft.msAboveEntry = live.msAboveEntry;
+        if (live.stopLossPrice != null) ft.stopLossPrice = live.stopLossPrice;
+        if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
+        if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
+        if (!live.entryPending) {
+          ft.entryPrice = live.entryPrice;
+          if (live.breakevenPrice != null) ft.breakevenPrice = live.breakevenPrice;
+        }
+      }
+      const recomputed = recalculateDayAggregates({ ...day, trades: freshRun.trades });
+      await updateRunTrades(activeRun, recomputed.trades);
+      // Adopt the merged trades so the next tick builds on the fresh state (picks
+      // up external closes / new trades immediately, not after the cache TTL).
+      day.trades = recomputed.trades;
       return;
     }
 
