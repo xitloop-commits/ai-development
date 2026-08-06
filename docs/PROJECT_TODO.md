@@ -19,6 +19,21 @@ the opposite cross exits the ride (close-by-position). Symmetric CE/PE.
   31 threshold + 186 config/discipline tests green. **Next: paper-validate before
   trusting it live** (it rides with no stop — glide — like MA-Signal).
 
+### T153 [Execution] — Trend re-entry after a premature stop-out BUILT 2026-08-06
+The cohort detectors (SMA5, MA-Signal) are **edge-triggered** — they fire `LONG_CE`
+only on the candle-close cross, then go silent while price rides the line. So when
+the exit engine stops us out (SL / MTP / TSL) **mid-trend**, nothing re-fires until
+a full flip-and-flip-back and we sit out the rest of the move.
+- Fix: [reentryOnTrend.ts](../server/portfolio/reentryOnTrend.ts) — `recordAutoExit`
+  arms a timer on a premature exit of an **AI signal-cohort** trade. When it fires,
+  if the detector **hasn't flipped** since the exit (checked against `sea_signals`),
+  it re-submits the **same direction** via `POST /validateTrade` (origin=AI, re-sizes,
+  re-prices, re-gates). Keyed per **leg** (instrument+cohort+side), channel-agnostic
+  — armed once however many books' twins stopped out. Capped per leg.
+- Config: `CommonConfig.reentryOnTrend { enabled(true), windowSec(30), maxReentries(3) }`
+  — Settings ▸ **Trend re-entry** group (toggle + window + max). 8 unit tests green.
+- Takes effect immediately (server-side, no SEA change). No TFA path touched.
+
 ## ⚑ BUY-SIDE VERDICT (2026-07-12) — exhaustive test: buying doesn't work; the edge is a SELL signal
 
 The definitive finding after a full session of testing. **The model is good; buying options on it is not.**

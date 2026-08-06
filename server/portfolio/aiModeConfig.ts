@@ -239,6 +239,15 @@ export interface CommonConfig {
    * this and falls back to Sprint).
    */
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StrategyName>;
+  /**
+   * Re-enter a signal-cohort trade that got stopped out (SL / MTP / TSL) while
+   * the trend was still running. The cohort detectors (SMA5, MA-Signal) fire
+   * only on the candle-close cross, then go silent while price rides the line —
+   * so a premature stop-out leaves us on the sidelines until a full flip. When
+   * on, `windowSec` after such an exit we re-fire the SAME direction (unless the
+   * detector has flipped meanwhile), capped at `maxReentries` per leg.
+   */
+  reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
 }
 
 /** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
@@ -303,6 +312,9 @@ function baseCommon(): CommonConfig {
     // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
     // want to run, MA rides to its own EXIT, swing banks at target.
     cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", swing: "anchor" },
+    // Re-enter on a stop-out while the trend runs — on by default, 30s window,
+    // 3 re-entries max per leg. See CommonConfig.reentryOnTrend.
+    reentryOnTrend: { enabled: true, windowSec: 30, maxReentries: 3 },
     // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
     masterExits: {
       tp: { enabled: false, mode: "percent", value: 10 },
@@ -562,6 +574,12 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   m.sl.value = clampLevel(m.sl.value, m.sl.mode, 100, 10, 2000);
   m.tsl.enabled = !!m.tsl.enabled; m.tsl.mode = exitMode(m.tsl.mode);
   m.tsl.value = clampLevel(m.tsl.value, m.tsl.mode, 90, 3, 1500);
+  // Re-entry-on-trend — back-fill for an old config, then coerce + clamp.
+  if (!c.reentryOnTrend) (c as CommonConfig).reentryOnTrend = { enabled: true, windowSec: 30, maxReentries: 3 };
+  const r = c.reentryOnTrend;
+  r.enabled = r.enabled !== false;
+  r.windowSec = Math.round(clampNum(r.windowSec, 5, 600, 30));
+  r.maxReentries = Math.round(clampNum(r.maxReentries, 0, 20, 3));
   return c;
 }
 

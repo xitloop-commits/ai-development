@@ -32,6 +32,7 @@ interface CommonCfg {
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
+  reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
   masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterLevel };
 }
 
@@ -236,6 +237,23 @@ export function SettingsMenu() {
                       </select>
                     </div>
                   ))}
+                </Group>
+
+                <Group
+                  title="Trend re-entry"
+                  info="After a signal trade (SMA5 / MA-Signal) is stopped out on SL / MTP / TSL while its trend is still running, re-fire the SAME direction after the window — unless the detector has flipped meanwhile. Capped per leg so a chop can't churn. Off = a stop-out sits out the rest of the move until a full flip."
+                  toggle={{
+                    checked: d.reentryOnTrend?.enabled ?? true,
+                    onChange: () => edit((x) => { x.reentryOnTrend.enabled = !x.reentryOnTrend.enabled; }),
+                    title: (d.reentryOnTrend?.enabled ?? true) ? "Turn off trend re-entry" : "Turn on trend re-entry",
+                  }}
+                >
+                  <div className={`flex flex-col gap-1.5 ${(d.reentryOnTrend?.enabled ?? true) ? "" : "opacity-40"}`}>
+                    <NumRow label="Wait window" value={d.reentryOnTrend?.windowSec ?? 30} step={5} min={5} max={600} unit="s"
+                      onChange={(v) => edit((x) => { x.reentryOnTrend.windowSec = v; })} />
+                    <NumRow label="Max re-entries" value={d.reentryOnTrend?.maxReentries ?? 3} step={1} min={0} max={20}
+                      onChange={(v) => edit((x) => { x.reentryOnTrend.maxReentries = v; })} />
+                  </div>
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">

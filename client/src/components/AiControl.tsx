@@ -80,6 +80,7 @@ interface CommonCfg {
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
+  reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
   masterExits: {
     tp: { enabled: boolean; mode: ExitLevelMode; value: number };
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };

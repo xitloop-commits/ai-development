@@ -56,6 +56,7 @@ import {
   sprintOpeningLevels,
 } from "../portfolio/aiModeConfig";
 import type { ExitStrategyName } from "../portfolio/exitStrategies";
+import { armReentryOnTrend } from "../portfolio/reentryOnTrend";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -964,6 +965,10 @@ class TradeExecutorAgent {
         exitStrategy: closed.exitStrategy,
       });
       teaExitTotal.labels({ channel: req.channel, trigger: req.reason }).inc();
+
+      // Trend re-entry: a signal-cohort trade stopped out (SL/MTP/TSL) while its
+      // trend may still be running — arm a re-fire (self-filters; never throws).
+      armReentryOnTrend(closed, req.channel, req.reason);
     } catch (err: any) {
       log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
     }
