@@ -822,6 +822,7 @@ def run(
         "ma": ma_signal_thresholds.enabled,
         "rev_pct": ma_signal_thresholds.rev_pct,  # MA reversal size, live-tunable
         "sma5": sma5_signal_thresholds.enabled,
+        "sma5_confirm": sma5_signal_thresholds.confirm_candles,  # SMA5 exit confirm, live-tunable
     }
     start_control_listener(_live_cohorts, instrument)
     # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
@@ -1344,6 +1345,13 @@ def run(
             # (same close-by-position mechanism as MA-Signal). Symmetric CE/PE.
             if sma5_signal_detector is not None:
                 try:
+                    # Live-tunable reversal confirmation (candles) from the panel.
+                    _s5c = _live_cohorts.get("sma5_confirm")
+                    if _s5c is not None:
+                        try:
+                            sma5_signal_detector.confirm_candles = max(1, int(_s5c))
+                        except (TypeError, ValueError):
+                            pass
                     _s5_ts = _finite(row.get("timestamp"))
                     _s5_spot = _finite(row.get("spot_price"))
                     sma5_events = (

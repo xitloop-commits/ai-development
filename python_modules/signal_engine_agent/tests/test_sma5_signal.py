@@ -63,3 +63,33 @@ def test_ha_mode_fires_on_clean_uptrend():
 
 def test_ha_mode_symmetric_put_on_downtrend():
     assert _run(_det(use_ha=True), [1000 - i * 10 for i in range(8)]) == ["LONG_PE"]
+
+
+# ── confirm_candles: gate reversals so a 1-candle poke doesn't exit early ──────
+
+def test_confirm_default_1_flips_on_first_cross():
+    """confirm_candles=1 (default) = original behaviour: a single below candle
+    reverses immediately (EXIT_CE + LONG_PE)."""
+    closes = [1000, 1010, 1020, 1030, 1040, 1050, 900, 1200]
+    fires = _run(_det(use_ha=False), closes)  # confirm_candles defaults to 1
+    assert fires == ["LONG_CE", "EXIT_CE", "LONG_PE", "EXIT_PE", "LONG_CE"]
+
+
+def test_confirm_2_ignores_one_candle_poke_that_recovers():
+    """A lone candle below the line that recovers green next bar must NOT exit."""
+    closes = [1000, 1010, 1020, 1030, 1040, 1050, 900, 1200]
+    fires = _run(_det(use_ha=False, confirm_candles=2), closes)
+    assert fires == ["LONG_CE"]  # no EXIT_CE — the poke was unconfirmed
+
+
+def test_confirm_2_exits_on_sustained_reversal():
+    """Two consecutive closes below the line confirm the reversal → it exits."""
+    closes = [1000, 1010, 1020, 1030, 1040, 1050, 900, 800]
+    fires = _run(_det(use_ha=False, confirm_candles=2), closes)
+    assert fires == ["LONG_CE", "EXIT_CE", "LONG_PE"]
+
+
+def test_confirm_2_first_entry_from_flat_is_immediate():
+    """Confirmation gates only reversals — the first entry still fires at once."""
+    closes = [1000, 1010, 1020, 1030, 1040, 1050]
+    assert _run(_det(use_ha=False, confirm_candles=2), closes) == ["LONG_CE"]

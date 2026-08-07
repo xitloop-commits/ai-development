@@ -51,6 +51,13 @@ class Sma5SignalDetector:
         self._ha_open_prev: float | None = None
         self._ha_close_prev: float | None = None
         self._state = "FLAT"               # "FLAT" | "ABOVE" | "BELOW"
+        # Reversal confirmation: a candidate new state must hold for
+        # ``confirm_candles`` consecutive closes before the flip (and its EXIT)
+        # fires. Only reversals are gated; the first entry from FLAT is immediate.
+        self._pending: str | None = None   # candidate side awaiting confirmation
+        self._pending_streak = 0           # consecutive closes on the pending side
+        # Live-tunable (the engine may overwrite it from the control channel).
+        self.confirm_candles = max(1, int(getattr(cfg, "confirm_candles", 1) or 1))
 
     def _start_candle(self, spot: float) -> None:
         self._o = self._h = self._l = self._c = spot
@@ -102,23 +109,43 @@ class Sma5SignalDetector:
             return []
         buf = cfg.buffer_pct / 100.0
         prev = self._state
-        st = prev
+        target = prev
         if value > sma * (1.0 + buf):
-            st = "ABOVE"
+            target = "ABOVE"
         elif value < sma * (1.0 - buf):
-            st = "BELOW"
+            target = "BELOW"
         # else: inside the deadband → HOLD the current state
 
-        if st == prev:
+        if target == prev:
+            # Back on (or holding) the current side → any pending reversal is void.
+            self._pending = None
+            self._pending_streak = 0
             return []
-        self._state = st
+
+        # target != prev → a state change. The first entry from FLAT is immediate;
+        # a REVERSAL (which exits the current side) waits for `confirm_candles`
+        # consecutive closes on the new side, so a one-candle poke that recovers
+        # next bar no longer exits early.
+        confirm = self.confirm_candles if prev != "FLAT" else 1
+        if confirm > 1:
+            if self._pending == target:
+                self._pending_streak += 1
+            else:
+                self._pending = target
+                self._pending_streak = 1
+            if self._pending_streak < confirm:
+                return []              # not yet confirmed → hold, no exit
+
+        self._pending = None
+        self._pending_streak = 0
+        self._state = target
         events: list[str] = []
         if prev == "ABOVE":
             events.append("EXIT_CE")
         elif prev == "BELOW":
             events.append("EXIT_PE")
-        if st == "ABOVE":
+        if target == "ABOVE":
             events.append("LONG_CE")
-        elif st == "BELOW":
+        elif target == "BELOW":
             events.append("LONG_PE")
         return events

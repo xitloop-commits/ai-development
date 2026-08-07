@@ -41,6 +41,18 @@ the opposite cross exits the ride (close-by-position). Symmetric CE/PE.
   31 threshold + 186 config/discipline tests green. **Next: paper-validate before
   trusting it live** (it rides with no stop — glide — like MA-Signal).
 
+### T154 [Signal Engine] — SMA5 exit-confirmation candles BUILT 2026-08-07
+The SMA5 detector flipped (and EXITed the current side) on the FIRST candle that
+closed across the line — so a single candle poking below then recovering green next
+bar exited early. Added `confirm_candles`: a **reversal** now fires only after the
+close holds the new side for N candles; the first entry from flat stays immediate.
+- Detector [sma5_signal.py](../python_modules/signal_engine_agent/sma5_signal.py)
+  pending-flip + `Sma5SignalThresholds.confirm_candles` (default 1 = original).
+  Live-tunable like revPct: `CommonConfig.sma5ExitConfirm` → `syncCohortsFromAiConfig`
+  → `setSma5Confirm` (ws push + JSON) → `control_client` → detector on next candle.
+- UI: Settings ▸ **SMA5 detector ▸ Exit confirm** (1–5 candles, 1 = off).
+- 11 detector tests (4 new) green. Default keeps current behaviour until set >1.
+
 ### T153 [Execution] — Trend re-entry after a premature stop-out BUILT 2026-08-06
 The cohort detectors (SMA5, MA-Signal) are **edge-triggered** — they fire `LONG_CE`
 only on the candle-close cross, then go silent while price rides the line. So when

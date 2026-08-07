@@ -71,6 +71,12 @@ def start_control_listener(live: dict, instrument: str | None = None) -> threadi
                                 live["rev_pct"] = float(st["revPct"])
                             except (TypeError, ValueError):
                                 pass
+                        # SMA5 reversal-confirmation candles — live-tunable.
+                        if "sma5Confirm" in st:
+                            try:
+                                live["sma5_confirm"] = max(1, int(st["sma5Confirm"]))
+                            except (TypeError, ValueError):
+                                pass
                         # Requested model version for THIS instrument. Recorded
                         # only — the engine thread does the actual load.
                         if instrument and isinstance(st.get("models"), dict):

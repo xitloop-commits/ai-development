@@ -25,6 +25,7 @@ type ExitLevelMode = "percent" | "rupees";
 interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
 interface CommonCfg {
   revPct: number;
+  sma5ExitConfirm: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -254,6 +255,11 @@ export function SettingsMenu() {
                     <NumRow label="Max re-entries" value={d.reentryOnTrend?.maxReentries ?? 3} step={1} min={0} max={20}
                       onChange={(v) => edit((x) => { x.reentryOnTrend.maxReentries = v; })} />
                   </div>
+                </Group>
+
+                <Group title="SMA5 detector" info="Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original). 2+ stops a single candle that pokes across the line and recovers next bar from exiting early. First entry from flat stays immediate. Live — the running SEA applies it on the next candle.">
+                  <NumRow label="Exit confirm" value={d.sma5ExitConfirm} step={1} min={1} max={5} unit="candles"
+                    onChange={(v) => edit((x) => { x.sma5ExitConfirm = v; })} />
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">

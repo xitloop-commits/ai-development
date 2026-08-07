@@ -1150,6 +1150,12 @@ class Sma5SignalThresholds:
     use_ha: bool = True
     # % stop-loss stamped on the ENTRY when the cohort auto-trades.
     sl_pct: float = 12.0
+    # Consecutive closes on the NEW side required to CONFIRM a reversal (and so
+    # fire the EXIT of the current side). 1 = flip on the first cross (original
+    # behaviour). 2+ = wait that many candles, so a single candle that pokes
+    # across the line and recovers next bar no longer exits early. Only reversals
+    # are gated — the first entry from flat stays immediate. Live-tunable.
+    confirm_candles: int = 1
 
 
 def load_thresholds_sma5_signal(

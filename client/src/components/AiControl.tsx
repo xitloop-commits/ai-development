@@ -73,6 +73,7 @@ interface ModeCfg {
 type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 interface CommonCfg {
   revPct: number;
+  sma5ExitConfirm: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
