@@ -36,6 +36,7 @@ import {
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
+import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
@@ -312,28 +313,31 @@ function TradePane({
   }, [trade.entryPrice, trade.exitPrice, trade.stopLossPrice, trade.targetPrice, trade.status]);
   const isCall = trade.side === "CE";
   return (
-    <TickChart
-      candles={c.candles}
-      markers={markers}
-      tradeLines={entryLine}
-      style={style}
-      indicators={indicators}
-      intervalSec={intervalSec}
-      sma5Ha={sma5Ha}
-      sma5Period={sma5Period}
-      emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
-      className="min-h-0 h-full"
-      header={<>
-        <span className="font-bold" style={{ color: isCall ? CHART_UP : CHART_DOWN }}>{trade.side}</span>
-        <span className="text-muted-foreground">
-          {trade.strike ?? ""} {isCall ? "call" : "put"}{(trade.tradeNo ?? trade.signalSeq) != null ? ` · #${trade.tradeNo ?? trade.signalSeq}` : ""} · {c.tickCount} tk
-        </span>
-        <span className="ml-auto tabular-nums font-semibold" style={{ color: trade.status === "OPEN" ? CHART_UP : (trade.pnl >= 0 ? CHART_UP : CHART_DOWN) }}>
-          {trade.status === "OPEN" ? "OPEN" : `${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(0)}`}
-          {trade.exitReason ? ` · ${trade.exitReason}` : ""}
-        </span>
-      </>}
-    />
+    <div className="flex h-full min-h-0 flex-col gap-1">
+      <TickChart
+        candles={c.candles}
+        markers={markers}
+        tradeLines={entryLine}
+        style={style}
+        indicators={indicators}
+        intervalSec={intervalSec}
+        sma5Ha={sma5Ha}
+        sma5Period={sma5Period}
+        emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
+        className="min-h-0 flex-1"
+        header={<>
+          <span className="font-bold" style={{ color: isCall ? CHART_UP : CHART_DOWN }}>{trade.side}</span>
+          <span className="text-muted-foreground">
+            {trade.strike ?? ""} {isCall ? "call" : "put"}{(trade.tradeNo ?? trade.signalSeq) != null ? ` · #${trade.tradeNo ?? trade.signalSeq}` : ""} · {c.tickCount} tk
+          </span>
+          <span className="ml-auto tabular-nums font-semibold" style={{ color: trade.status === "OPEN" ? CHART_UP : (trade.pnl >= 0 ? CHART_UP : CHART_DOWN) }}>
+            {trade.status === "OPEN" ? "OPEN" : `${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(0)}`}
+            {trade.exitReason ? ` · ${trade.exitReason}` : ""}
+          </span>
+        </>}
+      />
+      <Sma5StatusStrip instrument={inst} date={date} />
+    </div>
   );
 }
 

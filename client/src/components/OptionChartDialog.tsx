@@ -34,6 +34,7 @@ import {
 } from "@/lib/instrumentChart";
 import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
+import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 
 const REFRESH_MS = 5000;
@@ -519,6 +520,9 @@ function OptionChart({
         }
         className="flex-1 min-h-0"
       />
+      <div className="pt-1">
+        <Sma5StatusStrip instrument={target.instrumentKey} date={target.date} />
+      </div>
       <div className="flex items-center gap-3 pt-1 text-[0.5rem] text-muted-foreground">
         <span>▲/▼ entry · ● exit (cohort colour)</span>
         <span>· dashed = entry/SL/TP</span>
