@@ -22,6 +22,7 @@ export function Sma5StatusStrip({ instrument, date }: { instrument: string; date
       className="flex items-center gap-1.5 rounded border border-border/60 bg-background/70 px-2 py-1 text-[0.625rem] leading-snug"
       title="SMA5 signal condition, from the underlying (the option's own SMA5 line is a different series)"
     >
+      <span className="shrink-0 rounded bg-muted/50 px-1 text-[0.5rem] font-bold uppercase tracking-wide text-muted-foreground">Underlying SMA5</span>
       <span aria-hidden>{DOT[status.tone]}</span>
       <span className="font-semibold" style={{ color: COLOR[status.tone] }}>{status.text}</span>
       <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">{status.settings}</span>

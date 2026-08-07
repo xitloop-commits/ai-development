@@ -62,24 +62,27 @@ export function computeSma5Status(
     pending = null; streak = 0; state = target;
   }
 
+  // NOTE: every message says "underlying" / "spot" explicitly — this strip is on
+  // an OPTION chart, where "the line" could be mistaken for the option's own SMA5.
+  // The condition is always about the UNDERLYING (spot) vs its SMA5.
   if (state === "FLAT") {
-    return { tone: "flat", text: "No clear trend yet — price is sitting on the line.", settings };
+    return { tone: "flat", text: "Underlying is sitting on its SMA5 line — no clear side yet.", settings };
   }
   // A reversal is forming but not yet confirmed.
   if (pending) {
     const more = confirm - streak;
     const moreTxt = more <= 1 ? "one more close" : `${more} more closes`;
     if (state === "ABOVE") {
-      return { tone: "pending", text: `Slipping below the line — waiting to confirm exit (${streak} of ${confirm}). ${moreTxt} below and it exits the CALL.`, settings };
+      return { tone: "pending", text: `Underlying slipping below its SMA5 line — waiting to confirm exit (${streak} of ${confirm}). ${moreTxt} below and it exits the CALL.`, settings };
     }
-    return { tone: "pending", text: `Poking above the line — waiting to confirm exit (${streak} of ${confirm}). ${moreTxt} above and it exits the PUT.`, settings };
+    return { tone: "pending", text: `Underlying poking above its SMA5 line — waiting to confirm exit (${streak} of ${confirm}). ${moreTxt} above and it exits the PUT.`, settings };
   }
   // Steady in a side.
   const holdN = confirm > 1 ? ` for ${confirm} candles` : "";
   if (state === "ABOVE") {
-    return { tone: "up", text: `Trend up — in the CALL. Won't exit unless price closes below the line${holdN}.`, settings };
+    return { tone: "up", text: `Trend up — in the CALL. Exits when the underlying (spot) closes below its SMA5 line${holdN} — not this option's line.`, settings };
   }
-  return { tone: "down", text: `Trend down — in the PUT. Won't exit unless price closes above the line${holdN}.`, settings };
+  return { tone: "down", text: `Trend down — in the PUT. Exits when the underlying (spot) closes above its SMA5 line${holdN} — not this option's line.`, settings };
 }
 
 export function useUnderlyingSma5Status(instrument: string, date: string): Sma5Status | null {
