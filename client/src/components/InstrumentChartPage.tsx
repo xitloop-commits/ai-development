@@ -10,7 +10,7 @@
  * overlays, replay) drive every panel. Clicking a trade focuses it into the
  * first trade pane + opens its reason card.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -44,6 +44,7 @@ import { chartColors } from "@/lib/chartColors";
 const REPLAY_STEP_MS = 250;
 
 interface ChartTradeRow {
+  id?: string;
   signalSeq: number | null;
   tradeNo?: number | null;
   side: "CE" | "PE";
@@ -299,22 +300,35 @@ function TradePane({
   const markers = useMemo(() => buildTradeMarkers([trade, ...(alsoMark ?? [])], times, Infinity, true), [trade, alsoMark, times]);
   // Entry + Exit price lines (+ the frozen TSL / target). A CLOSED trade's lines
   // are DIMMED so an OPEN trade's levels stand out.
+  // Drag the Target line to move this trade's TP (open paper trades). Same backend
+  // as the trade-row popup + the TradeBar's click-to-move.
+  const canDrag = trade.status === "OPEN" && !!trade.id;
+  const utils = trpc.useUtils();
+  const updateTradeMut = trpc.executor.updateTrade.useMutation({
+    onSuccess: () => { void utils.trading.tradesForChart.invalidate(); void utils.portfolio.allDays.invalidate(); },
+  });
+  const onTargetDrag = useCallback((_t: string, price: number) => {
+    if (!trade.id) return;
+    updateTradeMut.mutate({ channel: "paper", tradeId: trade.id, targetPrice: Math.round(price * 100) / 100 });
+  }, [updateTradeMut, trade.id]);
   const entryLine = useMemo(() => {
     const isClosed = trade.status !== "OPEN";
     const dim = (c: string) => (isClosed ? c + "66" : c); // 40% alpha for closed
-    const lines = [{ price: trade.entryPrice, color: dim(CHART_ENTRY), title: "Entry" }];
+    const lines: { price: number; color: string; title: string; draggable?: boolean }[] =
+      [{ price: trade.entryPrice, color: dim(CHART_ENTRY), title: "Entry" }];
     if (trade.exitPrice != null && trade.exitPrice > 0)
       lines.push({ price: trade.exitPrice, color: dim("#94a3b8"), title: "Exit" });
     if (trade.stopLossPrice != null && trade.stopLossPrice > 0)
       lines.push({ price: trade.stopLossPrice, color: dim(CHART_DOWN), title: "TSL" });
     if (trade.targetPrice != null && trade.targetPrice > 0)
-      lines.push({ price: trade.targetPrice, color: dim(CHART_UP), title: "Target" });
+      lines.push({ price: trade.targetPrice, color: dim(CHART_UP), title: "Target", draggable: canDrag });
     return lines;
-  }, [trade.entryPrice, trade.exitPrice, trade.stopLossPrice, trade.targetPrice, trade.status]);
+  }, [trade.entryPrice, trade.exitPrice, trade.stopLossPrice, trade.targetPrice, trade.status, canDrag]);
   const isCall = trade.side === "CE";
   return (
     <div className="flex h-full min-h-0 flex-col gap-1">
       <TickChart
+        onLineDrag={canDrag ? onTargetDrag : undefined}
         candles={c.candles}
         markers={markers}
         tradeLines={entryLine}

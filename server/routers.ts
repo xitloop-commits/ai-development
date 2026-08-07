@@ -296,6 +296,7 @@ export const appRouter = router({
         return trades
           .filter((t) => logFolderFor(t.instrument) === wantFolder)
           .map((t) => ({
+            id: t.id, // trade id — lets the chart move this trade's Target line
             signalSeq: t.signalSeq ?? null,
             tradeNo: dayOrder.get(t) ?? null,
             side: (t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
