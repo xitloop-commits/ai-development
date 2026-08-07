@@ -39,9 +39,11 @@ MUT = "#777777"
 
 def latest_model_dir() -> Path:
     root = MODELS_ROOT / "nifty50"
-    dirs = sorted(d for d in root.iterdir() if (d / "entry_head.lgbm").exists())
+    dirs = sorted(d for d in root.iterdir()
+                  if (d / "entry_head.lgbm").exists()
+                  and (d / "size_head.lgbm").exists())
     if not dirs:
-        raise SystemExit("no trained sma-model found — run train first")
+        raise SystemExit("no trained v2 sma-model found — run train first")
     return dirs[-1]
 
 
@@ -49,8 +51,10 @@ def load_model(model_dir: Path) -> tuple[FoldModel, dict]:
     manifest = json.loads((model_dir / "manifest.json").read_text())
     fm = FoldModel(
         entry=lgb.Booster(model_file=str(model_dir / "entry_head.lgbm")),
+        size=lgb.Booster(model_file=str(model_dir / "size_head.lgbm")),
         exit=lgb.Booster(model_file=str(model_dir / "exit_head.lgbm")),
-        entry_threshold=float(manifest.get("entry_threshold") or 0.0),
+        ev_threshold=float(manifest.get("ev_threshold") or 0.0),
+        size_threshold=float(manifest.get("size_threshold") or 0.0),
     )
     return fm, manifest
 
@@ -59,9 +63,6 @@ def plot(date: str, out_path: Path | None = None) -> Path:
     model_dir = latest_model_dir()
     fm, manifest = load_model(model_dir)
     oos_start = manifest.get("oos_start_date")
-    # Fallback for artifacts saved before oos_start_date existed.
-    if not oos_start and model_dir.name == "20260807_015332":
-        oos_start = "2026-07-23"
     in_sample = bool(oos_start) and date < oos_start
     day = load_day_cached(date)
     if day is None:

@@ -15,7 +15,14 @@ import pandas as pd
 
 from .config import DATASET_ROOT, RAW_ROOT
 from .events import extract_events
-from .features import EXIT_EXTRA_NAMES, FEATURE_NAMES, entry_features, exit_features
+from .features import (
+    ENTRY_EXTRA_NAMES,
+    EXIT_EXTRA_NAMES,
+    FEATURE_NAMES,
+    entry_extra_features,
+    entry_features,
+    exit_features,
+)
 from .pipeline import DayData, load_day
 
 
@@ -45,23 +52,23 @@ def build_date(date: str, force: bool = False) -> tuple[str, int, int] | None:
             day_pickle_path(date).exists() and not force:
         return date, -1, -1  # cached
 
-    day = load_day(date)
+    day = load_day_cached(date)  # instant when the day pickle exists
     if day is None:
         return None
-    with open(day_pickle_path(date), "wb") as f:
-        pickle.dump(day, f)
     entries, exits = extract_events(day)
 
     e_rows = []
     for ev in entries:
-        feats = entry_features(day, ev.candle, ev.direction)
+        feats = entry_features(day, ev.candle, ev.direction) + \
+            entry_extra_features(day, ev.candle, ev.direction, ev.cross_candle)
         e_rows.append({
             "date": ev.date, "candle": ev.candle, "direction": ev.direction,
-            "is_leg_start": int(ev.is_leg_start), "strike": ev.strike,
+            "cross_candle": ev.cross_candle, "strike": ev.strike,
             "exit_candle": ev.exit_candle, "entry_ask": ev.entry_ask,
             "exit_bid": ev.exit_bid, "net_inr": ev.net_inr,
-            "gross_inr": ev.gross_inr, "label": int(ev.net_inr > 0),
-            **dict(zip(FEATURE_NAMES, feats)),
+            "gross_inr": ev.gross_inr, "favorable_pts": ev.favorable_pts,
+            "label": int(ev.net_inr > 0),
+            **dict(zip(FEATURE_NAMES + ENTRY_EXTRA_NAMES, feats)),
         })
     x_rows = []
     for ev in exits:

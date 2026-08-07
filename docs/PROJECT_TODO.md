@@ -9,9 +9,12 @@ hold-vs-exit from raw-tick evidence; graded in ₹ after real charges via
 recorded ATM weekly option bid/ask; 1 trade, 1 lot.
 - Code `python_modules/sma_model/` (pipeline → events → features → train/backtest),
   10 unit tests green. Artifacts `models/sma_model/nifty50/`.
-- **Gate 1 (42 OOS days): 645 trades, ₹−41,482, 30% win — FAIL.** Ranking edge
-  real (AUC ~0.55) but smaller than the ~₹100 spread+charges floor; reconfirms
-  the 2026-07-12 buy-side verdict. Learning curve: last fold near breakeven.
+- **Gate 1 v1 (42 OOS days): 645 trades, ₹−41,482, 30% win — FAIL.** Ranking
+  edge real (AUC ~0.55) but under the ~₹100 spread+charges floor; reconfirms
+  the 2026-07-12 buy-side verdict.
+- **Gate 1 v2 (pullback D14 + leg-size head D15): 274 trades, ₹−22,369 — still
+  FAIL, loss halved.** Fold with strict EV≥₹50 floor was GREEN (+₹1,589/11d);
+  candidate v3 = strict-floor-only tuning menu, awaiting Partha's go.
 - 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
 - **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
   ITM strike / sell-side variant / wait for more data) — see spec §12.

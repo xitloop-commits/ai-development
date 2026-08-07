@@ -58,6 +58,11 @@ FEATURE_NAMES = [
     "minute_of_day",
 ]
 
+ENTRY_EXTRA_NAMES = [
+    "candles_since_cross",    # pullback position inside the D14 window
+    "pullback_depth",         # ×d how deep the dip reached vs the SMA5 line
+]
+
 EXIT_EXTRA_NAMES = [
     "prem_ret_since_entry",   # my option premium return since entry
     "und_move_since_entry",   # ×d underlying points since entry
@@ -180,6 +185,13 @@ def entry_features(day: DayData, i: int, direction: int) -> list[float]:
         iv, iv5, oi_tilt, doi_tilt,
         vix, vix5, basis, basis5, float(i),
     ]
+
+
+def entry_extra_features(day: DayData, i: int, direction: int,
+                         cross_candle: int) -> list[float]:
+    d = float(direction)
+    depth = (day.sma[i] - day.l[i]) if direction > 0 else (day.h[i] - day.sma[i])
+    return [float(i - cross_candle), float(_safe(depth))]
 
 
 def exit_features(day: DayData, i: int, direction: int, entry_candle: int,

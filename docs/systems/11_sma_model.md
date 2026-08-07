@@ -30,6 +30,8 @@ No hand-written thresholds anywhere — flat-line avoidance, bounce detection, s
 | D11 | Promotion | Three gates: (1) full-history backtest positive ₹ after costs → (2) ~2 weeks paper matching backtest behaviour → (3) only then discuss live with 1 lot. |
 | D12 | Indicators | Start lean (see §5). Add more later only if needed (Partha 2026-08-07: "if need we add it later"). |
 | D13 | Name | **sma-model** (chat/UI/docs). No version codes in chat per Rule 1. |
+| D14 | Pullback entry (locked 2026-08-07 post-Gate-1) | Never buy the crossing candle. After a cross, wait up to 5 candles for price to dip back to/near the SMA5 line (leg still intact); enter at that candle's close. No pullback → no trade. Whipsaw (side flips back first) → no trade, filtered free. |
+| D15 | Big-legs-only (locked 2026-08-07 post-Gate-1) | Third head predicts the leg's favourable run in points (label = measured from history). Entry requires BOTH expected-₹ ≥ EV floor AND predicted points ≥ size floor (floors tuned on train tail, not hand-picked). |
 
 ## 3. The chart: futures ticks, not spot, not premiums
 
@@ -135,6 +137,17 @@ ITM strike (higher delta per point), sell-side variant (aligns with the
 buy-side verdict), or simply accumulate more days (learning curve suggests
 data helps). No further tuning done — stopping at the honest number rather
 than data-mining the backtest.
+
+### v2 run (2026-08-07, D14 pullback + D15 size head) — improved, still FAIL
+
+- **274 trades, TOTAL NET ₹−22,369, win 27%, green days 9/42** (v1: 645
+  trades, ₹−41,482). Loss halved; per-trade ₹ still negative — picks are
+  ~breakeven on mid-price and the spread+charges toll (~₹100) sinks them.
+- Notable: fold 1's tuner picked a strict EV ≥ ₹50 floor and that fold
+  finished GREEN (+₹1,589 over 11 OOS days, 33 trades). Folds 2–4 tuned to
+  the loose EV ≥ ₹0 floor and bled. Suggests the strict-floor regime is
+  where the survivable edge lives; one candidate v3 = strict-only EV menu
+  (₹50/75/100). Not run yet — needs Partha's go (guard against grid-mining).
 
 ## 11. Cross-refs
 

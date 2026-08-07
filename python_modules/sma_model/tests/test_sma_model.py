@@ -12,13 +12,18 @@ from python_modules.sma_model.config import (
     round_trip_charges,
 )
 from python_modules.sma_model.events import (
+    PULLBACK_WINDOW,
     _ride_exit_candle,
     _trade_net,
     extract_events,
+    find_pullback_entries,
+    pullback_hit,
 )
 from python_modules.sma_model.features import (
+    ENTRY_EXTRA_NAMES,
     EXIT_EXTRA_NAMES,
     FEATURE_NAMES,
+    entry_extra_features,
     entry_features,
     exit_features,
 )
@@ -147,22 +152,61 @@ def test_trade_net_uses_ask_in_bid_out_and_charges():
     assert net < gross                                          # charges on top
 
 
+def _zigzag_day():
+    """Down-leg → up-cross → pullback low pinned to the line → up-leg →
+    down-leg. The pullback candle's raw low is set onto the SMA5 by hand so
+    the geometry is under test control (SMA lag makes natural dips flip
+    sides in tiny synthetic data)."""
+    seg_down = 24720 - 1.5 * np.arange(30)          # establish side = −1
+    up1 = seg_down[-1] + 4 * np.arange(1, 4)        # sharp rise → cross up
+    up2 = up1[-1] + 4 * np.arange(1, 21)            # leg continues
+    seg_down2 = up2[-1] - 6 * np.arange(1, 16)      # reversal → exit cross
+    day = make_day(np.concatenate([seg_down, up1, up2, seg_down2]))
+    side = day.side()
+    # find the up-cross, then pin the low of cross+1 onto the line
+    x = next(i for i in range(1, 120)
+             if side[i] == 1 and side[i - 1] == -1)
+    day.l[x + 1] = day.sma[x + 1] - 0.2
+    return day, x
+
+
+def test_pullback_entry_found_and_valid():
+    day, x = _zigzag_day()
+    side = day.side()
+    found = list(find_pullback_entries(side, day))
+    assert (x, x + 1, 1) in found
+    for xc, p, d in found:
+        assert side[xc] == d and side[xc - 1] == -d    # real cross at xc
+        assert 0 < p - xc <= PULLBACK_WINDOW           # inside the window
+        assert side[p] == d                            # leg still intact
+        assert pullback_hit(day, p, d)                 # touched the line
+
+
+def test_whipsaw_produces_no_entry():
+    # one-candle fake cross up, then a hard fall: no long entry allowed.
+    seg_down = 24720 - 2 * np.arange(40)
+    spike = np.array([seg_down[-1] + 8])               # fake cross
+    seg_down2 = spike[-1] - 8 * np.arange(1, 25)       # snaps straight back
+    day = make_day(np.concatenate([seg_down, spike, seg_down2]))
+    side = day.side()
+    ups = [e for e in find_pullback_entries(side, day) if e[2] == 1]
+    assert ups == []
+
+
 def test_extract_events_labels_in_rupees():
-    # 60 up candles then 60 down: one long up-leg, entries during it.
-    closes = np.concatenate([np.linspace(24700, 24760, 60),
-                             np.linspace(24760, 24700, 60)])
-    day = make_day(closes)
+    day, x = _zigzag_day()
+    closes = day.c[~np.isnan(day.c)]
     strikes = sorted({int(round((c - 88) / 50) * 50) for c in closes})
     add_flat_quotes(day, strikes)
     entries, exits = extract_events(day)
-    assert len(entries) > 0
-    up_entries = [e for e in entries if e.direction == 1]
+    assert len(entries) >= 1
     assert all(e.exit_candle > e.candle for e in entries)
+    assert all(e.candle - e.cross_candle <= PULLBACK_WINDOW for e in entries)
     # flat premium (bid 100/ask 101) → every trade loses spread + charges
     assert all(e.net_inr < 0 for e in entries)
-    # leg-start flags exist and are a minority of all entries
-    n_leg = sum(e.is_leg_start for e in entries)
-    assert 0 < n_leg < len(entries)
+    # the up-leg entry rides a rising segment → positive favourable run
+    up = [e for e in entries if e.direction == 1]
+    assert up and all(e.favorable_pts > 0 for e in up)
 
 
 # ── features ─────────────────────────────────────────────────────────────
@@ -183,6 +227,16 @@ def test_feature_vector_shape_and_direction_symmetry():
     # non-directional features identical
     for f in ("ha_range", "tick_count", "vix", "minute_of_day"):
         assert up[names[f]] == pytest.approx(dn[names[f]])
+
+
+def test_entry_extra_features():
+    closes = np.linspace(24700, 24760, 40)
+    day = make_day(closes)
+    extras = entry_extra_features(day, 30, +1, 27)
+    assert len(extras) == len(ENTRY_EXTRA_NAMES)
+    assert extras[0] == 3.0                      # candles since cross
+    # up-leg depth = sma − low; low = close−1, sma ≈ close−3 → ≈ −2 (no touch)
+    assert extras[1] == pytest.approx(day.sma[30] - day.l[30])
 
 
 def test_exit_features_extend_entry_features():
