@@ -204,6 +204,9 @@ def main() -> None:
     tdf.to_parquet(out / "gate1_trades.parquet", index=False)
     manifest = dict(
         created=ts, instrument="nifty50", spec="docs/systems/11_sma_model.md",
+        # final saved model trained on all days BEFORE this date; charts of
+        # earlier dates are in-sample and must be labeled as such
+        oos_start_date=(list(blocks[-1])[0] if len(blocks) else None),
         n_days=len(dates), n_entry_rows=int(len(entry_df)),
         n_exit_rows=int(len(exit_df)), folds=fold_summaries,
         gate1_total_net_inr=round(float(total), 1),

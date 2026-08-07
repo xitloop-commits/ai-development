@@ -45,19 +45,24 @@ def latest_model_dir() -> Path:
     return dirs[-1]
 
 
-def load_model(model_dir: Path) -> FoldModel:
+def load_model(model_dir: Path) -> tuple[FoldModel, dict]:
     manifest = json.loads((model_dir / "manifest.json").read_text())
     fm = FoldModel(
         entry=lgb.Booster(model_file=str(model_dir / "entry_head.lgbm")),
         exit=lgb.Booster(model_file=str(model_dir / "exit_head.lgbm")),
         entry_threshold=float(manifest.get("entry_threshold") or 0.0),
     )
-    return fm
+    return fm, manifest
 
 
 def plot(date: str, out_path: Path | None = None) -> Path:
     model_dir = latest_model_dir()
-    fm = load_model(model_dir)
+    fm, manifest = load_model(model_dir)
+    oos_start = manifest.get("oos_start_date")
+    # Fallback for artifacts saved before oos_start_date existed.
+    if not oos_start and model_dir.name == "20260807_015332":
+        oos_start = "2026-07-23"
+    in_sample = bool(oos_start) and date < oos_start
     day = load_day_cached(date)
     if day is None:
         raise SystemExit(f"no raw data for {date}")
@@ -118,10 +123,12 @@ def plot(date: str, out_path: Path | None = None) -> Path:
     ax.set_ylabel("NIFTY futures", fontsize=10, color=INK)
 
     wins = sum(1 for t in trades if t["net_inr"] > 0)
+    tag = ("   |   ⚠ IN-SAMPLE — model trained on this day, results flattered"
+           if in_sample else "   |   out-of-sample")
     ax.set_title(
         f"sma-model decisions — {date}   |   {len(trades)} trades, "
-        f"{wins} wins, net ₹{net:+,.0f}   |   model {model_dir.name}",
-        fontsize=13, color=INK, loc="left", pad=14,
+        f"{wins} wins, net ₹{net:+,.0f}   |   model {model_dir.name}{tag}",
+        fontsize=13, color=(C_DOWN if in_sample else INK), loc="left", pad=14,
     )
     handles = [
         plt.Line2D([], [], color=C_SMA, linewidth=1.6, label="SMA5 (HA close)"),
