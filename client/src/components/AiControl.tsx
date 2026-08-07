@@ -430,7 +430,7 @@ const HELP = {
   ladderEsSl:
     "The one hard stop kept while riding to the exit signal (ES-honour ON). Basis %: a flat % below entry. Basis ₹: a gross rupee loss (converted to a price via the position size). Its marker is drawn on the bar.",
   ladderEsMtp:
-    "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis ₹: a gross rupee profit (converted via the position size). Its own toggle, separate from the SL's.",
+    "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis ₹: a NET ₹ P&L target AFTER round-trip charges — the trade banks when its actual net profit reaches ₹X (charge-aware, evaluated live). Its own toggle, separate from the SL's.",
   ladderEsTsl:
     "Trailing stop kept while riding to the exit signal (ES-honour ON) — trails behind the peak and exits when the trade gives back this much from its high, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis ₹: a gross rupee giveback (via position size). Its own toggle.",
 } as const;

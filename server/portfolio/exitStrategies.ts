@@ -268,7 +268,7 @@ export interface LadderConfig {
   esMtpEnabled: boolean; // MTP cap on/off
   esMtpMode: "percent" | "rupees";
   esMtpPct: number;   // % above entry (percent mode)
-  esMtpValue: number; // gross ₹ profit (rupees mode)
+  esMtpValue: number; // NET ₹ P&L after charges (rupees mode) — the tick engine owns it
   // ES-honour trailing stop — trails behind the peak; exits when the trade gives
   // back this much from its high (once the trail has locked profit above entry).
   // Its OWN on/off + %/₹ basis. "percent" = % below the peak; "rupees" = a gross
@@ -400,7 +400,9 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
         ? c.esMtpValue / i.qty
         : i.entry * (c.esMtpPct / 100);
     const esTarget = i.entry + d * esTargetGain;
-    if (c.esMtpEnabled && favour(i, i.ltp) >= esTargetGain) {
+    // % mode banks on the premium move here. ₹ mode is a NET-₹ take-profit
+    // (charge-aware) that the tick engine owns — never banked here.
+    if (c.esMtpEnabled && c.esMtpMode === "percent" && favour(i, i.ltp) >= esTargetGain) {
       return { stop, exit: true, exitPrice: esTarget, target: esTarget, phase: "target-bank",
         stopActive: c.esSlEnabled || c.esTslEnabled, targetActive: true };
     }

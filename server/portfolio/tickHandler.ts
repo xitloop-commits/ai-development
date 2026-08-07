@@ -421,6 +421,11 @@ class TickHandler extends EventEmitter {
         const g = getExitConfig(channel).glide;
         return g.tpEnabled && g.tpMode === "rupees";
       }
+      // Ladder honour-exit MTP cap in ₹ mode = a NET-₹ take-profit (charge-aware).
+      if (t.exitStrategy === "ladder") {
+        const l = getExitConfig(channel).ladder;
+        return l.esHonour && l.esMtpEnabled && l.esMtpMode === "rupees";
+      }
       return false;
     });
     const chargeRates = anyNetRs ? await loadChargeRates() : [];
@@ -799,6 +804,11 @@ class TickHandler extends EventEmitter {
         // phases (esHonour is read but not acted on yet).
         if (trade.exitStrategy === "ladder") {
           const lcfg = getExitConfig(channel).ladder;
+          // Honour-exit MTP cap in ₹ mode = a NET-₹ take-profit (after round-trip
+          // charges), evaluated here where charges live. ladderDecide never banks
+          // the ₹ mode (only %); this owns it.
+          const netMtp = lcfg.esHonour && lcfg.esMtpEnabled && lcfg.esMtpMode === "rupees"
+            && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0;
           const out = ladderDecide(
             {
               entry: trade.entryPrice,
@@ -835,9 +845,25 @@ class TickHandler extends EventEmitter {
           if (out.targetActive === false) {
             if (!trade.tpOverridden && !mTP) trade.targetPrice = null;
           } else if (!trade.tpOverridden && !mTP) {
-            trade.targetPrice = Math.round(out.target * 100) / 100;
+            if (netMtp) {
+              // Marker at the price where NET P&L ≈ the ₹ target (one-step invert
+              // of netPnlAtPrice — charges depend on the exit price).
+              const dir = isBuy ? 1 : -1;
+              const guess = trade.entryPrice + dir * (lcfg.esMtpValue / trade.qty);
+              const chargeGap = dir * (guess - trade.entryPrice) * trade.qty - netPnlAtPrice(trade, guess, chargeRates);
+              trade.targetPrice = Math.round((trade.entryPrice + dir * (lcfg.esMtpValue + chargeGap) / trade.qty) * 100) / 100;
+            } else {
+              trade.targetPrice = Math.round(out.target * 100) / 100;
+            }
           }
           anyUpdated = true;
+          // Net-₹ MTP exit — bank when live net P&L crosses the ₹ target.
+          if (netMtp && !mTP && netPnlAtPrice(trade, tick.ltp, chargeRates) >= lcfg.esMtpValue) {
+            this.ladderFavSince.delete(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
+            tradesToExit.push({ trade, reason: "TP_HIT", exitPrice: tick.ltp });
+            continue;
+          }
           if (out.exit) {
             const reason =
               out.phase === "target-bank" ? ("TP_HIT" as const)

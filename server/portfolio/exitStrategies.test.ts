@@ -393,12 +393,14 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
     expect(ladderDecide({ ...lbase, ltp: 89, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(true);
     expect(ladderDecide({ ...lbase, ltp: 91, peak: 100, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
   });
-  it("MTP rupees mode banks at ₹ profit / qty (₹5000 / 100 = 50 → 150), its own basis", () => {
+  it("MTP rupees mode is NET-₹ (charge-aware) → owned by the tick engine, NOT banked in ladderDecide", () => {
+    // ₹ mode no longer banks on the premium here; the tick engine exits on live
+    // net P&L. ladderDecide just keeps the cap's marker active (targetActive).
     const rs = { ...lcfg, esHonour: true, esMtpMode: "rupees" as const, esMtpValue: 5000 };
     const o = ladderDecide({ ...lbase, ltp: 150, peak: 150, now: at(5), qty: 100 }, rs, noFav);
-    expect(o.phase).toBe("target-bank");
-    expect(o.exitPrice).toBeCloseTo(150, 5);
-    expect(ladderDecide({ ...lbase, ltp: 149, peak: 149, now: at(5), qty: 100 }, rs, noFav).exit).toBe(false);
+    expect(o.phase).not.toBe("target-bank");
+    expect(o.exit).toBe(false);
+    expect(o.targetActive).toBe(true);
   });
 
   // ── Per-cap ON/OFF toggles (independent) ──────────────────────────────
