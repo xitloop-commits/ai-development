@@ -50,8 +50,10 @@ close holds the new side for N candles; the first entry from flat stays immediat
   pending-flip + `Sma5SignalThresholds.confirm_candles` (default 1 = original).
   Live-tunable like revPct: `CommonConfig.sma5ExitConfirm` → `syncCohortsFromAiConfig`
   → `setSma5Confirm` (ws push + JSON) → `control_client` → detector on next candle.
-- UI: Settings ▸ **SMA5 detector ▸ Exit confirm** (1–5 candles, 1 = off).
-- 11 detector tests (4 new) green. Default keeps current behaviour until set >1.
+- Also made **`buffer_pct`** (line deadband, %) live-tunable the same way
+  (`CommonConfig.sma5Buffer` → `setSma5Buffer`) — filters marginal pokes at the line.
+- UI: Settings ▸ **SMA5 detector ▸ Exit confirm** (1–5 candles, 1 = off) + **Buffer**
+  (%, 0 = exact cross). 11 detector tests (4 new) green. Defaults keep current behaviour.
 
 ### T153 [Execution] — Trend re-entry after a premature stop-out BUILT 2026-08-06
 The cohort detectors (SMA5, MA-Signal) are **edge-triggered** — they fire `LONG_CE`

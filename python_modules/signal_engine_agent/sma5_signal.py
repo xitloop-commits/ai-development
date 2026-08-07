@@ -56,8 +56,10 @@ class Sma5SignalDetector:
         # fires. Only reversals are gated; the first entry from FLAT is immediate.
         self._pending: str | None = None   # candidate side awaiting confirmation
         self._pending_streak = 0           # consecutive closes on the pending side
-        # Live-tunable (the engine may overwrite it from the control channel).
+        # Live-tunable (the engine may overwrite these from the control channel).
         self.confirm_candles = max(1, int(getattr(cfg, "confirm_candles", 1) or 1))
+        # Deadband (% of the line) the close must clear to flip; 0 = exact cross.
+        self.buffer_pct = max(0.0, float(getattr(cfg, "buffer_pct", 0.0) or 0.0))
 
     def _start_candle(self, spot: float) -> None:
         self._o = self._h = self._l = self._c = spot
@@ -107,7 +109,7 @@ class Sma5SignalDetector:
         sma = sum(self._closes) / len(self._closes)
         if sma <= 0:
             return []
-        buf = cfg.buffer_pct / 100.0
+        buf = self.buffer_pct / 100.0
         prev = self._state
         target = prev
         if value > sma * (1.0 + buf):

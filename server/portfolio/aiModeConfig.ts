@@ -226,6 +226,9 @@ export interface CommonConfig {
    *  that many candles before a reversal exits — damps 1-candle whipsaw exits).
    *  Pushed to the running SEA like revPct. */
   sma5ExitConfirm: number;
+  /** SMA5 line deadband (% of the line) the close must clear to flip; 0 = exact
+   *  cross. Filters marginal pokes right at the line. Pushed to SEA like revPct. */
+  sma5Buffer: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
@@ -302,6 +305,7 @@ function baseCommon(): CommonConfig {
   return {
     revPct: 0.18,
     sma5ExitConfirm: 1, // off by default — flip on the first cross (original)
+    sma5Buffer: 0, // no deadband by default — exact cross
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -548,6 +552,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   // selected — the detector short-circuits to reversal on `rev_pct > 0`.
   c.revPct = c.revPct === 0 ? 0 : clampNum(c.revPct, 0.02, 0.6, 0.18);
   c.sma5ExitConfirm = Math.round(clampNum(c.sma5ExitConfirm, 1, 10, 1));
+  c.sma5Buffer = clampNum(c.sma5Buffer, 0, 5, 0);
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

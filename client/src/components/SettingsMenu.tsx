@@ -26,6 +26,7 @@ interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
 interface CommonCfg {
   revPct: number;
   sma5ExitConfirm: number;
+  sma5Buffer: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -257,9 +258,11 @@ export function SettingsMenu() {
                   </div>
                 </Group>
 
-                <Group title="SMA5 detector" info="Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original). 2+ stops a single candle that pokes across the line and recovers next bar from exiting early. First entry from flat stays immediate. Live — the running SEA applies it on the next candle.">
+                <Group title="SMA5 detector" info="Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. Both live — the running SEA applies them on the next candle.">
                   <NumRow label="Exit confirm" value={d.sma5ExitConfirm} step={1} min={1} max={5} unit="candles"
                     onChange={(v) => edit((x) => { x.sma5ExitConfirm = v; })} />
+                  <NumRow label="Buffer" value={d.sma5Buffer} step={0.05} min={0} max={2} unit="%"
+                    onChange={(v) => edit((x) => { x.sma5Buffer = v; })} />
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">

@@ -38,6 +38,9 @@ export interface CohortState {
    *  side) fires only after the close holds the new side for this many candles;
    *  1 = flip on the first cross (original). Live-tunable. */
   sma5Confirm: number;
+  /** SMA5 line deadband (% of the line) the close must clear to flip; 0 = exact
+   *  cross. Damps whipsaw when price hugs the line. Live-tunable. */
+  sma5Buffer: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -61,7 +64,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -167,6 +170,35 @@ function persistSma5Confirm(value: number): void {
   }
 }
 
+/** Read the persisted SMA5 line deadband (%) from the first instrument's cfg. */
+function readSma5Buffer(): number | null {
+  try {
+    const p = cfgPath(INSTRUMENTS[0]);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    const v = j.sma5_signal?.buffer_pct;
+    return typeof v === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write buffer_pct into both instruments' sma5_signal block (that key only). */
+function persistSma5Buffer(value: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      if (!j.sma5_signal || j.sma5_signal.buffer_pct === value) continue;
+      j.sma5_signal.buffer_pct = value;
+      writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -219,6 +251,18 @@ export function setSma5Confirm(value: number): CohortState {
   if (state.sma5Confirm === v) return { ...state };
   state.sma5Confirm = v;
   persistSma5Confirm(v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/** Set the SMA5 line deadband (%, 0–5). Persisted to both configs and pushed to
+ *  running SEA — the live detector applies it on the next candle. */
+export function setSma5Buffer(value: number): CohortState {
+  const v = Math.round(Math.min(5, Math.max(0, value || 0)) * 1000) / 1000;
+  if (state.sma5Buffer === v) return { ...state };
+  state.sma5Buffer = v;
+  persistSma5Buffer(v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
@@ -310,6 +354,8 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setRevPct(getCommonConfig().revPct);
   // SMA5 exit-confirmation candles — likewise a single common-block parameter.
   setSma5Confirm(getCommonConfig().sma5ExitConfirm);
+  // SMA5 line deadband (%) — same.
+  setSma5Buffer(getCommonConfig().sma5Buffer);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
@@ -323,6 +369,8 @@ export function initSeaControl(server: Server): void {
   if (rp !== null) state.revPct = rp;
   const sc = readSma5Confirm();
   if (sc !== null) state.sma5Confirm = sc;
+  const sb = readSma5Buffer();
+  if (sb !== null) state.sma5Buffer = sb;
 
   // T97 — hydrate the model map from each instrument's LATEST pointer, which is
   // what SEA actually loads at startup. Without this `state.models` stays {}
