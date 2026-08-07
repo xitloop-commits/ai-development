@@ -321,13 +321,11 @@ function OptionChart({
   const updateTradeMut = trpc.executor.updateTrade.useMutation({
     onSuccess: () => { void utils.trading.optionTradesForChart.invalidate(); void utils.portfolio.allDays.invalidate(); },
   });
-  const onTargetDrag = useCallback((_title: string, price: number) => {
+  const onLineDrag = useCallback((title: string, price: number) => {
     if (!dragTrade?.id) return;
-    updateTradeMut.mutate({
-      channel: target.channel as "paper" | "live",
-      tradeId: dragTrade.id,
-      targetPrice: Math.round(price * 100) / 100,
-    });
+    const p = Math.round(price * 100) / 100;
+    const patch = title.includes("SL") ? { stopLossPrice: p } : { targetPrice: p };
+    updateTradeMut.mutate({ channel: target.channel as "paper" | "live", tradeId: dragTrade.id, ...patch });
   }, [dragTrade, target.channel, updateTradeMut]);
 
   const tradeLines = useMemo(() => {
@@ -336,7 +334,7 @@ function OptionChart({
       if (t.status !== "OPEN") continue;
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
       if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: CHART_ENTRY, title: `${tag}entry` });
-      if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: CHART_DOWN, title: `${tag}SL` });
+      if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: CHART_DOWN, title: `${tag}SL`, draggable: canDrag && t.id === dragTrade?.id });
       if (t.targetPrice) out.push({ price: t.targetPrice, color: CHART_UP, title: `${tag}TP`, draggable: canDrag && t.id === dragTrade?.id });
     }
     return out;
@@ -529,7 +527,7 @@ function OptionChart({
         candles={candles}
         markers={markers}
         tradeLines={tradeLines}
-        onLineDrag={canDrag ? onTargetDrag : undefined}
+        onLineDrag={canDrag ? onLineDrag : undefined}
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}

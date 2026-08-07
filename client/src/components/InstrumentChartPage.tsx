@@ -307,9 +307,11 @@ function TradePane({
   const updateTradeMut = trpc.executor.updateTrade.useMutation({
     onSuccess: () => { void utils.trading.tradesForChart.invalidate(); void utils.portfolio.allDays.invalidate(); },
   });
-  const onTargetDrag = useCallback((_t: string, price: number) => {
+  const onLineDrag = useCallback((title: string, price: number) => {
     if (!trade.id) return;
-    updateTradeMut.mutate({ channel: "paper", tradeId: trade.id, targetPrice: Math.round(price * 100) / 100 });
+    const p = Math.round(price * 100) / 100;
+    const patch = title.includes("SL") ? { stopLossPrice: p } : { targetPrice: p };
+    updateTradeMut.mutate({ channel: "paper", tradeId: trade.id, ...patch });
   }, [updateTradeMut, trade.id]);
   const entryLine = useMemo(() => {
     const isClosed = trade.status !== "OPEN";
@@ -319,7 +321,7 @@ function TradePane({
     if (trade.exitPrice != null && trade.exitPrice > 0)
       lines.push({ price: trade.exitPrice, color: dim("#94a3b8"), title: "Exit" });
     if (trade.stopLossPrice != null && trade.stopLossPrice > 0)
-      lines.push({ price: trade.stopLossPrice, color: dim(CHART_DOWN), title: "TSL" });
+      lines.push({ price: trade.stopLossPrice, color: dim(CHART_DOWN), title: "TSL", draggable: canDrag });
     if (trade.targetPrice != null && trade.targetPrice > 0)
       lines.push({ price: trade.targetPrice, color: dim(CHART_UP), title: "Target", draggable: canDrag });
     return lines;
@@ -328,7 +330,7 @@ function TradePane({
   return (
     <div className="flex h-full min-h-0 flex-col gap-1">
       <TickChart
-        onLineDrag={canDrag ? onTargetDrag : undefined}
+        onLineDrag={canDrag ? onLineDrag : undefined}
         candles={c.candles}
         markers={markers}
         tradeLines={entryLine}
