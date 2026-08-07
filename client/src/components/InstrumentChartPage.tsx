@@ -738,29 +738,48 @@ export default function InstrumentChartPage() {
            stays on its side's last trade after close, keyed by contract so a next
            same-strike trade reuses the chart. */
         <div className="grid flex-1 min-h-0 gap-2" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-          {([["CE", focusCe, ceAlsoMark], ["PE", focusPe, peAlsoMark]] as const).map(([side, ft, marks]) => (
-            <div key={side} className={fullscreenPane === `split:${side}` ? "fixed inset-0 z-40 bg-background p-2" : "min-h-0 relative"}>
-              {ft ? (
-                <TradePane
-                  key={ft.contractSecurityId ?? "?"}
-                  trade={ft}
-                  inst={inst ?? ""}
-                  date={date}
-                  optSeg={optSeg}
-                  intervalSec={intervalSec}
-                  style={style}
-                  indicators={indicators}
-                  optionsEnabled={optionsEnabled}
-                  sma5Ha={sma5Ha}
-                  sma5Period={sma5Period}
-                  alsoMark={marks}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No {side === "CE" ? "CALL" : "PUT"} trades yet.</div>
-              )}
-              <PaneFullscreenBtn active={fullscreenPane === `split:${side}`} onToggle={() => setFullscreenPane((p) => (p === `split:${side}` ? null : `split:${side}`))} />
-            </div>
-          ))}
+          {(() => {
+            // The active side is the one holding a live (OPEN) trade. When exactly
+            // one side is active, DIM the other with a dark overlay so the live
+            // trade's chart stands out; if both or neither are open, dim neither.
+            const ceActive = focusCe?.status === "OPEN";
+            const peActive = focusPe?.status === "OPEN";
+            return ([["CE", focusCe, ceAlsoMark], ["PE", focusPe, peAlsoMark]] as const).map(([side, ft, marks]) => {
+              const thisActive = side === "CE" ? ceActive : peActive;
+              const otherActive = side === "CE" ? peActive : ceActive;
+              const dim = otherActive && !thisActive; // inactive side, other is live
+              const isFs = fullscreenPane === `split:${side}`;
+              return (
+                <div key={side} className={isFs ? "fixed inset-0 z-40 bg-background p-2" : "min-h-0 relative"}>
+                  {ft ? (
+                    <TradePane
+                      key={ft.contractSecurityId ?? "?"}
+                      trade={ft}
+                      inst={inst ?? ""}
+                      date={date}
+                      optSeg={optSeg}
+                      intervalSec={intervalSec}
+                      style={style}
+                      indicators={indicators}
+                      optionsEnabled={optionsEnabled}
+                      sma5Ha={sma5Ha}
+                      sma5Period={sma5Period}
+                      alsoMark={marks}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No {side === "CE" ? "CALL" : "PUT"} trades yet.</div>
+                  )}
+                  {/* Dark overlay on the INACTIVE side (no open trade) while the
+                      other side is live — de-emphasises it. Non-interactive so the
+                      chart underneath is still hoverable/clickable. */}
+                  {dim && !isFs && (
+                    <div className="pointer-events-none absolute inset-0 z-20 rounded bg-black/80" title="No open trade on this side" />
+                  )}
+                  <PaneFullscreenBtn active={isFs} onToggle={() => setFullscreenPane((p) => (p === `split:${side}` ? null : `split:${side}`))} />
+                </div>
+              );
+            });
+          })()}
         </div>
       ) : layout.focus ? (
         /* Focus layout — the current trade full-view (stays on the last trade
