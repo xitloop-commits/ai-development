@@ -32,6 +32,7 @@ import { calculateAvailableCapital, calculatePositionSize } from "../portfolio/c
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { getActiveBroker } from "../broker/brokerService";
 import { portfolioAgent } from "../portfolio";
+import { tickHandler } from "../portfolio/tickHandler";
 
 const channelSchema = z.enum([
   "paper", "live",
@@ -668,6 +669,11 @@ export const executorRouter = router({
           message: resp.error ?? "Modify rejected",
         });
       }
+      // Drop the tick engine's cached copy of this channel so the next tick
+      // re-reads the trade FRESH (with the new SL/TP + override flags). Without
+      // this the ~2s stale cache recomputes over the edit and re-persists the old
+      // level — the "dragged line resets after a moment" bug.
+      tickHandler.clearStateCache(input.channel);
       const day = await portfolioAgent.ensureCurrentDay(input.channel);
       const trade = day.trades.find((t) => t.id === input.tradeId);
       return { trade };

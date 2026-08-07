@@ -211,9 +211,13 @@ class TickHandler extends EventEmitter {
     this.setMaxListeners(50);
   }
 
-  /** Test/shutdown hook — drop the per-channel state cache. */
-  clearStateCache(): void {
-    this.stateCache.clear();
+  /** Drop the per-channel state cache. Pass a channel to drop just that one — used
+   *  after a manual trade edit so the next tick re-reads the trade FRESH (with the
+   *  new SL/TP + slOverridden/tpOverridden), instead of recomputing over the edit
+   *  from a stale cached copy and re-persisting the old level. */
+  clearStateCache(channel?: Channel): void {
+    if (channel) this.stateCache.delete(channel);
+    else this.stateCache.clear();
   }
 
   /** Push a manual SL/TP price edit into the LIVE cached day so the per-tick
