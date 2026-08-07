@@ -402,37 +402,73 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
   });
 
   // ── Per-cap ON/OFF toggles (independent) ──────────────────────────────
+  // esTsl OFF in these so they isolate the SL/MTP caps (the trailing stop is on
+  // by default and would otherwise be a second downside stop).
+  const esNoTsl = { ...es, esTslEnabled: false };
   it("safety SL OFF: does NOT exit on the stop, and clears it (stopActive false)", () => {
-    const noSl = { ...es, esSlEnabled: false };
+    const noSl = { ...esNoTsl, esSlEnabled: false };
     const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, noSl, noFav);
     expect(o.exit).toBe(false);         // 1% stop would have fired; it's off
     expect(o.stopActive).toBe(false);   // tick engine clears the SL marker
   });
   it("safety SL OFF but MTP ON: still banks at the MTP cap", () => {
-    const noSl = { ...es, esSlEnabled: false };
+    const noSl = { ...esNoTsl, esSlEnabled: false };
     const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, noSl, noFav);
     expect(o.phase).toBe("target-bank");
     expect(o.exit).toBe(true);
     expect(o.stopActive).toBe(false);
   });
   it("MTP cap OFF: does NOT bank at the cap, and clears the target (targetActive false)", () => {
-    const noMtp = { ...es, esMtpEnabled: false };
+    const noMtp = { ...esNoTsl, esMtpEnabled: false };
     const o = ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, noMtp, noFav);
     expect(o.exit).toBe(false);         // 10% cap would have banked; it's off
     expect(o.targetActive).toBe(false); // tick engine clears the TP marker
   });
   it("MTP cap OFF but safety SL ON: the SL still fires", () => {
-    const noMtp = { ...es, esMtpEnabled: false };
+    const noMtp = { ...esNoTsl, esMtpEnabled: false };
     const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, noMtp, noFav);
     expect(o.exit).toBe(true);
     expect(o.targetActive).toBe(false);
   });
-  it("both caps OFF: rides with no exit, both markers cleared", () => {
-    const none = { ...es, esSlEnabled: false, esMtpEnabled: false };
+  it("all caps OFF: rides with no exit, markers cleared", () => {
+    const none = { ...es, esSlEnabled: false, esMtpEnabled: false, esTslEnabled: false };
     expect(ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, none, noFav).exit).toBe(false);
     expect(ladderDecide({ ...lbase, ltp: 110, peak: 110, now: at(5) }, none, noFav).exit).toBe(false);
     const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, none, noFav);
     expect(o.stopActive).toBe(false);
     expect(o.targetActive).toBe(false);
+  });
+
+  // ── Trailing SL (esTsl) ───────────────────────────────────────────────
+  // Trails 2.5% below the peak, but only once the trail has locked profit above
+  // entry. MTP off here so the up-cap doesn't bank before the trail is tested.
+  it("trailing SL fires on a giveback from the peak (2.5% below peak 120 → 117)", () => {
+    const t = { ...es, esMtpEnabled: false, esTslPct: 2.5 };
+    const o = ladderDecide({ ...lbase, ltp: 116, peak: 120, now: at(5) }, t, noFav);
+    expect(o.exit).toBe(true);
+    expect(o.phase).toBe("trailing"); // → reported as TSL_HIT
+    expect(o.stop).toBeCloseTo(117, 5);
+  });
+  it("trailing SL holds while price stays within the giveback", () => {
+    const t = { ...es, esMtpEnabled: false, esTslPct: 2.5 };
+    expect(ladderDecide({ ...lbase, ltp: 118, peak: 120, now: at(5) }, t, noFav).exit).toBe(false);
+  });
+  it("trailing SL does NOT bind before it has locked profit (peak at entry)", () => {
+    // peak 100 = entry: trail 97.5 is below entry, so the safety SL governs, not TSL.
+    const t = { ...es, esMtpEnabled: false };
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5) }, t, noFav);
+    expect(o.phase).toBe("wide"); // safety SL, not trailing
+  });
+  it("trailing SL rupees mode: ₹ giveback / qty below the peak", () => {
+    // ₹2500 / 100 = 25 pts below peak 130 → trail 105; ltp 104 breaches it.
+    const t = { ...es, esMtpEnabled: false, esTslMode: "rupees" as const, esTslValue: 2500 };
+    const o = ladderDecide({ ...lbase, ltp: 104, peak: 130, now: at(5), qty: 100 }, t, noFav);
+    expect(o.exit).toBe(true);
+    expect(o.stop).toBeCloseTo(105, 5);
+  });
+  it("trailing SL OFF: a giveback from the peak does NOT exit", () => {
+    const t = { ...es, esMtpEnabled: false, esTslEnabled: false };
+    // Only the 1% safety SL remains (99); price at 116 is far above it.
+    expect(ladderDecide({ ...lbase, ltp: 116, peak: 120, now: at(5) }, t, noFav).exit).toBe(false);
   });
 });

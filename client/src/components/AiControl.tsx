@@ -57,6 +57,7 @@ interface LadderCfg {
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
   esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
   esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
+  esTslEnabled: boolean; esTslMode: "percent" | "rupees"; esTslPct: number; esTslValue: number;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -430,6 +431,8 @@ const HELP = {
     "The one hard stop kept while riding to the exit signal (ES-honour ON). Basis %: a flat % below entry. Basis ₹: a gross rupee loss (converted to a price via the position size). Its marker is drawn on the bar.",
   ladderEsMtp:
     "Take-profit cap kept while riding to the exit signal (ES-honour ON) — bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis ₹: a gross rupee profit (converted via the position size). Its own toggle, separate from the SL's.",
+  ladderEsTsl:
+    "Trailing stop kept while riding to the exit signal (ES-honour ON) — trails behind the peak and exits when the trade gives back this much from its high, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis ₹: a gross rupee giveback (via position size). Its own toggle.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -860,8 +863,8 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                       <>
                         <span className="text-[0.5625rem] text-warning-amber leading-snug">
                           ON — the Ladder's own staged SL / TSL / MSL are DISABLED and
-                          the trade rides until SEA's exit signal fires, EXCEPT the two
-                          caps below: a safety SL (down) and an MTP (up).
+                          the trade rides until SEA's exit signal fires, EXCEPT the
+                          caps below: a safety SL (down), an MTP (up), and a trailing SL.
                         </span>
                         <SubGroup>Caps · while riding to the signal</SubGroup>
                         <CapRow
@@ -881,6 +884,15 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                           onMode={() => editExits((x) => { x.ladder.esMtpMode = x.ladder.esMtpMode === "percent" ? "rupees" : "percent"; })}
                           value={ed.ladder.esMtpMode === "percent" ? ed.ladder.esMtpPct : ed.ladder.esMtpValue}
                           onValue={(v) => editExits((x) => { if (x.ladder.esMtpMode === "percent") x.ladder.esMtpPct = v; else x.ladder.esMtpValue = v; })}
+                        />
+                        <CapRow
+                          label="Trailing SL" help={HELP.ladderEsTsl}
+                          enabled={ed.ladder.esTslEnabled}
+                          onToggle={() => editExits((x) => { x.ladder.esTslEnabled = !x.ladder.esTslEnabled; })}
+                          mode={ed.ladder.esTslMode}
+                          onMode={() => editExits((x) => { x.ladder.esTslMode = x.ladder.esTslMode === "percent" ? "rupees" : "percent"; })}
+                          value={ed.ladder.esTslMode === "percent" ? ed.ladder.esTslPct : ed.ladder.esTslValue}
+                          onValue={(v) => editExits((x) => { if (x.ladder.esTslMode === "percent") x.ladder.esTslPct = v; else x.ladder.esTslValue = v; })}
                         />
                       </>
                     ) : (

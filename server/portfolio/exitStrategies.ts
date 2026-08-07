@@ -269,6 +269,14 @@ export interface LadderConfig {
   esMtpMode: "percent" | "rupees";
   esMtpPct: number;   // % above entry (percent mode)
   esMtpValue: number; // gross ₹ profit (rupees mode)
+  // ES-honour trailing stop — trails behind the peak; exits when the trade gives
+  // back this much from its high (once the trail has locked profit above entry).
+  // Its OWN on/off + %/₹ basis. "percent" = % below the peak; "rupees" = a gross
+  // ₹ giveback (converted to a premium distance via qty).
+  esTslEnabled: boolean;
+  esTslMode: "percent" | "rupees";
+  esTslPct: number;   // % below the peak (percent mode)
+  esTslValue: number; // gross ₹ giveback (rupees mode)
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -299,6 +307,10 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   esMtpMode: "percent",
   esMtpPct: 10,
   esMtpValue: 5000,
+  esTslEnabled: true,
+  esTslMode: "percent",
+  esTslPct: 2.5,
+  esTslValue: 2500,
 };
 
 export interface LadderState {
@@ -390,18 +402,44 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
     const esTarget = i.entry + d * esTargetGain;
     if (c.esMtpEnabled && favour(i, i.ltp) >= esTargetGain) {
       return { stop, exit: true, exitPrice: esTarget, target: esTarget, phase: "target-bank",
-        stopActive: c.esSlEnabled, targetActive: true };
+        stopActive: c.esSlEnabled || c.esTslEnabled, targetActive: true };
     }
-    // Downside safety SL — % below entry, or a gross-₹ loss converted via qty;
-    // exits only when ENABLED.
-    const esStop =
-      c.esSlMode === "rupees" && i.qty && i.qty > 0
-        ? i.entry - d * (c.esSlValue / i.qty)      // ₹ loss ÷ qty = per-unit premium
-        : i.entry * (1 - d * (c.esSlPct / 100));   // % below entry
-    const esExit = c.esSlEnabled && stopBreached(i, esStop);
-    const esFill = esExit ? (favour(i, i.ltp) < favour(i, esStop) ? i.ltp : esStop) : undefined;
-    return { stop: esStop, exit: esExit, exitPrice: esFill, target: esTarget, phase: "wide",
-      stopActive: c.esSlEnabled, targetActive: c.esMtpEnabled };
+    // Downside caps — the effective stop is the TIGHTER (further in favour) of the
+    // fixed safety SL and the trailing stop, whichever are enabled.
+    let effStop: number | null = null;
+    let trailing = false;
+    if (c.esSlEnabled) {
+      // Safety SL — % below entry, or a gross-₹ loss converted via qty.
+      effStop =
+        c.esSlMode === "rupees" && i.qty && i.qty > 0
+          ? i.entry - d * (c.esSlValue / i.qty)
+          : i.entry * (1 - d * (c.esSlPct / 100));
+    }
+    if (c.esTslEnabled) {
+      // Trailing stop — a giveback from the peak (% of the peak, or a gross ₹
+      // amount via qty). Only binds once it has LOCKED profit (sits in favour
+      // beyond entry); below that the safety SL governs the downside.
+      const giveback =
+        c.esTslMode === "rupees" && i.qty && i.qty > 0
+          ? c.esTslValue / i.qty
+          : i.peak * (c.esTslPct / 100);
+      const trail = i.peak - d * giveback;
+      if (favour(i, trail) > 0 && (effStop == null || favour(i, trail) > favour(i, effStop))) {
+        effStop = trail;
+        trailing = true;
+      }
+    }
+    if (effStop == null) {
+      // Neither downside cap on → ride purely to the signal (MTP may still cap up).
+      return { stop, exit: false, target: esTarget, phase: "wide",
+        stopActive: false, targetActive: c.esMtpEnabled };
+    }
+    const esExit = stopBreached(i, effStop);
+    const esFill = esExit ? (favour(i, i.ltp) < favour(i, effStop) ? i.ltp : effStop) : undefined;
+    // phase "trailing" → reported as TSL_HIT; "wide" → SL_HIT (see tickHandler).
+    return { stop: effStop, exit: esExit, exitPrice: esFill, target: esTarget,
+      phase: trailing ? "trailing" : "wide",
+      stopActive: true, targetActive: c.esMtpEnabled };
   }
 
   // MTP — bank the profit when the live price reaches the target.
