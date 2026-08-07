@@ -10,7 +10,7 @@
  * Candle/HA/Line style, the Indicators menu (SMA-5 green/red on by default),
  * and a cohort legend for the marker colours.
  */
-import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useMemo, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -310,17 +310,37 @@ function OptionChart({
     return out;
   }, [visibleTrades, candles, target.side, intervalSec]);
 
+  // Which open trade's Target line can be dragged — the focused one, else the
+  // first open trade on the strike. Paper only (live TP isn't app-editable here).
+  const dragTrade = useMemo(
+    () => (focusedTrade?.status === "OPEN" ? focusedTrade : visibleTrades.find((t) => t.status === "OPEN")) ?? null,
+    [focusedTrade, visibleTrades],
+  );
+  const canDrag = !!dragTrade?.id && target.channel === "paper";
+  const utils = trpc.useUtils();
+  const updateTradeMut = trpc.executor.updateTrade.useMutation({
+    onSuccess: () => { void utils.trading.optionTradesForChart.invalidate(); void utils.portfolio.allDays.invalidate(); },
+  });
+  const onTargetDrag = useCallback((_title: string, price: number) => {
+    if (!dragTrade?.id) return;
+    updateTradeMut.mutate({
+      channel: target.channel as "paper" | "live",
+      tradeId: dragTrade.id,
+      targetPrice: Math.round(price * 100) / 100,
+    });
+  }, [dragTrade, target.channel, updateTradeMut]);
+
   const tradeLines = useMemo(() => {
-    const out: { price: number; color: string; title: string }[] = [];
+    const out: { price: number; color: string; title: string; draggable?: boolean }[] = [];
     for (const t of visibleTrades) {
       if (t.status !== "OPEN") continue;
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
       if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: CHART_ENTRY, title: `${tag}entry` });
       if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: CHART_DOWN, title: `${tag}SL` });
-      if (t.targetPrice) out.push({ price: t.targetPrice, color: CHART_UP, title: `${tag}TP` });
+      if (t.targetPrice) out.push({ price: t.targetPrice, color: CHART_UP, title: `${tag}TP`, draggable: canDrag && t.id === dragTrade?.id });
     }
     return out;
-  }, [visibleTrades]);
+  }, [visibleTrades, canDrag, dragTrade]);
 
   const presentCohorts = useMemo<string[]>(
     () => Array.from(new Set(trades.map((t) => t.cohort).filter((c): c is string => !!c))).sort(),
@@ -509,6 +529,7 @@ function OptionChart({
         candles={candles}
         markers={markers}
         tradeLines={tradeLines}
+        onLineDrag={canDrag ? onTargetDrag : undefined}
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}

@@ -14,6 +14,7 @@ import {
   CrosshairMode,
   LineStyle,
   type IChartApi,
+  type ISeriesApi,
   type UTCTimestamp,
   type SeriesMarker,
 } from "lightweight-charts";
@@ -55,8 +56,11 @@ export interface TickChartProps {
   /** SEA MA-Signal legs. When provided, the MA line follows these (guaranteed to
    *  match the markers); when omitted, it falls back to a local slope recompute. */
   maLegs?: MaLeg[];
-  /** Dashed horizontal price lines (e.g. entry/SL/TP for the option panels). */
-  tradeLines?: { price: number; color: string; title: string }[];
+  /** Dashed horizontal price lines (e.g. entry/SL/TP for the option panels).
+   *  `draggable` lines get a grab handle (needs `onLineDrag`). */
+  tradeLines?: { price: number; color: string; title: string; draggable?: boolean }[];
+  /** Called when a draggable line is dropped at a new price (title, newPrice). */
+  onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   intervalSec: number;
@@ -88,9 +92,17 @@ export function TickChart({
   emptyText,
   className,
   onTimeClick,
+  onLineDrag,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  // Main price series — kept in a ref so the drag-line overlay can convert
+  // price↔pixel (priceToCoordinate / coordinateToPrice) against the live scale.
+  const seriesRef = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
+  const onLineDragRef = useRef(onLineDrag);
+  onLineDragRef.current = onLineDrag;
+  const dragTitleRef = useRef<string | null>(null);
+  const handleRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   // The chart is rebuilt on every data change; stash the user's visible window on
   // teardown so the rebuild can restore it (instead of resetting the zoom every
   // tick). `count` is the bar count at teardown — used to tell "default full-fit"
@@ -151,6 +163,7 @@ export function TickChart({
           wickUpColor: cc.up,
           wickDownColor: cc.down,
         });
+    seriesRef.current = series as ISeriesApi<"Candlestick" | "Line">;
     if (mainLine) {
       series.setData(candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
     } else {
@@ -404,6 +417,62 @@ export function TickChart({
     };
   }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period]);
 
+  // ── Draggable price lines (e.g. move the Target) ────────────────────────
+  const dragLines = useMemo(
+    () => (onLineDrag ? tradeLines.filter((l) => l.draggable) : []),
+    [tradeLines, onLineDrag],
+  );
+  // Keep each handle glued to its line's price as the scale auto-scales / rebuilds
+  // (rAF loop, not React state, so it stays smooth). A handle being dragged is
+  // skipped — it follows the pointer instead.
+  useEffect(() => {
+    if (dragLines.length === 0) return;
+    let raf = 0;
+    const loop = () => {
+      const s = seriesRef.current;
+      if (s) {
+        for (const l of dragLines) {
+          const el = handleRefs.current.get(l.title);
+          if (!el || dragTitleRef.current === l.title) continue;
+          const y = s.priceToCoordinate(l.price);
+          if (y == null) { el.style.opacity = "0"; el.style.pointerEvents = "none"; continue; }
+          el.style.opacity = "1"; el.style.pointerEvents = "auto";
+          el.style.top = `${y}px`;
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [dragLines]);
+
+  const startDrag = (e: React.PointerEvent, title: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const box = containerRef.current;
+    const el = handleRefs.current.get(title);
+    if (!box || !el) return;
+    dragTitleRef.current = title;
+    const rect = box.getBoundingClientRect();
+    const lbl = el.querySelector("[data-price]") as HTMLElement | null;
+    const clampY = (clientY: number) => Math.max(0, Math.min(rect.height, clientY - rect.top));
+    const move = (ev: PointerEvent) => {
+      const y = clampY(ev.clientY);
+      el.style.top = `${y}px`;
+      const p = seriesRef.current?.coordinateToPrice(y);
+      if (lbl && p != null) lbl.textContent = (p as number).toFixed(2);
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      dragTitleRef.current = null;
+      const p = seriesRef.current?.coordinateToPrice(clampY(ev.clientY));
+      if (p != null && (p as number) > 0) onLineDragRef.current?.(title, p as number);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const noData = !loading && rawCandles.length === 0;
   return (
     <div className={`flex flex-col min-h-0 ${className ?? ""}`}>
@@ -423,6 +492,29 @@ export function TickChart({
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
         <div ref={containerRef} className="h-full w-full" />
+        {/* Drag handles for movable lines (e.g. Target). A full-width grab strip
+            at the line's Y with a grip + live price on the right. */}
+        {dragLines.map((l) => (
+          <div
+            key={l.title}
+            ref={(el) => { if (el) handleRefs.current.set(l.title, el); else handleRefs.current.delete(l.title); }}
+            onPointerDown={(e) => startDrag(e, l.title)}
+            title={`Drag to move ${l.title}`}
+            className="absolute inset-x-0 z-20 flex -translate-y-1/2 cursor-ns-resize items-center"
+            style={{ top: 0, height: 14, opacity: 0 }}
+          >
+            <div className="ml-auto mr-1 flex items-center gap-1">
+              <span
+                data-price
+                className="rounded px-1 text-[0.5rem] font-bold leading-tight tabular-nums text-white shadow"
+                style={{ background: l.color }}
+              >
+                {l.price.toFixed(2)}
+              </span>
+              <span className="h-2.5 w-2.5 rounded-full border-2 border-white" style={{ background: l.color }} />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
