@@ -55,7 +55,10 @@ EARLY_STOP = 40
 
 N_FOLDS = 4               # expanding-window OOS folds
 MIN_TRAIN_DAYS = 15       # earliest days never traded, only trained on
-EV_GRID = [0.0, 25.0, 50.0]
+# v3: strict-only EV menu — the loose floors (0/25) consistently tuned into
+# red folds; the one strict-floor fold ran green. Grid stays a tuned menu,
+# but every option must clear the ~₹100 spread+charges toll with margin.
+EV_GRID = [50.0, 75.0, 100.0]
 SIZE_GRID = [6.0, 10.0, 14.0, 18.0]
 TUNE_TAIL_DAYS = 8        # floors tuned on the last N train days
 EV_CLIP = (-400.0, 600.0)

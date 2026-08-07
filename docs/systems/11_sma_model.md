@@ -149,6 +149,21 @@ than data-mining the backtest.
   where the survivable edge lives; one candidate v3 = strict-only EV menu
   (₹50/75/100). Not run yet — needs Partha's go (guard against grid-mining).
 
+### v3 run (2026-08-07, strict-only EV menu ₹50/75/100) — still FAIL; STOP tuning
+
+- **131 trades, TOTAL NET ₹−8,954, win 25%, green days 12/39.** All folds
+  chose EV ≥ ₹50. Trajectory v1 → v2 → v3: ₹−41.5k → ₹−22.4k → ₹−9.0k.
+- Fold 4 (most training data, 47 days) again best: ₹−625 over 10 days —
+  hovering at breakeven. The consistent pattern across all three runs:
+  more selectivity helps, more data helps, but the buy-side cost floor is
+  never quite cleared.
+- **Decision: no further threshold/grid iteration** — further narrowing is
+  backtest-mining. Remaining structural options: (a) let the recorder
+  accumulate more weeks and re-run Gate 1 periodically (data is free and
+  the learning curve is real), (b) sell-side variant (the 2026-07-12
+  buy-side verdict's suggested direction), (c) exit-side redesign (ride
+  legs longer than the first wrong-side close). Await Partha's pick.
+
 ## 11. Cross-refs
 
 - [01 Data Ingestion](01_data_ingestion.md) — the raw `.ndjson.gz` recordings this model trains on.

@@ -13,8 +13,12 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   edge real (AUC ~0.55) but under the ~₹100 spread+charges floor; reconfirms
   the 2026-07-12 buy-side verdict.
 - **Gate 1 v2 (pullback D14 + leg-size head D15): 274 trades, ₹−22,369 — still
-  FAIL, loss halved.** Fold with strict EV≥₹50 floor was GREEN (+₹1,589/11d);
-  candidate v3 = strict-floor-only tuning menu, awaiting Partha's go.
+  FAIL, loss halved.** Fold with strict EV≥₹50 floor was GREEN (+₹1,589/11d).
+- **Gate 1 v3 (strict EV menu ₹50+): 131 trades, ₹−8,954 — still FAIL.**
+  Trajectory −41.5k → −22.4k → −9.0k; best fold (most data) ≈ breakeven.
+  **Tuning stopped** (further grid-narrowing = backtest mining). Next pick:
+  (a) accumulate more weeks + re-run periodically, (b) sell-side variant,
+  (c) exit-side redesign. See spec §12.
 - 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
 - **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
   ITM strike / sell-side variant / wait for more data) — see spec §12.
