@@ -91,6 +91,11 @@ export function TickChart({
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  // The chart is rebuilt on every data change; stash the user's visible window on
+  // teardown so the rebuild can restore it (instead of resetting the zoom every
+  // tick). `count` is the bar count at teardown — used to tell "default full-fit"
+  // (keep following live) from "zoomed/panned" (preserve the window).
+  const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number }>({ logical: null, count: 0 });
   const legendRef = useRef<HTMLDivElement>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
@@ -105,7 +110,6 @@ export function TickChart({
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
 
-    const prevRange = chartRef.current?.timeScale().getVisibleRange() ?? null;
     chartRef.current?.remove();
 
     const cc = chartColors(theme);
@@ -372,16 +376,29 @@ export function TickChart({
       if (i != null) renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
     });
 
-    if (prevRange) {
-      try { chart.timeScale().setVisibleRange(prevRange); } catch { chart.timeScale().fitContent(); }
-    } else if (candles.length > 0) {
-      // Fit all candles but keep a right-side margin (fitContent alone ignores rightOffset).
-      chart.timeScale().setVisibleLogicalRange({ from: 0, to: candles.length - 1 + RIGHT_MARGIN_BARS });
-    } else {
-      chart.timeScale().fitContent();
+    // Restore the user's window across this rebuild. Bar indices are stable on
+    // append, so a stashed LOGICAL range keeps the same zoom on the same bars. If
+    // the previous view was the default full-fit (from≈0 & to at the edge), we
+    // re-fit instead so the chart keeps following new candles live.
+    {
+      const bars = candles.length;
+      const saved = viewRef.current;
+      const isDefault =
+        !saved.logical || (saved.logical.from <= 0.5 && saved.logical.to >= saved.count - 1);
+      const fit = () => chart.timeScale().setVisibleLogicalRange({ from: 0, to: bars - 1 + RIGHT_MARGIN_BARS });
+      if (!isDefault && saved.logical) {
+        try { chart.timeScale().setVisibleLogicalRange(saved.logical); } catch { fit(); }
+      } else {
+        fit();
+      }
     }
 
     return () => {
+      // Stash the visible window BEFORE removing so the next rebuild can restore it.
+      try {
+        const lr = chart.timeScale().getVisibleLogicalRange();
+        viewRef.current = { logical: lr ? { from: lr.from, to: lr.to } : null, count: candles.length };
+      } catch { /* keep the previously saved view */ }
       chart.remove();
       chartRef.current = null;
     };
