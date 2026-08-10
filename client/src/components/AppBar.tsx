@@ -215,7 +215,7 @@ function HolidayIndicator() {
   useEffect(() => {
     if (cue === 'alert' && nextHoliday && !holidayAlertShown) {
       holidayAlertShown = true;
-      toast(`Market holiday: ${nextHoliday.description} in ${getDaysUntil(nextHoliday.date)} days (${formatDateShort(nextHoliday.date)})`, {
+      toast(`In ${getDaysUntil(nextHoliday.date)} days, ${nextHoliday.description} holiday is coming`, {
         duration: 10_000,
         position: 'bottom-center',  // this toast only; others stay bottom-right
         icon: <Calendar className="h-4 w-4" />,
