@@ -216,7 +216,7 @@ function HolidayIndicator() {
     if (cue === 'alert' && nextHoliday && !holidayAlertShown) {
       holidayAlertShown = true;
       toast(`Next market holiday: ${nextHoliday.description}, ${formatDateShort(nextHoliday.date)}`, {
-        duration: 5000,
+        duration: 10_000,
         position: 'bottom-center',  // this toast only; others stay bottom-right
         icon: <Calendar className="h-4 w-4" />,
       });
