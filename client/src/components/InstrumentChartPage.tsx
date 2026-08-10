@@ -420,9 +420,18 @@ export default function InstrumentChartPage() {
     setDate(defaultChartDate(recordedDates));
   }, [date, datesQuery.isSuccess, recordedDates]);
 
+  // MCX has no spot index to stream live (the underlying IS the near-month
+  // future), so those charts advance by re-polling the recorded disk ticks
+  // (~3s recorder flush lag). NSE keeps the one-shot seed + live index WS.
+  const isMcx = optionSegmentFor(inst ?? "") === "MCX_COMM";
   const ticksQuery = trpc.trading.underlyingTicks.useQuery(
     { instrument: inst ?? "", date },
-    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: false, staleTime: Infinity },
+    {
+      enabled: !!inst && !!date,
+      refetchOnWindowFocus: false,
+      refetchInterval: isMcx && isToday ? 10_000 : false,
+      staleTime: isMcx ? 5_000 : Infinity,
+    },
   );
   const signalsQuery = trpc.trading.signalsForChart.useQuery(
     { instrument: inst ?? "", date },
@@ -474,11 +483,13 @@ export default function InstrumentChartPage() {
   // history doesn't wobble as the basis drifts.
   const [seedShift, setSeedShift] = useState<number | null>(null);
   useEffect(() => {
+    // MCX: the chart plots the future itself — no index-level shift.
+    if (isMcx) return;
     if (isToday && seedShift == null && spot != null && spot > 0 && undData?.ltp?.length) {
       const last = undData.ltp[undData.ltp.length - 1];
       if (last > 0) setSeedShift(spot - last);
     }
-  }, [spot, undData, seedShift, isToday]);
+  }, [spot, undData, seedShift, isToday, isMcx]);
   const undSeed = useMemo(() => {
     if (!undData || !undData.t?.length) return undefined;
     const s = isToday ? seedShift ?? 0 : 0;

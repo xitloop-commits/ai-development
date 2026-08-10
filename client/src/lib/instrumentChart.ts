@@ -110,10 +110,21 @@ export function heikinAshi(candles: Candle[]): Candle[] {
 export const INSTRUMENT_CHART_META: Record<string, { key: string; displayName: string }> = {
   NIFTY_50: { key: "NIFTY_50", displayName: "NIFTY 50" },
   BANKNIFTY: { key: "BANKNIFTY", displayName: "BANK NIFTY" },
+  CRUDEOIL: { key: "CRUDEOIL", displayName: "CRUDE OIL" },
+  NATURALGAS: { key: "NATURALGAS", displayName: "NATURAL GAS" },
 };
 
-/** Instruments that get a chart window in Phase 1. */
-export const PHASE1_CHART_INSTRUMENTS = ["NIFTY_50", "BANKNIFTY"];
+/** Chart windows, grouped by exchange (2026-08-10: NSE + MCX buttons).
+ *  MCX underlying is the near-month FUTURE itself (no spot index exists), so
+ *  those charts advance by re-polling the recorded ticks instead of a live
+ *  index WS leg — see InstrumentChartPage. */
+export const NSE_CHART_INSTRUMENTS = ["NIFTY_50", "BANKNIFTY"];
+export const MCX_CHART_INSTRUMENTS = ["CRUDEOIL", "NATURALGAS"];
+
+/** True when this chart key is an MCX commodity (future-as-underlying). */
+export function isMcxChartInstrument(key: string | null | undefined): boolean {
+  return !!key && MCX_CHART_INSTRUMENTS.includes(key.toUpperCase());
+}
 
 /** Read the target instrument key off the pop-out window URL (?inst=…). */
 export function chartInstrumentFromUrl(): string | null {

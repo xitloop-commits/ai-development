@@ -37,7 +37,7 @@ import {
 } from '@/lib/tradeTypes';
 // The AI/My workspace tabs (ChannelTabs) were removed in T87 — one desk always;
 // the app bar keeps only the My Paper/Live mode tabs (ChannelModeToggle).
-import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
+import { instrumentChartUrl, NSE_CHART_INSTRUMENTS, MCX_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
 import { toast } from 'sonner';
 
 /**
@@ -52,11 +52,11 @@ import { toast } from 'sonner';
  * first chart. We detect the blocked ones (window.open returns null) and toast a
  * one-time instruction, so it never fails silently.
  */
-function openInstrumentCharts() {
+function openChartGroup(keys: string[], groupLabel: string) {
   const w = Math.round((window.screen.availWidth || 1280) / 2);
   const h = Math.round((window.screen.availHeight || 800) * 0.9);
   const blocked: string[] = [];
-  PHASE1_CHART_INSTRUMENTS.forEach((key, i) => {
+  keys.forEach((key, i) => {
     const win = window.open(
       instrumentChartUrl(key),
       `lubas-chart-${key}`,
@@ -66,11 +66,13 @@ function openInstrumentCharts() {
   });
   if (blocked.length) {
     toast.error(
-      `Pop-up blocked: ${blocked.join(' + ')} chart didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click CHARTS again.`,
+      `Pop-up blocked: ${blocked.join(' + ')} chart didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click ${groupLabel} again.`,
       { duration: 9000 },
     );
   }
 }
+const openNseCharts = () => openChartGroup(NSE_CHART_INSTRUMENTS, 'NSE CHART');
+const openMcxCharts = () => openChartGroup(MCX_CHART_INSTRUMENTS, 'MCX CHART');
 
 // ── Right-side status cluster (API · FEED · AI · Discipline) ──
 // All four indicators consolidated into a single component so AppBar
@@ -583,13 +585,20 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Open pop-out instrument charts — NIFTY + BANK (drag to 2nd monitor) */}
+        {/* Open pop-out instrument charts, grouped by exchange (2 CTAs) */}
         <button
-          onClick={openInstrumentCharts}
+          onClick={openNseCharts}
           className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
           title="Open pop-out charts — NIFTY + BANK (each a separate window; drag to a second monitor)"
         >
-          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">CHARTS</span>
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">NSE CHART</span>
+        </button>
+        <button
+          onClick={openMcxCharts}
+          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+          title="Open pop-out charts — CRUDE OIL + NATURAL GAS (each a separate window; drag to a second monitor)"
+        >
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">MCX CHART</span>
         </button>
 
         <div className="w-px self-stretch bg-border shrink-0" />
