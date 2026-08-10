@@ -45,6 +45,7 @@ vi.mock("@/lib/trpc", () => ({
     // TodaySection reads the shared exit config for the cooling-window countdown.
     trading: {
       aiConfig: { useQuery: () => ({ data: undefined }) },
+      goLive: { useMutation: () => noopMutation },
     },
     // TradingDesk queries the selected replay run (T97); none selected here.
     replay: {

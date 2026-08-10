@@ -83,6 +83,9 @@ function _PastRow({ day, showNet, channel, highlighted = false, expanded = false
           }
         </div>
       </td>
+      <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
+        {day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
+      </td>
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {(() => { const avg = calculateAvgEntryPrice(day.trades ?? []); return avg > 0 ? avg.toFixed(2) : ''; })()}
       </td>
@@ -112,9 +115,6 @@ function _PastRow({ day, showNet, channel, highlighted = false, expanded = false
       </td>
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(pnlValue)}`}>
         {pnlPercent}%
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
-        {day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
       </td>
       <td className="px-1 py-2 text-center">
         <span className={isFreshGift ? 'animate-gift-bounce' : ''}>

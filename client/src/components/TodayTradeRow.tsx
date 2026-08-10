@@ -519,6 +519,38 @@ function _TodayTradeRow({
           </div>
         </div>
       </td>
+      {/* Capital column (moved before Entry) — on a paper OPEN trade it carries the
+          Go-Live CTA. Ctrl+click places the SAME contract LIVE (real order, live-
+          config sizing); normal hover is light, Ctrl+hover is bright to show armed. */}
+      <td className="px-2 py-1.5 border-r border-border text-center">
+        {channel === "paper" && isOpen && onGoLive ? (
+          <button
+            type="button"
+            disabled={goneLive || goLiveLoading}
+            onMouseMove={(e) => setGoLiveArmed(e.ctrlKey || e.metaKey)}
+            onMouseLeave={() => setGoLiveArmed(false)}
+            onClick={(e) => {
+              if ((e.ctrlKey || e.metaKey) && !goneLive && !goLiveLoading) onGoLive(trade.id);
+            }}
+            title={
+              goneLive
+                ? 'Live order placed for this trade'
+                : 'Ctrl+click to place this trade LIVE — real order, sized by the live config'
+            }
+            className={`rounded border px-1.5 py-0.5 text-[0.5625rem] font-bold tracking-wide transition-colors ${
+              goneLive
+                ? 'border-bullish/40 text-bullish cursor-default'
+                : goLiveLoading
+                  ? 'border-border text-muted-foreground cursor-wait'
+                  : goLiveArmed
+                    ? 'border-warning-amber/70 bg-warning-amber/25 text-warning-amber' // Ctrl+hover → bright
+                    : 'border-warning-amber/25 text-warning-amber/55 hover:text-warning-amber/75' // normal → light
+            }`}
+          >
+            {goneLive ? 'LIVE ✓' : goLiveLoading ? '…' : 'Go Live'}
+          </button>
+        ) : null}
+      </td>
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {trade.entryPrice.toFixed(2)}
       </td>
@@ -676,38 +708,6 @@ function _TodayTradeRow({
       </td>
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlBright}`}>
         {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
-      </td>
-      {/* Day-level Capital column — on a paper OPEN trade it carries the Go-Live
-          CTA. Ctrl+click places the SAME contract LIVE (real order, live-config
-          sizing); normal hover is light, Ctrl+hover is bright to show it's armed. */}
-      <td className="px-2 py-1.5 border-r border-border text-center">
-        {channel === "paper" && isOpen && onGoLive ? (
-          <button
-            type="button"
-            disabled={goneLive || goLiveLoading}
-            onMouseMove={(e) => setGoLiveArmed(e.ctrlKey || e.metaKey)}
-            onMouseLeave={() => setGoLiveArmed(false)}
-            onClick={(e) => {
-              if ((e.ctrlKey || e.metaKey) && !goneLive && !goLiveLoading) onGoLive(trade.id);
-            }}
-            title={
-              goneLive
-                ? 'Live order placed for this trade'
-                : 'Ctrl+click to place this trade LIVE — real order, sized by the live config'
-            }
-            className={`rounded border px-1.5 py-0.5 text-[0.5625rem] font-bold tracking-wide transition-colors ${
-              goneLive
-                ? 'border-bullish/40 text-bullish cursor-default'
-                : goLiveLoading
-                  ? 'border-border text-muted-foreground cursor-wait'
-                  : goLiveArmed
-                    ? 'border-warning-amber/70 bg-warning-amber/25 text-warning-amber' // Ctrl+hover → bright
-                    : 'border-warning-amber/25 text-warning-amber/55 hover:text-warning-amber/75' // normal → light
-            }`}
-          >
-            {goneLive ? 'LIVE ✓' : goLiveLoading ? '…' : 'Go Live'}
-          </button>
-        ) : null}
       </td>
       <td className="px-2 py-1.5 text-center">
         <StatusBadge status={trade.status} exitReason={trade.exitReason} reason={trade.rejectReason} />

@@ -123,8 +123,10 @@ export function TodaySummaryRow({
   const cell = 'px-2 py-1.5 border-r border-border align-middle';
 
   // Filler span keeps the row at the full table width even if the column count
-  // changes (placed = Day2+Cap3+Inst1+ROE3+Inv1+Chg1+PnL3 = 14).
-  const fillerSpan = Math.max(0, colSpan - 14);
+  // changes. Placed groups now sum to 15 (Day2 + Cap-flow3 + Cohort6 + Chg1 +
+  // PnL3) — the Cohort group grew to 6 after the Capital column moved before Entry
+  // (so Charges/P&L still line up under their headers).
+  const fillerSpan = Math.max(0, colSpan - 15);
 
   return (
     <tr
@@ -171,8 +173,9 @@ export function TodaySummaryRow({
         </div>
       </td>
 
-      {/* 6-10 Cohort-wise Win/Loss + controls */}
-      <td colSpan={5} className={`${cell}`}>
+      {/* 6-11 Cohort-wise Win/Loss + controls (spans one extra col since the
+          Capital column moved in before Entry) */}
+      <td colSpan={6} className={`${cell}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap">
             {cohortStats.length === 0 ? (

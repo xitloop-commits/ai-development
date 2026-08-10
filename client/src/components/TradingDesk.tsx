@@ -296,13 +296,13 @@ export default function TradingDesk({
                 <col />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+                <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '4rem', maxWidth: '4rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
                 <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
                 <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
-                <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '4rem', maxWidth: '4rem' }} />
               </colgroup>
               <thead className="sticky top-0 z-10">
@@ -313,6 +313,7 @@ export default function TradingDesk({
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Profit+</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital+</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
+                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
@@ -333,7 +334,6 @@ export default function TradingDesk({
                     </button>
                   </th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
-                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
                   <th className="px-2 py-2 text-center font-bold text-muted-foreground w-16 border-r border-border">Rating</th>
                 </tr>
               </thead>
