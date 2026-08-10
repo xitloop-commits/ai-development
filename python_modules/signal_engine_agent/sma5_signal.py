@@ -56,10 +56,18 @@ class Sma5SignalDetector:
         # fires. Only reversals are gated; the first entry from FLAT is immediate.
         self._pending: str | None = None   # candidate side awaiting confirmation
         self._pending_streak = 0           # consecutive closes on the pending side
+        # Entry-watch: after a cross sets a new side, WAIT this many candles that
+        # each keep closing in the trade's direction (each close beyond the prior
+        # candle's) before entering — so a spike that crosses and reverts is never
+        # bought. 0 = enter immediately on the cross (original).
+        self._entered = False              # LONG already emitted for the current side?
+        self._entry_watch_left = 0         # continuation candles still needed (0 = none pending)
+        self._entry_ref_close = 0.0        # the prior candle's close the next must beat
         # Live-tunable (the engine may overwrite these from the control channel).
         self.confirm_candles = max(1, int(getattr(cfg, "confirm_candles", 1) or 1))
         # Deadband (% of the line) the close must clear to flip; 0 = exact cross.
         self.buffer_pct = max(0.0, float(getattr(cfg, "buffer_pct", 0.0) or 0.0))
+        self.entry_watch = max(0, int(getattr(cfg, "entry_watch", 0) or 0))
 
     def _start_candle(self, spot: float) -> None:
         self._o = self._h = self._l = self._c = spot
@@ -118,36 +126,57 @@ class Sma5SignalDetector:
             target = "BELOW"
         # else: inside the deadband → HOLD the current state
 
-        if target == prev:
-            # Back on (or holding) the current side → any pending reversal is void.
+        events: list[str] = []
+
+        if target != prev:
+            # A state change. The first entry from FLAT is immediate; a REVERSAL
+            # (which exits the current side) waits for `confirm_candles` consecutive
+            # closes on the new side (a one-candle poke that recovers no longer
+            # flips).
+            confirm = self.confirm_candles if prev != "FLAT" else 1
+            if confirm > 1:
+                if self._pending == target:
+                    self._pending_streak += 1
+                else:
+                    self._pending = target
+                    self._pending_streak = 1
+                if self._pending_streak < confirm:
+                    target = prev          # not yet confirmed → no flip this candle
+            if target != prev:
+                # Confirmed flip: EXIT the old side now; ARM the entry-watch for the
+                # new side (the LONG only fires once the watch is satisfied).
+                self._pending = None
+                self._pending_streak = 0
+                if prev == "ABOVE":
+                    events.append("EXIT_CE")
+                elif prev == "BELOW":
+                    events.append("EXIT_PE")
+                self._state = target
+                self._entered = False
+                self._entry_watch_left = self.entry_watch
+                self._entry_ref_close = value
+                if self._entry_watch_left <= 0:
+                    events.append("LONG_CE" if target == "ABOVE" else "LONG_PE")
+                    self._entered = True
+                return events
+        else:
+            # Holding the current side → any pending reversal is void.
             self._pending = None
             self._pending_streak = 0
-            return []
 
-        # target != prev → a state change. The first entry from FLAT is immediate;
-        # a REVERSAL (which exits the current side) waits for `confirm_candles`
-        # consecutive closes on the new side, so a one-candle poke that recovers
-        # next bar no longer exits early.
-        confirm = self.confirm_candles if prev != "FLAT" else 1
-        if confirm > 1:
-            if self._pending == target:
-                self._pending_streak += 1
+        # Entry-watch: after the cross, require `entry_watch` candles that each
+        # close FURTHER in the trade's direction (above the prior candle for CE,
+        # below for PE) before entering. A candle that breaks the run cancels it —
+        # a fresh cross re-arms.
+        if self._state != "FLAT" and not self._entered and self._entry_watch_left > 0:
+            cont = value > self._entry_ref_close if self._state == "ABOVE" else value < self._entry_ref_close
+            if cont:
+                self._entry_ref_close = value
+                self._entry_watch_left -= 1
+                if self._entry_watch_left <= 0:
+                    events.append("LONG_CE" if self._state == "ABOVE" else "LONG_PE")
+                    self._entered = True
             else:
-                self._pending = target
-                self._pending_streak = 1
-            if self._pending_streak < confirm:
-                return []              # not yet confirmed → hold, no exit
+                self._entry_watch_left = 0   # run broke → wait for a fresh cross
 
-        self._pending = None
-        self._pending_streak = 0
-        self._state = target
-        events: list[str] = []
-        if prev == "ABOVE":
-            events.append("EXIT_CE")
-        elif prev == "BELOW":
-            events.append("EXIT_PE")
-        if target == "ABOVE":
-            events.append("LONG_CE")
-        elif target == "BELOW":
-            events.append("LONG_PE")
         return events

@@ -27,6 +27,7 @@ interface CommonCfg {
   revPct: number;
   sma5ExitConfirm: number;
   sma5Buffer: number;
+  sma5EntryWatch: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -258,7 +259,9 @@ export function SettingsMenu() {
                   </div>
                 </Group>
 
-                <Group title="SMA5 detector" info="Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. Both live — the running SEA applies them on the next candle.">
+                <Group title="SMA5 detector" info="Entry watch (candles): after a cross, entry waits this many 1-min candles that each close FURTHER in the trade's direction (above the prior candle for CE, below for PE) before entering; 0 = enter on the cross (original). Avoids buying a spike that reverts. Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. All live — the running SEA applies them on the next candle.">
+                  <NumRow label="Entry watch" value={d.sma5EntryWatch} step={1} min={0} max={10} unit="candles"
+                    onChange={(v) => edit((x) => { x.sma5EntryWatch = v; })} />
                   <NumRow label="Exit confirm" value={d.sma5ExitConfirm} step={1} min={1} max={5} unit="candles"
                     onChange={(v) => edit((x) => { x.sma5ExitConfirm = v; })} />
                   <NumRow label="Buffer" value={d.sma5Buffer} step={0.05} min={0} max={2} unit="%"

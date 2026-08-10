@@ -41,6 +41,10 @@ export interface CohortState {
   /** SMA5 line deadband (% of the line) the close must clear to flip; 0 = exact
    *  cross. Damps whipsaw when price hugs the line. Live-tunable. */
   sma5Buffer: number;
+  /** SMA5 entry-watch candles — after a cross, wait this many candles that each
+   *  close further in the trade's direction before entering; 0 = enter on the
+   *  cross. Avoids buying a spike that reverts. Live-tunable. */
+  sma5EntryWatch: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -64,7 +68,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -199,6 +203,35 @@ function persistSma5Buffer(value: number): void {
   }
 }
 
+/** Read the persisted SMA5 entry-watch (candles) from the first instrument's cfg. */
+function readSma5EntryWatch(): number | null {
+  try {
+    const p = cfgPath(INSTRUMENTS[0]);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    const v = j.sma5_signal?.entry_watch;
+    return typeof v === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write entry_watch into both instruments' sma5_signal block (that key only). */
+function persistSma5EntryWatch(value: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      if (!j.sma5_signal || j.sma5_signal.entry_watch === value) continue;
+      j.sma5_signal.entry_watch = value;
+      writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -263,6 +296,19 @@ export function setSma5Buffer(value: number): CohortState {
   if (state.sma5Buffer === v) return { ...state };
   state.sma5Buffer = v;
   persistSma5Buffer(v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/** Set the SMA5 entry-watch candles (0–10). After a cross, entry waits this many
+ *  candles that each close further in the trade's direction. Persisted to both
+ *  configs and pushed to running SEA — the live detector applies it next candle. */
+export function setSma5EntryWatch(value: number): CohortState {
+  const v = Math.round(Math.min(10, Math.max(0, value || 0)));
+  if (state.sma5EntryWatch === v) return { ...state };
+  state.sma5EntryWatch = v;
+  persistSma5EntryWatch(v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
@@ -356,6 +402,8 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setSma5Confirm(getCommonConfig().sma5ExitConfirm);
   // SMA5 line deadband (%) — same.
   setSma5Buffer(getCommonConfig().sma5Buffer);
+  // SMA5 entry-watch (candles) — same.
+  setSma5EntryWatch(getCommonConfig().sma5EntryWatch);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
@@ -371,6 +419,8 @@ export function initSeaControl(server: Server): void {
   if (sc !== null) state.sma5Confirm = sc;
   const sb = readSma5Buffer();
   if (sb !== null) state.sma5Buffer = sb;
+  const sw = readSma5EntryWatch();
+  if (sw !== null) state.sma5EntryWatch = sw;
 
   // T97 — hydrate the model map from each instrument's LATEST pointer, which is
   // what SEA actually loads at startup. Without this `state.models` stays {}

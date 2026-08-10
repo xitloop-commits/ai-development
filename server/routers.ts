@@ -238,8 +238,8 @@ export const appRouter = router({
       .input(z.object({ patch: z.any() }))
       .mutation(async ({ input }) => {
         updateCommonConfig(input.patch);
-        const p = input.patch as { revPct?: unknown; sma5ExitConfirm?: unknown; sma5Buffer?: unknown };
-        if (p?.revPct !== undefined || p?.sma5ExitConfirm !== undefined || p?.sma5Buffer !== undefined) {
+        const p = input.patch as { revPct?: unknown; sma5ExitConfirm?: unknown; sma5Buffer?: unknown; sma5EntryWatch?: unknown };
+        if (p?.revPct !== undefined || p?.sma5ExitConfirm !== undefined || p?.sma5Buffer !== undefined || p?.sma5EntryWatch !== undefined) {
           await syncCohortsFromAiConfig();
         }
         const all = getAllAiConfig();

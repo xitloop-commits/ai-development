@@ -1156,6 +1156,11 @@ class Sma5SignalThresholds:
     # across the line and recovers next bar no longer exits early. Only reversals
     # are gated — the first entry from flat stays immediate. Live-tunable.
     confirm_candles: int = 1
+    # Entry-watch: after a cross sets a new side, wait this many candles that each
+    # close FURTHER in the trade's direction (above the prior candle for CE, below
+    # for PE) before entering. 0 = enter immediately on the cross (original); 1+
+    # avoids buying a spike that reverts. Live-tunable.
+    entry_watch: int = 0
 
 
 def load_thresholds_sma5_signal(

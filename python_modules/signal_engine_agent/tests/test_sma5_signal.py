@@ -93,3 +93,30 @@ def test_confirm_2_first_entry_from_flat_is_immediate():
     """Confirmation gates only reversals — the first entry still fires at once."""
     closes = [1000, 1010, 1020, 1030, 1040, 1050]
     assert _run(_det(use_ha=False, confirm_candles=2), closes) == ["LONG_CE"]
+
+
+# ── entry_watch: wait N candles that keep closing further before entering ──────
+
+def test_entry_watch_0_enters_immediately_on_the_cross():
+    """Default (0) = original behaviour: enter on the cross candle."""
+    assert _run(_det(use_ha=False, period=3, entry_watch=0), [1000, 1010, 1020, 1030]) == ["LONG_CE"]
+
+
+def test_entry_watch_1_enters_after_a_higher_close():
+    """With 1, entry waits for the next candle to close ABOVE the cross candle."""
+    assert _run(_det(use_ha=False, period=3, entry_watch=1), [1000, 1010, 1020, 1030]) == ["LONG_CE"]
+
+
+def test_entry_watch_1_cancels_when_next_close_is_lower():
+    """A spike that crosses then reverts (lower next close, still above the line)
+    never gets bought."""
+    assert _run(_det(use_ha=False, period=3, entry_watch=1), [1000, 1010, 1020, 1018]) == []
+
+
+def test_entry_watch_2_needs_two_rising_closes():
+    assert _run(_det(use_ha=False, period=3, entry_watch=2), [1000, 1010, 1020, 1030, 1040]) == ["LONG_CE"]
+
+
+def test_entry_watch_put_side_needs_lower_closes():
+    """Symmetric for PE: after crossing below, the next candle must close LOWER."""
+    assert _run(_det(use_ha=False, period=3, entry_watch=1), [1000, 990, 980, 970]) == ["LONG_PE"]
