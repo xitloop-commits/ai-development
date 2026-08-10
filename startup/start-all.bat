@@ -189,6 +189,20 @@ start "SEA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup
 
 timeout /t 5 /nobreak >nul
 
+REM ── MCX engines: sma5 cohort ONLY (2026-08-10 mandate) ──────────────
+REM Their scalp/trend models are unvalidated stopgaps (trained only to
+REM satisfy SEA boot), so --only-cohorts pins everything but sma5 OFF and
+REM global cohort toggles cannot re-enable them in these two processes.
+echo [SEA MCX 1/2] Starting crudeoil (sma5 only)...
+start "SEA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat crudeoil --only-cohorts sma5 !EXTRA_ARGS!"
+
+timeout /t 5 /nobreak >nul
+
+echo [SEA MCX 2/2] Starting naturalgas (sma5 only)...
+start "SEA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat naturalgas --only-cohorts sma5 !EXTRA_ARGS!"
+
+timeout /t 5 /nobreak >nul
+
 REM ── T154: sma-model live runner (learned SMA5 rider, paper-only) ──
 REM Separate process; tails the nifty50 recorder files read-only and waits
 REM on its own for the recorder folder (~09:15), so starting it here at
@@ -198,7 +212,8 @@ start "SMA-Model: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call sta
 
 echo.
 echo ============================================================
-echo   All 4 TFA + 2 SEA + sma-model processes launched.
+echo   All 4 TFA + 4 SEA + sma-model processes launched.
+echo   MCX SEA engines (crudeoil, naturalgas) run sma5 ONLY.
 echo   Close each window individually to stop an instrument.
 echo   To stop all: close all "TFA: *" / "SEA: *" / "SMA-Model: *"
 echo   windows or use Task Manager.
@@ -206,4 +221,4 @@ echo ============================================================
 echo.
 
 REM Emit lifecycle event for the central log + Telegram (yow-partha).
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty) + sma-model (nifty50 paper)" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty full; crudeoil, naturalgas sma5-only) + sma-model (nifty50 paper)" >nul 2>&1

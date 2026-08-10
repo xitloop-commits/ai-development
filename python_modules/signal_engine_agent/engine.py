@@ -605,12 +605,37 @@ class _NullDashboard:
     def push_reject(self, **_kw): pass
 
 
+class _RestrictedCohorts(dict):
+    """Live-cohort dict with a hard allowlist (--only-cohorts).
+
+    The control listener mutates this dict in real time from the global
+    /ws/sea-control pushes. Toggleable cohorts outside the allowlist are
+    forced OFF at construction and any later attempt to enable one is
+    silently dropped, so a global UI toggle can never wake a cohort this
+    engine instance was told not to run (MCX engines are sma5-only)."""
+
+    _TOGGLEABLE = ("scalp", "trend", "ma", "sma5")
+
+    def __init__(self, base: dict, allowed: frozenset[str]):
+        super().__init__(base)
+        self._allowed = allowed
+        for k in self._TOGGLEABLE:
+            if k not in allowed:
+                super().__setitem__(k, False)
+
+    def __setitem__(self, key, value):
+        if key in self._TOGGLEABLE and value and key not in self._allowed:
+            return
+        super().__setitem__(key, value)
+
+
 def run(
     instrument: str,
     features_root: Path = Path("data/features"),
     config_dir: Path = Path("config/sea_thresholds"),
     use_dashboard: bool = True,
     max_row_age_sec: float = 5.0,
+    only_cohorts: list[str] | None = None,
 ) -> None:
     """SEA main inference loop for one instrument.
 
@@ -826,6 +851,14 @@ def run(
         "sma5_buffer": sma5_signal_thresholds.buffer_pct,  # SMA5 deadband %, live-tunable
         "sma5_entry_watch": sma5_signal_thresholds.entry_watch,  # SMA5 entry-watch candles, live-tunable
     }
+    # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
+    # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
+    # started for sma5 would also fire scalp/trend off its never-validated
+    # stopgap model whenever the global toggles are on. The allowlist pins
+    # every non-listed cohort OFF for THIS process, and the pin survives
+    # live control pushes: enabling a disallowed cohort is silently ignored.
+    if only_cohorts is not None:
+        _live_cohorts = _RestrictedCohorts(_live_cohorts, frozenset(only_cohorts))
     start_control_listener(_live_cohorts, instrument)
     # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
     # EXIT signal can close the exact trade — they ride with no auto-exit.
@@ -1514,6 +1547,17 @@ def main() -> int:
         ),
     )
     p.add_argument(
+        "--only-cohorts",
+        default=None,
+        help=(
+            "Comma-separated cohort allowlist (scalp,trend,ma,sma5). Every "
+            "other cohort is pinned OFF for this engine instance and global "
+            "control-panel toggles cannot re-enable them. Used by the MCX "
+            "engines, which run sma5 only (their scalp models are "
+            "unvalidated stopgaps)."
+        ),
+    )
+    p.add_argument(
         "--max-row-age",
         type=float,
         default=None,
@@ -1535,12 +1579,17 @@ def main() -> int:
         except ValueError:
             max_row_age = 5.0
 
+    only_cohorts = None
+    if args.only_cohorts:
+        only_cohorts = [c.strip() for c in args.only_cohorts.split(",") if c.strip()]
+
     run(
         args.instrument,
         features_root=Path(args.features_root),
         config_dir=Path(args.config_dir),
         use_dashboard=not args.no_dashboard,
         max_row_age_sec=max_row_age,
+        only_cohorts=only_cohorts,
     )
     return 0
 
