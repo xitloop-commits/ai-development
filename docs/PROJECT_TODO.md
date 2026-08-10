@@ -31,7 +31,11 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   toggle (SMA-Model, default ON for paper AI; T128-gated so the toggle really
   blocks placement), ladder strategy row, teal pill/label, and the runner posts
   ENTER/EXIT to the signal tray (correlationId links signal ↔ trade).
-  Pending: launcher auto-start entry for the runner (manual for now).
+- **Launcher + auto-start 2026-08-10:** `startup/start-sma-model.bat`;
+  start-all.bat launches it after the SEA engines (so the 08:55 Lubas-Startup
+  task auto-starts it every market morning from 2026-08-11); launcher root
+  item "SMA-Model" (hotkey M) shows running state + starts it. Runner waits
+  for the recorder folder till 11:00 IST and exits itself at 15:30.
 - 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
 - **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
   ITM strike / sell-side variant / wait for more data) — see spec §12.
