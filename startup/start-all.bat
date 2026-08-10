@@ -187,13 +187,23 @@ timeout /t 5 /nobreak >nul
 echo [SEA 2/2] Starting banknifty...
 start "SEA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat banknifty !EXTRA_ARGS!"
 
+timeout /t 5 /nobreak >nul
+
+REM ── T154: sma-model live runner (learned SMA5 rider, paper-only) ──
+REM Separate process; tails the nifty50 recorder files read-only and waits
+REM on its own for the recorder folder (~09:15), so starting it here at
+REM 08:55 alongside SEA is safe. Exits by itself at session end.
+echo [SMA-MODEL] Starting nifty50 learned rider (paper-only)...
+start "SMA-Model: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sma-model.bat"
+
 echo.
 echo ============================================================
-echo   All 4 TFA + 2 SEA processes launched in separate windows.
+echo   All 4 TFA + 2 SEA + sma-model processes launched.
 echo   Close each window individually to stop an instrument.
-echo   To stop all: close all "TFA: *" / "SEA: *" windows or use Task Manager.
+echo   To stop all: close all "TFA: *" / "SEA: *" / "SMA-Model: *"
+echo   windows or use Task Manager.
 echo ============================================================
 echo.
 
 REM Emit lifecycle event for the central log + Telegram (yow-partha).
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty)" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty) + sma-model (nifty50 paper)" >nul 2>&1

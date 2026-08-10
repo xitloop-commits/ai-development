@@ -230,6 +230,10 @@ export interface CommonConfig {
   /** SMA5 line deadband (% of the line) the close must clear to flip; 0 = exact
    *  cross. Filters marginal pokes right at the line. Pushed to SEA like revPct. */
   sma5Buffer: number;
+  /** SMA5 entry-watch candles — after a cross, wait this many candles that each
+   *  close further in the trade's direction before entering; 0 = enter on the
+   *  cross (original). Avoids buying a spike that reverts. Pushed to SEA. */
+  sma5EntryWatch: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
@@ -307,6 +311,7 @@ function baseCommon(): CommonConfig {
     revPct: 0.18,
     sma5ExitConfirm: 1, // off by default — flip on the first cross (original)
     sma5Buffer: 0, // no deadband by default — exact cross
+    sma5EntryWatch: 0, // enter on the cross by default — no watch candles
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -559,6 +564,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.revPct = c.revPct === 0 ? 0 : clampNum(c.revPct, 0.02, 0.6, 0.18);
   c.sma5ExitConfirm = Math.round(clampNum(c.sma5ExitConfirm, 1, 10, 1));
   c.sma5Buffer = clampNum(c.sma5Buffer, 0, 5, 0);
+  c.sma5EntryWatch = Math.round(clampNum(c.sma5EntryWatch, 0, 10, 0));
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

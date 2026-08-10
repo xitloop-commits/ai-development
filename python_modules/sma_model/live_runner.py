@@ -473,8 +473,18 @@ def main() -> None:
     now = time.time()
     ist = datetime.fromtimestamp(now + IST_OFFSET_SEC, tz=timezone.utc)
     date = ist.strftime("%Y-%m-%d")
-    if not (RAW_ROOT / date).exists():
-        raise SystemExit(f"no recording folder for {date} — is the recorder up?")
+    # Auto-start fires at 08:55 IST but the recorder only creates today's
+    # folder at session open (09:15). Wait patiently; give up at 11:00 IST
+    # (recorder clearly never came up — holiday guard already ran upstream).
+    while not (RAW_ROOT / date).exists():
+        ist_now = datetime.fromtimestamp(time.time() + IST_OFFSET_SEC,
+                                         tz=timezone.utc)
+        if ist_now.hour >= 11:
+            raise SystemExit(f"no recording folder for {date} by 11:00 IST — "
+                             "recorder never started; giving up")
+        print(f"{ist_now.strftime('%H:%M:%S')} waiting for recorder folder "
+              f"{date} ...", flush=True)
+        time.sleep(30)
 
     live = LiveDay(date)
     trader = LiveTrader(live, go)

@@ -317,7 +317,8 @@ def running_processes() -> list[RunningProc]:
         cmd = (entry.get("CommandLine") or "").lower()
         if "ai-development" not in cmd and "tick_feature_agent" not in cmd \
            and "signal_engine_agent" not in cmd \
-           and "model_training_agent" not in cmd:
+           and "model_training_agent" not in cmd \
+           and "sma_model.live_runner" not in cmd:
             continue
         kind = ""
         if "tick_feature_agent" in cmd:
@@ -326,6 +327,8 @@ def running_processes() -> list[RunningProc]:
             kind = "sea"
         elif "model_training_agent" in cmd:
             kind = "train"
+        elif "sma_model.live_runner" in cmd:
+            kind = "sma-model"
         else:
             continue
         instrument = ""
@@ -333,6 +336,8 @@ def running_processes() -> list[RunningProc]:
             if inst in cmd:
                 instrument = inst
                 break
+        if kind == "sma-model" and not instrument:
+            instrument = "nifty50"  # runner cmdline carries no instrument arg
         if not instrument:
             continue
         raw_cmd = entry.get("CommandLine") or ""
@@ -1281,6 +1286,51 @@ def act_sea() -> None:
         print()
         for inst in res.selected:
             _launch_no_pause(f"SEA: {inst}", "start-sea.bat", inst)
+        _pause_briefly()
+
+
+def act_sma_model() -> None:
+    """T154 — the learned SMA5 rider (paper-only watch cohort). One
+    nifty50-only runner; tails raw recordings, no Dhan WS cost."""
+    while True:
+        running = running_processes()
+        proc = next((p for p in running if p.kind == "sma-model"), None)
+        model_root = ROOT / "models" / "sma_model" / "nifty50"
+        versions = sorted(d.name for d in model_root.iterdir()
+                          if (d / "entry_head.lgbm").exists()) \
+            if model_root.exists() else []
+        log_path = ROOT / "data" / "sma_model_dataset" / \
+            f"live_{datetime.now().strftime('%Y-%m-%d')}.log"
+        log_str = _human_bytes(_path_size(log_path)) if log_path.exists() \
+            else DIM("(no log today)")
+        if proc:
+            state = f"{GREEN('●RUNNING')}  pid {proc.pid}  {proc.rss_mb:.0f} MB"
+        else:
+            state = f"{DIM('●stopped')}"
+        items = [InstrumentRow(
+            instrument="nifty50",
+            checked=False,
+            enabled=(proc is None) and bool(versions),
+            status_line=f"  {state:<40}  "
+                        f"{DIM('model:')} {DIM(versions[-1] if versions else 'none'):<24}  "
+                        f"log: {log_str}",
+        )]
+
+        res = submenu(
+            title="SMA-Model  —  learned SMA5 rider (PAPER-ONLY watch cohort)",
+            rows=items,
+            show_date_mode_toggle=False,
+            bottom_actions=["Start selected"],
+        )
+        if res.cancelled:
+            return
+        if not res.selected:
+            print()
+            print(f"  {YELLOW('!')} Nothing selected.")
+            _pause_briefly()
+            continue
+        print()
+        _launch_no_pause("SMA-Model: nifty50", "start-sma-model.bat")
         _pause_briefly()
 
 
@@ -3157,6 +3207,7 @@ def main() -> None:
         RootItem("Train        (features → models/)",      "T", act_train),
         RootItem("Evaluate     (score + compare 2 model versions)", "B", act_evaluate),
         RootItem("Run SEA      (live features → signals/)", "I", act_sea),
+        RootItem("SMA-Model    (learned SMA5 rider → paper only)", "M", act_sma_model),
         RootItem("Live Sim     (SEA for replay: auto-trade + no stale guard)", "S", act_live_sim),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
         RootItem("yow-partha   (Telegram control bot)",    "Y", act_yow_partha),
