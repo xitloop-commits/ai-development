@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
 import type {
   CapitalState,
@@ -118,6 +119,24 @@ export function TodaySection({
       { onSuccess: () => utils.portfolio.allDays.invalidate() }
     );
   }, [updateTradeMutation, channel, utils]);
+
+  // Go-Live: mirror an OPEN paper trade onto the LIVE book (real order, live
+  // config). Ctrl+click on the row's CTA fires this. `goneLive` keeps the CTA in
+  // its "LIVE ✓" state; the stable server executionId also blocks a double order.
+  const [goneLive, setGoneLive] = useState<Set<string>>(new Set());
+  const [goLivePending, setGoLivePending] = useState<string | null>(null);
+  const goLiveMutation = trpc.trading.goLive.useMutation();
+  const handleGoLive = useCallback((tradeId: string) => {
+    setGoLivePending(tradeId);
+    goLiveMutation.mutate(
+      { tradeId },
+      {
+        onSuccess: () => { setGoneLive((s) => new Set(s).add(tradeId)); toast.success('Live order placed'); },
+        onError: (e) => toast.error(e?.message ?? 'Live placement failed'),
+        onSettled: () => setGoLivePending(null),
+      },
+    );
+  }, [goLiveMutation]);
 
   // Always render in ENTRY-TIME order (oldest → newest, newest at the bottom).
   // The stored array is usually insertion-order, but not guaranteed — a data
@@ -300,6 +319,9 @@ export function TodaySection({
           ladderTtp={ladderTtp}
           ladderEsHonour={ladderEsHonour}
           tradeNo={trades.indexOf(trade) + 1}
+          onGoLive={channel === 'paper' ? handleGoLive : undefined}
+          goneLive={goneLive.has(trade.id)}
+          goLiveLoading={goLivePending === trade.id}
         />
       ))}
 

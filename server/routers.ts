@@ -23,6 +23,7 @@ import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
 import { getTradesForDate } from "./portfolio/state";
+import { portfolioAgent } from "./portfolio";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
 import { analyzeInstrument } from "./signal-advisor";
@@ -129,6 +130,59 @@ export const appRouter = router({
     setModel: publicProcedure
       .input(z.object({ instrument: z.string().min(1), version: z.string().min(1) }))
       .mutation(({ input }) => setModelVersion(input.instrument, input.version)),
+
+    /**
+     * "Go Live" — mirror an OPEN paper trade onto the LIVE book as a REAL order,
+     * sized and managed by the LIVE config (not the paper trade's). Routed through
+     * the full discipline chain (DA → RCA → TEA) so the live kill-switch, session
+     * halts and sizing all apply. origin=RCA forces it onto `live` (no AI-switch /
+     * cohort gating) and uses the live·ai config; a STABLE executionId makes a
+     * repeat click idempotent so it can't place a second order.
+     */
+    goLive: protectedProcedure
+      .input(z.object({ tradeId: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const open = await portfolioAgent.listOpenTrades("paper").catch(() => []);
+        const t = open.find((x) => x.id === input.tradeId);
+        if (!t) throw new TRPCError({ code: "BAD_REQUEST", message: "Paper trade not found or already closed" });
+        if (t.strike == null || !t.contractSecurityId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Trade has no option contract to place live" });
+        }
+        const inst = t.instrument.toLowerCase();
+        const payload = {
+          executionId: `GOLIVE-${t.id}`, // stable → idempotent (no double order)
+          channel: "live",
+          origin: "RCA", // forces onto live + live·ai config; no AI-switch/cohort gate
+          instrument: t.instrument,
+          exchange: inst.includes("crude") || inst.includes("natural") || inst.includes("gas") ? "MCX" : "NSE",
+          transactionType: t.type.includes("BUY") ? "BUY" : "SELL",
+          optionType: t.type.includes("CALL") ? "CE" : t.type.includes("PUT") ? "PE" : "FUT",
+          strike: t.strike,
+          expiry: t.expiry ?? undefined,
+          contractSecurityId: t.contractSecurityId,
+          entryPrice: t.ltp && t.ltp > 0 ? t.ltp : t.entryPrice, // seed; repriced live
+          cohort: t.cohort ?? undefined,
+          stopLoss: null,
+          takeProfit: null,
+        };
+        const port = Number(process.env.PORT) || 3000;
+        const secret = process.env.INTERNAL_API_SECRET ?? "";
+        let body: any = {};
+        try {
+          const resp = await fetch(`http://localhost:${port}/api/discipline/validateTrade`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(secret ? { "X-Internal-Token": secret } : {}) },
+            body: JSON.stringify(payload),
+          });
+          body = await resp.json().catch(() => ({}));
+          const ok = resp.ok && (body?.success || body?.tradeId || (Array.isArray(body?.results) && body.results.some((r: any) => r.success)));
+          if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: body?.reason ?? body?.blockReasons?.join?.("; ") ?? `Live placement failed (HTTP ${resp.status})` });
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e?.message ?? "Live placement failed" });
+        }
+        return { success: true, tradeId: body?.tradeId ?? null };
+      }),
 
     // T84 exit-strategy race config (Runway/Anchor). Read the effective config;
     // set the cooling window live from the SEA panel (applied on the next tick).
