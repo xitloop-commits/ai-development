@@ -17,6 +17,6 @@
     "use_ha": true,
     "sl_pct": 12,
     "confirm_candles": 1,
-    "entry_watch": 2
+    "entry_watch": 0
   }
 }

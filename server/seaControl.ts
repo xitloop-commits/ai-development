@@ -63,7 +63,13 @@ const CONFIG_BLOCK: Record<Cohort, string> = {
   ma: "ma_signal",
   sma5: "sma5_signal",
 };
-const INSTRUMENTS = ["banknifty", "nifty50"];
+// Every instrument SEA runs — the sma5/rev live-tune setters persist to each
+// one's config so a UI change reaches the MCX engines (crudeoil / naturalgas),
+// not just the two indices. Without the MCX entries their configs went stale
+// (e.g. entry_watch stuck at an old value) and SEA reverted to it on restart.
+// The per-key persisters are guarded (sma5 → sma5_signal, rev → ma_signal), so
+// an instrument missing a block is simply skipped.
+const INSTRUMENTS = ["banknifty", "nifty50", "crudeoil", "naturalgas"];
 const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
