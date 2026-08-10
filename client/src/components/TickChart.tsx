@@ -405,6 +405,13 @@ export function TickChart({
         fit();
       }
     }
+    // Track the window CONTINUOUSLY (not only at teardown). The MCX charts
+    // rebuild on 30s seed re-polls, and a cleanup-time-only stash proved racy
+    // there — zoom kept snapping back to full-fit. Live tracking makes the
+    // restore above deterministic for every rebuild trigger.
+    chart.timeScale().subscribeVisibleLogicalRangeChange((lr) => {
+      if (lr) viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length };
+    });
 
     return () => {
       // Stash the visible window BEFORE removing so the next rebuild can restore it.
