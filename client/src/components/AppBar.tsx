@@ -219,6 +219,12 @@ function HolidayIndicator() {
         duration: 10_000,
         position: 'bottom-center',  // this toast only; others stay bottom-right
         icon: <Calendar className="h-4 w-4" />,
+        // Keep the message on ONE line — let the toast grow instead of wrapping.
+        // Amber notice styling (same warning-amber family as the expiry badges).
+        style: {
+          whiteSpace: 'nowrap', width: 'max-content', maxWidth: 'none',
+          background: '#FBBF24', color: '#1c1917', border: '1px solid #D97706',
+        },
       });
     }
   }, [cue, nextHoliday]);
