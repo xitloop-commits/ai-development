@@ -42,9 +42,9 @@ const INDEX_LABELS: Record<string, string> = {
 };
 
 /** Indices whose row carries the expiry / strike / CE-PE / Long controls.
- *  Crude + Gas are plain LTP rows for now — same live-state fields are there,
- *  so adding them is a one-line change once you want MCX manual entry. */
-const OPTION_TRADEABLE = new Set(['NIFTY_50', 'BANKNIFTY']);
+ *  MCX (crude + gas) added 2026-08-10 — IndexOptionRow was already
+ *  MCX-aware (premium feed segment, server-resolved lots/expiry/exchange). */
+const OPTION_TRADEABLE = new Set(['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS']);
 
 interface LeftSidebarProps {
   visible: boolean;
