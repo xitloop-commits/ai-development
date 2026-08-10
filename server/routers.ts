@@ -22,7 +22,7 @@ import { listModelVersions } from "./modelVersions";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
-import { getTradesForDate } from "./portfolio/state";
+import { getTradesForDateWithCycleNo } from "./portfolio/state";
 import { portfolioAgent } from "./portfolio";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
@@ -262,23 +262,20 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         const wantFolder = logFolderFor(input.instrument);
-        const trades = await getTradesForDate(input.channel as any, input.date);
-        // Day-chronological trade number over the WHOLE day (all instruments,
-        // entry-time order) — matches the desk row "#N" numbering.
-        const dayOrder = new Map(
-          [...trades].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)).map((t, i) => [t, i + 1]),
-        );
-        return trades
-          .filter((t) => {
+        // "#N" = the trade's position within its day CYCLE (matches the desk row +
+        // main chart); calendar-date numbering drifted when a cycle spans days.
+        const rows = await getTradesForDateWithCycleNo(input.channel as any, input.date);
+        return rows
+          .filter(({ trade: t }) => {
             if (logFolderFor(t.instrument) !== wantFolder) return false;
             if (t.strike !== input.strike) return false;
             const side = t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : null;
             return side === input.side;
           })
-          .map((t) => ({
+          .map(({ trade: t, cycleNo }) => ({
             id: t.id ?? null,
             signalSeq: t.signalSeq ?? null,
-            tradeNo: dayOrder.get(t) ?? null,
+            tradeNo: cycleNo,
             side: input.side,
             entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
             entryPrice: t.entryPrice,
@@ -342,17 +339,15 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         const wantFolder = logFolderFor(input.instrument);
-        const trades = await getTradesForDate(input.channel as any, input.date);
-        // Same day-chronological "#N" numbering as the desk rows + strike popup.
-        const dayOrder = new Map(
-          [...trades].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)).map((t, i) => [t, i + 1]),
-        );
-        return trades
-          .filter((t) => logFolderFor(t.instrument) === wantFolder)
-          .map((t) => ({
+        // "#N" = the trade's position within its day CYCLE (matches the desk row);
+        // numbering by calendar date drifted when a cycle spans multiple days.
+        const rows = await getTradesForDateWithCycleNo(input.channel as any, input.date);
+        return rows
+          .filter(({ trade: t }) => logFolderFor(t.instrument) === wantFolder)
+          .map(({ trade: t, cycleNo }) => ({
             id: t.id, // trade id — lets the chart move this trade's Target line
             signalSeq: t.signalSeq ?? null,
-            tradeNo: dayOrder.get(t) ?? null,
+            tradeNo: cycleNo,
             side: (t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
             strike: t.strike ?? null,
             entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds

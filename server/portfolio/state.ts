@@ -1121,6 +1121,32 @@ export async function getTradesForDate(
   return out;
 }
 
+/**
+ * Same date filter as getTradesForDate, but each trade is tagged with its "#N"
+ * position within ITS OWN day record (entry-time order) — the SAME number the
+ * desk row shows. The desk numbers by the day CYCLE (a paper cycle can span
+ * several calendar days), so numbering the chart by calendar date made the two
+ * disagree. Numbering within the record keeps the chart's "#N" identical to the
+ * desk's for every trade.
+ */
+export async function getTradesForDateWithCycleNo(
+  channel: Channel,
+  date: string,
+): Promise<Array<{ trade: TradeRecord; cycleNo: number }>> {
+  const docs = await DayRecordModel.find({ channel }).lean();
+  const out: Array<{ trade: TradeRecord; cycleNo: number }> = [];
+  for (const doc of docs) {
+    const rec = docToDayRecord(doc);
+    const ordered = [...rec.trades].sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0));
+    const noById = new Map(ordered.map((t, i) => [t.id, i + 1]));
+    for (const t of rec.trades) {
+      const iso = new Date(t.openedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      if (iso === date) out.push({ trade: t, cycleNo: noById.get(t.id) ?? 0 });
+    }
+  }
+  return out;
+}
+
 export async function upsertDayRecord(
   channel: Channel,
   record: DayRecord
