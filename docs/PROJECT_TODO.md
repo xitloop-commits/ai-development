@@ -41,6 +41,11 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   ITM strike / sell-side variant / wait for more data) — see spec §12.
 Full spec + result: [docs/systems/11_sma_model.md](systems/11_sma_model.md).
 
+### T156 [UI] — CHARTS split into NSE CHART + MCX CHART buttons ✅ DONE 2026-08-10
+Crude/natgas pop-out chart windows enabled. MCX charts plot the future itself
+(no spot index): re-poll recorded disk ticks every 10s while live, no index
+seed-shift. Server chart endpoints were already instrument-generic.
+
 ### T155 [SEA] — MCX engines (crudeoil, naturalgas) run sma5 cohort ONLY — WIRED 2026-08-10 🚧
 Partha mandate: MCX SEA emits sma5 signals only. New `--only-cohorts` engine
 flag pins all other cohorts OFF per-process (global toggles can't re-enable —
