@@ -470,6 +470,20 @@ export default function InstrumentChartPage() {
   // future), so those charts advance by re-polling the recorded disk ticks
   // (~3s recorder flush lag). NSE keeps the one-shot seed + live index WS.
   const isMcx = optionSegmentFor(inst ?? "") === "MCX_COMM";
+
+  // Live Simulation (T90): a running SYSTEM replay of THIS window's date
+  // streams the recorded ticks over the same live WS — treat it like a live
+  // day and FOLLOW the replayed ticks (same pattern as OptionChartDialog).
+  const replayStatus = trpc.replay.status.useQuery(undefined, { refetchInterval: 2000, refetchOnWindowFocus: false });
+  const isReplay = !!replayStatus.data?.running && replayStatus.data.date === date;
+  // Where the replay has reached, in recorded-day epoch seconds — the seed is
+  // capped here so the not-yet-replayed rest of the day never paints.
+  const replayCutoffTs = useMemo(() => {
+    const s = replayStatus.data;
+    if (!isReplay || !s?.startedAt || s.anchorRecvTs == null) return null;
+    const clock = replayStatus.dataUpdatedAt || Date.now();
+    return s.anchorRecvTs + ((clock - s.startedAt) / 1000) * (s.speed || 1);
+  }, [isReplay, replayStatus.data, replayStatus.dataUpdatedAt]);
   const ticksQuery = trpc.trading.underlyingTicks.useQuery(
     { instrument: inst ?? "", date },
     {
@@ -483,11 +497,11 @@ export default function InstrumentChartPage() {
   );
   const signalsQuery = trpc.trading.signalsForChart.useQuery(
     { instrument: inst ?? "", date },
-    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday ? 15000 : false },
+    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday || isReplay ? 15000 : false },
   );
   const tradesQuery = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: inst ?? "", date },
-    { enabled: !!inst && !!date && showTrades, refetchOnWindowFocus: false, refetchInterval: isToday && showTrades ? 10000 : false },
+    { enabled: !!inst && !!date && showTrades, refetchOnWindowFocus: false, refetchInterval: (isToday || isReplay) && showTrades ? 10000 : false },
   );
 
   // SMA5 line mode (HA vs raw) + period — read from the SEA detector config so
@@ -532,22 +546,35 @@ export default function InstrumentChartPage() {
   const [seedShift, setSeedShift] = useState<number | null>(null);
   useEffect(() => {
     // MCX: the chart plots the future itself — no index-level shift.
-    if (isMcx) return;
+    // Replay: live leg IS the recorded futures contract — same, no shift.
+    if (isMcx || isReplay) return;
     if (isToday && seedShift == null && spot != null && spot > 0 && undData?.ltp?.length) {
       const last = undData.ltp[undData.ltp.length - 1];
       if (last > 0) setSeedShift(spot - last);
     }
-  }, [spot, undData, seedShift, isToday, isMcx]);
+  }, [spot, undData, seedShift, isToday, isMcx, isReplay]);
   const undSeed = useMemo(() => {
     if (!undData || !undData.t?.length) return undefined;
-    const s = isToday ? seedShift ?? 0 : 0;
-    return { t: undData.t, ltp: s ? undData.ltp.map((l) => l + s) : undData.ltp };
-  }, [undData, seedShift, isToday]);
+    let t = undData.t;
+    let ltp = undData.ltp;
+    // Replay: trim the seed to what the sim has already streamed.
+    if (replayCutoffTs != null) {
+      let n = t.length;
+      while (n > 0 && t[n - 1] > replayCutoffTs) n--;
+      t = t.slice(0, n);
+      ltp = ltp.slice(0, n);
+    }
+    const s = isToday && !isReplay ? seedShift ?? 0 : 0;
+    return { t, ltp: s ? ltp.map((l) => l + s) : ltp };
+  }, [undData, seedShift, isToday, isReplay, replayCutoffTs]);
   const und = useLiveCandles(
-    isToday ? UNDERLYING_SECURITY_ID[inst ?? ""] ?? null : null,
-    "IDX_I",
+    // Replay streams the RECORDED futures contract's ticks (original ids) —
+    // follow that contract; a live day follows the spot index as before.
+    isReplay ? (undData?.securityId ?? null)
+      : isToday ? UNDERLYING_SECURITY_ID[inst ?? ""] ?? null : null,
+    isReplay ? (undData?.exchangeSegment ?? "NSE_FNO") : "IDX_I",
     intervalSec,
-    isToday,
+    isToday || isReplay,
     undSeed,
   );
   const baseCandles = und.candles;
