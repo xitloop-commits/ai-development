@@ -45,6 +45,10 @@ export interface CohortState {
    *  close further in the trade's direction before entering; 0 = enter on the
    *  cross. Avoids buying a spike that reverts. Live-tunable. */
   sma5EntryWatch: number;
+  /** SMA5 premium-confirm entry gate — when true, a CE/PE entry only fires if that
+   *  option's premium is above its own SMA5 at the cross (else skipped). false =
+   *  fire on the underlying cross regardless. Live-tunable. */
+  sma5EntryGate: boolean;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -74,7 +78,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -238,6 +242,35 @@ function persistSma5EntryWatch(value: number): void {
   }
 }
 
+/** Read the persisted SMA5 entry gate (on/off) from the first instrument's cfg. */
+function readSma5EntryGate(): boolean | null {
+  try {
+    const p = cfgPath(INSTRUMENTS[0]);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    const v = j.sma5_signal?.entry_gate;
+    return typeof v === "boolean" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write entry_gate into every instrument's sma5_signal block (that key only). */
+function persistSma5EntryGate(value: boolean): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      if (!j.sma5_signal || j.sma5_signal.entry_gate === value) continue;
+      j.sma5_signal.entry_gate = value;
+      writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -315,6 +348,18 @@ export function setSma5EntryWatch(value: number): CohortState {
   if (state.sma5EntryWatch === v) return { ...state };
   state.sma5EntryWatch = v;
   persistSma5EntryWatch(v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/** Toggle the SMA5 premium-confirm entry gate. Persisted to every config and
+ *  pushed to running SEA — applied on the next cross, no restart. */
+export function setSma5EntryGate(value: boolean): CohortState {
+  const v = !!value;
+  if (state.sma5EntryGate === v) return { ...state };
+  state.sma5EntryGate = v;
+  persistSma5EntryGate(v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
@@ -410,6 +455,8 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setSma5Buffer(getCommonConfig().sma5Buffer);
   // SMA5 entry-watch (candles) — same.
   setSma5EntryWatch(getCommonConfig().sma5EntryWatch);
+  // SMA5 premium-confirm entry gate (on/off) — same.
+  setSma5EntryGate(getCommonConfig().sma5EntryGate);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
@@ -427,6 +474,8 @@ export function initSeaControl(server: Server): void {
   if (sb !== null) state.sma5Buffer = sb;
   const sw = readSma5EntryWatch();
   if (sw !== null) state.sma5EntryWatch = sw;
+  const sg = readSma5EntryGate();
+  if (sg !== null) state.sma5EntryGate = sg;
 
   // T97 — hydrate the model map from each instrument's LATEST pointer, which is
   // what SEA actually loads at startup. Without this `state.models` stays {}

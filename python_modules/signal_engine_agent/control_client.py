@@ -89,6 +89,9 @@ def start_control_listener(live: dict, instrument: str | None = None) -> threadi
                                 live["sma5_entry_watch"] = max(0, int(st["sma5EntryWatch"]))
                             except (TypeError, ValueError):
                                 pass
+                        # SMA5 premium-confirm entry gate (on/off) — live-tunable.
+                        if "sma5EntryGate" in st:
+                            live["sma5_entry_gate"] = bool(st["sma5EntryGate"])
                         # Requested model version for THIS instrument. Recorded
                         # only — the engine thread does the actual load.
                         if instrument and isinstance(st.get("models"), dict):

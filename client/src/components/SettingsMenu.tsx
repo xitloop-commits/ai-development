@@ -28,6 +28,7 @@ interface CommonCfg {
   sma5ExitConfirm: number;
   sma5Buffer: number;
   sma5EntryWatch: number;
+  sma5EntryGate: boolean;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -259,7 +260,12 @@ export function SettingsMenu() {
                   </div>
                 </Group>
 
-                <Group title="SMA5 detector" info="Entry watch (candles): after a cross, entry waits this many 1-min candles that each close FURTHER in the trade's direction (above the prior candle for CE, below for PE) before entering; 0 = enter on the cross (original). Avoids buying a spike that reverts. Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. All live — the running SEA applies them on the next candle.">
+                <Group title="SMA5 detector" info="Entry gate (premium confirm): when ON, a CE/PE entry only fires if THAT option's premium is above its own SMA5 at the cross (the premium confirms the underlying move); otherwise the entry is skipped. OFF = fire on the underlying cross regardless (original). Exits are never gated. Entry watch (candles): after a cross, entry waits this many 1-min candles that each close FURTHER in the trade's direction (above the prior candle for CE, below for PE) before entering; 0 = enter on the cross (original). Avoids buying a spike that reverts. Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. All live — the running SEA applies them on the next candle.">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
+                    <Check2 checked={d.sma5EntryGate} onChange={() => edit((x) => { x.sma5EntryGate = !x.sma5EntryGate; })}
+                      title={d.sma5EntryGate ? "Disable — enter on the underlying cross" : "Enable — require the premium above its own SMA5"} />
+                  </div>
                   <NumRow label="Entry watch" value={d.sma5EntryWatch} step={1} min={0} max={10} unit="candles"
                     onChange={(v) => edit((x) => { x.sma5EntryWatch = v; })} />
                   <NumRow label="Exit confirm" value={d.sma5ExitConfirm} step={1} min={1} max={5} unit="candles"

@@ -1161,6 +1161,11 @@ class Sma5SignalThresholds:
     # for PE) before entering. 0 = enter immediately on the cross (original); 1+
     # avoids buying a spike that reverts. Live-tunable.
     entry_watch: int = 0
+    # Entry gate: when true, a CE/PE entry only fires if THAT option's premium is
+    # above its OWN 5-SMA at the cross (the premium confirms the underlying move);
+    # otherwise the entry is skipped. False = original (fire on the underlying
+    # cross regardless). Exits are never gated. Live-tunable.
+    entry_gate: bool = False
 
 
 def load_thresholds_sma5_signal(

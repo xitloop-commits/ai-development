@@ -234,6 +234,10 @@ export interface CommonConfig {
    *  close further in the trade's direction before entering; 0 = enter on the
    *  cross (original). Avoids buying a spike that reverts. Pushed to SEA. */
   sma5EntryWatch: number;
+  /** SMA5 premium-confirm entry gate — when true, a CE/PE entry only fires if that
+   *  option's premium is above its own SMA5 at the cross (else skipped). false =
+   *  fire on the underlying cross regardless. Pushed to SEA. */
+  sma5EntryGate: boolean;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
@@ -312,6 +316,7 @@ function baseCommon(): CommonConfig {
     sma5ExitConfirm: 1, // off by default — flip on the first cross (original)
     sma5Buffer: 0, // no deadband by default — exact cross
     sma5EntryWatch: 0, // enter on the cross by default — no watch candles
+    sma5EntryGate: false, // premium-confirm gate off by default (current behaviour)
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -567,6 +572,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.sma5ExitConfirm = Math.round(clampNum(c.sma5ExitConfirm, 1, 10, 1));
   c.sma5Buffer = clampNum(c.sma5Buffer, 0, 5, 0);
   c.sma5EntryWatch = Math.round(clampNum(c.sma5EntryWatch, 0, 10, 0));
+  c.sma5EntryGate = c.sma5EntryGate === true;
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

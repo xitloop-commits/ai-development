@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -114,6 +115,58 @@ def _build_structure_context(row: dict) -> StructureContext | None:
     )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
+
+
+class _PremiumSma5:
+    """Rolling 5-SMA of an ATM option premium's Heikin-Ashi close, built from ticks
+    (same HA math as the SMA5 detector). Fed continuously so it stays warm; used by
+    the SMA5 entry gate to check the premium confirms (is ABOVE its own SMA5).
+    Pure state, never raises."""
+
+    def __init__(self, period: int = 5) -> None:
+        self._closes: deque[float] = deque(maxlen=max(1, period))
+        self._period = max(1, period)
+        self._minute: int | None = None
+        self._o = self._h = self._l = self._c = 0.0
+        self._ha_open_prev: float | None = None
+        self._ha_close_prev: float | None = None
+        self._sma: float | None = None  # last 5-SMA of HA closes (None until warm)
+
+    def on_tick(self, ts: float, price: float) -> None:
+        if not (math.isfinite(ts) and math.isfinite(price)):
+            return
+        minute = int(ts // 60)
+        if self._minute is None:
+            self._minute = minute
+            self._o = self._h = self._l = self._c = price
+            return
+        if minute == self._minute:
+            self._c = price
+            if price > self._h:
+                self._h = price
+            if price < self._l:
+                self._l = price
+            return
+        # candle closed → HA close, push, recompute the SMA
+        ha_close = (self._o + self._h + self._l + self._c) / 4.0
+        ha_open = (
+            (self._o + self._c) / 2.0
+            if self._ha_open_prev is None
+            else (self._ha_open_prev + self._ha_close_prev) / 2.0
+        )
+        self._ha_open_prev, self._ha_close_prev = ha_open, ha_close
+        self._closes.append(ha_close)
+        if len(self._closes) >= self._period:
+            self._sma = sum(self._closes) / len(self._closes)
+        self._minute = minute
+        self._o = self._h = self._l = self._c = price
+
+    def confirms(self, price: float) -> bool:
+        """True if the live premium is above its SMA5. Warmup (SMA not ready yet)
+        → True, so the gate never blocks before it can actually judge."""
+        if self._sma is None or not math.isfinite(price):
+            return True
+        return price > self._sma
 
 
 def _append_entrywatch_log(instrument: str, note: str) -> None:
@@ -709,6 +762,11 @@ def run(
     # ALWAYS constructed (live-toggleable), like MA-Signal above.
     sma5_signal_thresholds = load_thresholds_sma5_signal(instrument, config_dir)
     sma5_signal_detector = Sma5SignalDetector(sma5_signal_thresholds)
+    # Entry-gate confirmers: a continuous 5-SMA of each ATM side's premium. Fed the
+    # ATM CE/PE premium every row so they stay warm; when the entry gate is on, an
+    # entry only fires if the side's premium is ABOVE its own SMA5 (confirmation).
+    sma5_prem_ce = _PremiumSma5()
+    sma5_prem_pe = _PremiumSma5()
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -865,6 +923,7 @@ def run(
         "sma5_confirm": sma5_signal_thresholds.confirm_candles,  # SMA5 exit confirm, live-tunable
         "sma5_buffer": sma5_signal_thresholds.buffer_pct,  # SMA5 deadband %, live-tunable
         "sma5_entry_watch": sma5_signal_thresholds.entry_watch,  # SMA5 entry-watch candles, live-tunable
+        "sma5_entry_gate": sma5_signal_thresholds.entry_gate,  # SMA5 premium-confirm entry gate, live-tunable
     }
     # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
     # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
@@ -1416,8 +1475,19 @@ def run(
                             sma5_signal_detector.entry_watch = max(0, int(_s5w))
                         except (TypeError, ValueError):
                             pass
+                    # Live-tunable premium-confirm entry gate (on/off) from the panel.
+                    _sma5_gate_on = bool(_live_cohorts.get("sma5_entry_gate"))
                     _s5_ts = _finite(row.get("timestamp"))
                     _s5_spot = _finite(row.get("spot_price"))
+                    # Keep the per-side premium SMA5s warm every row (continuous), so
+                    # the entry gate can judge the moment a cross fires.
+                    if _s5_ts is not None:
+                        _pce = _finite(ce_ltp)
+                        _ppe = _finite(pe_ltp)
+                        if _pce is not None:
+                            sma5_prem_ce.on_tick(_s5_ts, _pce)
+                        if _ppe is not None:
+                            sma5_prem_pe.on_tick(_s5_ts, _ppe)
                     sma5_events = (
                         sma5_signal_detector.on_tick(_s5_ts, _s5_spot)
                         if _s5_ts is not None and _s5_spot is not None else []
@@ -1439,6 +1509,16 @@ def run(
                         _s5_exit = _ev.startswith("EXIT")
                         _s5_ltp = _finite(ce_ltp if _s5_call else pe_ltp)
                         _s5_side = "CE" if _s5_call else "PE"
+                        # ENTRY GATE (option A) — skip a CE/PE entry whose premium is
+                        # not above its OWN SMA5 (the premium doesn't confirm). Exits
+                        # are never gated. Warmup returns confirmed, so it can't block
+                        # early. One-shot: a skipped cross is simply not taken.
+                        if (not _s5_exit) and _sma5_gate_on and _s5_ltp is not None:
+                            _conf = (sma5_prem_ce if _s5_call else sma5_prem_pe).confirms(_s5_ltp)
+                            if not _conf:
+                                print(f"  [sma5 entry-gate] {instrument.upper()} {_s5_side} "
+                                      f"skipped — premium {_s5_ltp} not above its SMA5", flush=True)
+                                continue
                         sma5_signal_out = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
