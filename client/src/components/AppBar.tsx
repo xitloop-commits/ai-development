@@ -14,10 +14,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
-  AlertDialogTitle, AlertDialogDescription, AlertDialogAction,
-} from '@/components/ui/alert-dialog';
 import { holidayCue } from '@/lib/holidayCue';
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
@@ -213,12 +209,16 @@ function HolidayIndicator() {
   const cue = holidayCue(daysUntil);
   const ctaVisible = cue === 'bright' || cue === 'light';
 
-  // Once-per-launch alert for the 7–19-day window (never fires when a CTA shows).
-  const [alertOpen, setAlertOpen] = useState(false);
+  // Once-per-launch heads-up for the 7–19-day window (never fires when a CTA
+  // shows). A bottom toast that auto-closes in 5s — deliberately NOT a modal,
+  // so it never blocks the operator (changed from AlertDialog 2026-08-11).
   useEffect(() => {
     if (cue === 'alert' && nextHoliday && !holidayAlertShown) {
       holidayAlertShown = true;
-      setAlertOpen(true);
+      toast(`Next market holiday: ${nextHoliday.description}, ${formatDateShort(nextHoliday.date)}`, {
+        duration: 5000,
+        icon: <Calendar className="h-4 w-4" />,
+      });
     }
   }, [cue, nextHoliday]);
 
@@ -327,19 +327,6 @@ function HolidayIndicator() {
       )}
 
       {/* Once-per-launch alert — only in the 7–19-day window (no CTA then). */}
-      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Next market holiday</AlertDialogTitle>
-            <AlertDialogDescription>
-              {nextHoliday ? `${nextHoliday.description}, ${formatDateShort(nextHoliday.date)}` : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction>OK</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
