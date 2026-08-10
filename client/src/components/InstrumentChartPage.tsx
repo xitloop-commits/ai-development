@@ -429,8 +429,10 @@ export default function InstrumentChartPage() {
     {
       enabled: !!inst && !!date,
       refetchOnWindowFocus: false,
-      refetchInterval: isMcx && isToday ? 10_000 : false,
-      staleTime: isMcx ? 5_000 : Infinity,
+      // 30s: the endpoint re-reads and re-ships the WHOLE day file (~10 MB by
+      // late MCX session) — a 10s cadence kept the window perpetually loading.
+      refetchInterval: isMcx && isToday ? 30_000 : false,
+      staleTime: isMcx ? 20_000 : Infinity,
     },
   );
   const signalsQuery = trpc.trading.signalsForChart.useQuery(
