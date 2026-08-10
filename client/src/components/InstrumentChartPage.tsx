@@ -178,6 +178,52 @@ function GridIcon({ cols, rows, size = 16 }: { cols: number; rows: number; size?
   );
 }
 
+/**
+ * Bottom strip shown while the day's underlying history downloads (the MCX
+ * files are ~10 MB and take seconds). The percentage is an ETA estimate from
+ * the PREVIOUS successful load of the same instrument (localStorage), capped
+ * at 97% until the data actually lands — honest-ish progress without needing
+ * streaming from the server.
+ */
+function HistoryLoadStrip({ instKey, active, refreshing }: {
+  instKey: string; active: boolean; refreshing: boolean;
+}) {
+  const [pct, setPct] = useState(0);
+  const startRef = useRef<number | null>(null);
+  const lsKey = `chart-hist-ms-${instKey}`;
+  useEffect(() => {
+    if (!active) {
+      if (startRef.current != null) {
+        try { localStorage.setItem(lsKey, String(Date.now() - startRef.current)); } catch { /* ignore */ }
+        startRef.current = null;
+      }
+      setPct(0);
+      return;
+    }
+    startRef.current = Date.now();
+    let expected = 8000;
+    try { expected = Number(localStorage.getItem(lsKey)) || 8000; } catch { /* ignore */ }
+    const id = setInterval(() => {
+      const elapsed = Date.now() - (startRef.current ?? Date.now());
+      setPct(Math.min(97, Math.round((elapsed / expected) * 100)));
+    }, 200);
+    return () => clearInterval(id);
+  }, [active, lsKey]);
+
+  if (!active && !refreshing) return null;
+  return (
+    <div className="flex items-center gap-2 border-t border-border/60 px-2 py-1 text-[0.625rem] text-muted-foreground shrink-0">
+      <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+      {active
+        ? <span className="tabular-nums">Loading history… {pct}%</span>
+        : <span>Refreshing ticks…</span>}
+    </div>
+  );
+}
+
 /** Bottom-centre fullscreen toggle for a chart pane. Expands the pane to fill
  *  the viewport (parent applies `fixed inset-0`); Esc or a second click restores. */
 function PaneFullscreenBtn({ active, onToggle }: { active: boolean; onToggle: () => void }) {
@@ -992,6 +1038,11 @@ export default function InstrumentChartPage() {
         ))}
       </div>
       )}
+      <HistoryLoadStrip
+        instKey={inst}
+        active={ticksLoading}
+        refreshing={!ticksLoading && ticksQuery.isFetching && isMcx}
+      />
     </div>
   );
 }
