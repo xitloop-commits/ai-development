@@ -45,6 +45,7 @@ export interface CohortsConfig {
   trend: boolean;
   ma: boolean;
   sma5: boolean; // SMA-5 price-cross cohort (2026-08-05) — rides, exits on the cross
+  sma_model: boolean; // T154 learned SMA5 rider (external runner) — paper-only watch cohort
   swing: boolean; // shown in the UI but has no gate — always false for now
   // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
   // (one SEA process), so two books cannot hold different values. It lived here
@@ -162,7 +163,7 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
-export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "swing";
+export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing";
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
@@ -245,7 +246,7 @@ export interface CommonConfig {
    * EXIT and would never close on any other cohort (resolveExitStrategy guards
    * this and falls back to Sprint).
    */
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StrategyName>;
+  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", StrategyName>;
   /**
    * Re-enter a signal-cohort trade that got stopped out (SL / MTP / TSL) while
    * the trend was still running. The cohort detectors (SMA5, MA-Signal) fire
@@ -320,7 +321,7 @@ function baseCommon(): CommonConfig {
     lubasManagedExit: true,
     // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
     // want to run, MA rides to its own EXIT, swing banks at target.
-    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", swing: "anchor" },
+    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", sma_model: "ladder", swing: "anchor" },
     // Re-enter on a stop-out while the trend runs — on by default, 30s window,
     // 3 re-entries max per leg. See CommonConfig.reentryOnTrend.
     reentryOnTrend: { enabled: true, windowSec: 30, maxReentries: 3 },
@@ -335,7 +336,7 @@ function baseCommon(): CommonConfig {
 
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, sma5: true, swing: false },
+    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, swing: false },
     // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
     // so it must be chosen deliberately, never inherited from a default.
     strategies: { sprint: true, runway: true, anchor: true, glide: false, ladder: false },
@@ -348,6 +349,7 @@ function baseMode(): AiModeConfig {
       trend: { sprint: false, runway: true, anchor: false, glide: false, ladder: false },
       ma: { sprint: false, runway: false, anchor: false, glide: true, ladder: false },
       sma5: { sprint: false, runway: false, anchor: false, glide: false, ladder: true },
+      sma_model: { sprint: false, runway: false, anchor: false, glide: false, ladder: true },
       swing: { sprint: false, runway: false, anchor: true, glide: false, ladder: false },
     },
     sizing: {
@@ -372,7 +374,7 @@ function baseMode(): AiModeConfig {
  * accident. */
 function baseManual(): AiModeConfig {
   const m = baseMode();
-  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, swing: false };
+  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, swing: false };
   m.strategies = { sprint: false, runway: false, anchor: false, glide: true, ladder: false };
   return m;
 }
@@ -569,9 +571,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.lubasManagedExit = !!c.lubasManagedExit;
   // T139 — every cohort must map to a real strategy. Back-fill from defaults for
   // an old config that predates the map, and coerce any bad value.
-  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", swing: "anchor" } as const;
+  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", sma_model: "ladder", swing: "anchor" } as const;
   if (!c.cohortStrategy) (c as CommonConfig).cohortStrategy = { ...dflt };
-  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) {
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) {
     const v = c.cohortStrategy[k];
     c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide", "ladder"] as const).includes(v) ? v : dflt[k];
   }
@@ -603,14 +605,14 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) c.strategies[s] = !!c.strategies[s];
   // T144 — per-cohort strategy toggles. Back-fill for an old config, coerce
   // booleans, drop Glide off every cohort but `ma`, and FORCE each cohort's
   // Common default ON so a cohort can never be muted (the T139 lesson).
   const dfltMap = getCommonConfig().cohortStrategy;
   if (!c.cohortStrategies) (c as AiModeConfig).cohortStrategies = {} as AiModeConfig["cohortStrategies"];
-  for (const k of ["scalp", "trend", "ma", "sma5", "swing"] as const) {
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) {
     const row = c.cohortStrategies[k] ?? (c.cohortStrategies[k] = {} as Record<StrategyName, boolean>);
     for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) row[s] = !!row[s];
     if (k !== "ma") row.glide = false; // Glide is MA-Signal-only (sma5 rides on Ladder, closed on its cross)
@@ -787,10 +789,10 @@ export function resolveExitStrategy(
   const key =
     cohort === "ma_signal" ? "ma"
     : cohort === "sma5_signal" ? "sma5"
-    // T154 sma-model (learned SMA5 rider) rides the sma5 cohort's strategy so
+    // T154 sma-model (learned SMA5 rider) — its own key; default ladder so
     // rule-vs-model compare on identical exit management. Paper-only cohort —
     // see the pin in discipline/routes.ts.
-    : cohort === "sma_model" ? "sma5"
+    : cohort === "sma_model" ? "sma_model"
     : cohort === "scalp" ? "scalp"
     : cohort === "trend" ? "trend"
     : cohort === "swing" ? "swing"
@@ -805,6 +807,7 @@ export function resolveExitStrategy(
 export function cohortKey(cohort: string | null | undefined): CohortKey | null {
   return cohort === "ma_signal" ? "ma"
     : cohort === "sma5_signal" ? "sma5"
+    : cohort === "sma_model" ? "sma_model"
     : cohort === "scalp" ? "scalp"
     : cohort === "trend" ? "trend"
     : cohort === "swing" ? "swing"

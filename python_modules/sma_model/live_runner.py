@@ -352,6 +352,10 @@ class LiveTrader:
                   f"EV=₹{ev:+.0f} size={sz:.1f}pts → "
                   f"{'ENTER' if verdict else 'skip'}")
         if verdict and tradeable:
+            self._post_tray_signal(
+                i, direction=f"LONG_{opt}", action="ENTER", strike=strike,
+                entry=q[1],
+                reason=f"pullback EV ₹{ev:+.0f}, leg {sz:.1f}pts")
             if self._submit_entry(i, d, strike, opt, q[1]):
                 self.in_pos = (d, strike, i)
         self.cross = None
@@ -372,8 +376,45 @@ class LiveTrader:
                       f"{'EXIT' if do_exit else 'hold'}")
         if do_exit:
             if tradeable:
+                opt = "CE" if d > 0 else "PE"
+                self._post_tray_signal(
+                    i, direction=f"EXIT_{opt}", action="EXIT", strike=strike,
+                    entry=None,
+                    reason="leg end" if not last_candle else "session end")
                 self._submit_exit(d)
             self.in_pos = None
+
+    def _post_tray_signal(self, i: int, direction: str, action: str,
+                          strike: int, entry: float | None,
+                          reason: str) -> None:
+        """Show this decision in the UI signal tray (POST /api/sea/signal)."""
+        day = self.live.day
+        now = time.time()
+        payload = {
+            "id": f"sma-model-{day.date}-c{i}-{action.lower()}",
+            "correlationId": f"sma-model-{day.date}-c{i}",
+            "timestamp": now,
+            "timestamp_ist": datetime.fromtimestamp(
+                now + IST_OFFSET_SEC, tz=timezone.utc).strftime("%H:%M:%S"),
+            "instrument": INSTRUMENT,
+            "direction": direction,
+            "action": action,
+            "cohort": COHORT,
+            "reason": reason,
+            "entry": entry,
+            "atm_strike": strike,
+            "spot_price": (None if np.isnan(day.spot[i]) else float(day.spot[i])),
+            "model_version": str(self.manifest.get("created", "")),
+        }
+        if not self.go:
+            return
+        try:
+            import requests
+            requests.post(f"{_broker_url()}/api/sea/signal",
+                          headers=_headers(), data=json.dumps(payload),
+                          timeout=5)
+        except Exception as exc:
+            self._log(f"  tray POST failed: {exc}")
 
     def _submit_entry(self, i, d, strike, opt, ask) -> bool:
         payload = {
@@ -385,6 +426,7 @@ class LiveTrader:
             "contractSecurityId": self.live.leg_to_sec.get((strike, opt)),
             "entryPrice": float(ask), "stopLoss": None, "takeProfit": None,
             "lots": 1, "cohort": COHORT,
+            "correlationId": f"sma-model-{self.live.day.date}-c{i}",
         }
         payload = {k: v for k, v in payload.items() if v is not None}
         payload["stopLoss"] = None

@@ -117,6 +117,7 @@ export const COHORT_COLORS: Record<string, string> = {
   multi_day_swing: '#C084FC', // bright violet — overnight+
   ma_signal: '#F472B6',       // bright pink — 20-EMA slope legs (signal-only)
   sma5_signal: '#FB923C',     // bright orange — SMA-5 price-cross legs
+  sma_model: '#2DD4BF',       // bright teal — learned SMA5 rider (T154, paper-only)
 };
 
 const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
@@ -132,6 +133,7 @@ export function cohortLabel(cohort: string): string {
   if (cohort === 'multi_day_swing') return 'multiday';
   if (cohort === 'ma_signal') return 'MA-Signal';
   if (cohort === 'sma5_signal') return 'SMA5';
+  if (cohort === 'sma_model') return 'SMA-Model';
   return cohort;
 }
 
