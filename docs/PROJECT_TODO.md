@@ -46,6 +46,13 @@ Crude/natgas pop-out chart windows enabled. MCX charts plot the future itself
 (no spot index): re-poll recorded disk ticks every 10s while live, no index
 seed-shift. Server chart endpoints were already instrument-generic.
 
+### T157 [UI] — MCX watchlist rows: expiry/strike/CE-PE/LONG-SHORT ✅ DONE 2026-08-10
+One-line OPTION_TRADEABLE gate change; IndexOptionRow was already MCX-aware.
+
+### T158 [UI] — chart bottom history-loader strip (spinner + ETA %) ✅ DONE 2026-08-10
+Shows during day-file download; ETA % from previous load (localStorage).
+Follow-up candidate: incremental tick loader (ship only new ticks per poll).
+
 ### T155 [SEA] — MCX engines (crudeoil, naturalgas) run sma5 cohort ONLY — WIRED 2026-08-10 🚧
 Partha mandate: MCX SEA emits sma5 signals only. New `--only-cohorts` engine
 flag pins all other cohorts OFF per-process (global toggles can't re-enable —
