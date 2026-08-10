@@ -495,12 +495,17 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
     expect(o.exit).toBe(true);
     expect(o.phase).toBe("wide"); // safety SL, immediate
   });
-  it("candles mode: a level below entry does NOT bind (not yet locked profit)", () => {
-    // Safety SL off to isolate the candle trail; level 95 is below entry 100.
+  it("candles mode: a level below entry BINDS as a stop from entry (cuts losses)", () => {
+    // Safety SL off to isolate the candle trail. The level (95, below entry) is now
+    // the active stop — the candle stop works above OR below entry, so it cuts a
+    // loss too. The exit is close-confirmed, so ladderDecide shows the marker but
+    // leaves the exit to the tick engine.
     const noSl = { ...cnd, esSlEnabled: false };
     const o = ladderDecide({ ...lbase, ltp: 94, peak: 100, now: at(5), dynTslLevel: 95 }, noSl, noFav);
-    expect(o.exit).toBe(false);
-    expect(o.stopActive).toBe(false); // no downside cap active
+    expect(o.stop).toBeCloseTo(95, 5);
+    expect(o.stopActive).toBe(true);  // the candle level is the active stop, below entry
+    expect(o.exit).toBe(false);       // close-confirmed → tick engine owns the exit
+    expect(o.phase).toBe("trailing");
   });
   it("candles mode: no level yet (warmup) → safety SL still governs", () => {
     // dynTslLevel undefined; the 1% safety SL (99) fires as normal, phase wide.

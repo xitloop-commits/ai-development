@@ -434,8 +434,6 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
       //     the HA open/close of the candle X bars back, already ratcheted up. It
       //     may be absent during warmup — then there's no trail this tick.
       //   • otherwise a giveback from the peak (% of the peak, or a gross ₹ via qty).
-      // Either way it only BINDS once it has LOCKED profit (sits in favour beyond
-      // entry); below that the safety SL governs the downside.
       let trail: number | null;
       if (c.esTslMode === "candles") {
         trail = i.dynTslLevel ?? null;
@@ -446,7 +444,15 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
             : i.peak * (c.esTslPct / 100);
         trail = i.peak - d * giveback;
       }
-      if (trail != null && favour(i, trail) > 0 && (effStop == null || favour(i, trail) > favour(i, effStop))) {
+      // Candles mode is a STOP FROM ENTRY — it binds above OR below entry, so a
+      // candle closing through the level cuts a loss just as it protects a gain.
+      // The %/₹ giveback modes only bind once LOCKED in profit (a giveback below
+      // entry is meaningless; the safety SL governs the downside there).
+      if (
+        trail != null &&
+        (c.esTslMode === "candles" || favour(i, trail) > 0) &&
+        (effStop == null || favour(i, trail) > favour(i, effStop))
+      ) {
         effStop = trail;
         trailing = true;
       }

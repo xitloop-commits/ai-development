@@ -910,13 +910,12 @@ class TickHandler extends EventEmitter {
           // Surface the raw candle level to the UI so the TradeBar can draw it as
           // a faint TSL line climbing toward entry before it becomes the live stop.
           trade.dynTslLevel = dyn?.level ?? null;
-          // Candle-close TSL exit: fire ONLY when a completed 1-min candle CLOSED
-          // beyond the level, and only once it has locked profit (level past entry
-          // — below that the safety SL governs). Intra-candle touches never exit;
-          // ladderDecide is told to suppress the trail's tick-breach for this.
-          const dynLevelLocked = dyn?.level != null
-            && (isBuy ? dyn.level > trade.entryPrice : dyn.level < trade.entryPrice);
-          const candleTslExit = !!dyn?.closedBelow && dynLevelLocked;
+          // Candle-close TSL exit: fire when a completed 1-min candle CLOSED beyond
+          // the level. The candle stop is active FROM ENTRY (above or below), so it
+          // cuts a loss as well as protecting a gain — no locked-profit gate.
+          // Intra-candle touches never exit; ladderDecide suppresses the trail's
+          // tick-breach so this candle-close check owns it.
+          const candleTslExit = !!dyn?.closedBelow;
           const out = ladderDecide(
             {
               entry: trade.entryPrice,
