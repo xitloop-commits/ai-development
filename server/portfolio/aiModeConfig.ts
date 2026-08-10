@@ -787,6 +787,10 @@ export function resolveExitStrategy(
   const key =
     cohort === "ma_signal" ? "ma"
     : cohort === "sma5_signal" ? "sma5"
+    // T154 sma-model (learned SMA5 rider) rides the sma5 cohort's strategy so
+    // rule-vs-model compare on identical exit management. Paper-only cohort —
+    // see the pin in discipline/routes.ts.
+    : cohort === "sma_model" ? "sma5"
     : cohort === "scalp" ? "scalp"
     : cohort === "trend" ? "trend"
     : cohort === "swing" ? "swing"

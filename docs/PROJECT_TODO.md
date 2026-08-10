@@ -16,9 +16,17 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   FAIL, loss halved.** Fold with strict EV≥₹50 floor was GREEN (+₹1,589/11d).
 - **Gate 1 v3 (strict EV menu ₹50+): 131 trades, ₹−8,954 — still FAIL.**
   Trajectory −41.5k → −22.4k → −9.0k; best fold (most data) ≈ breakeven.
-  **Tuning stopped** (further grid-narrowing = backtest mining). Next pick:
+  **Tuning stopped** (further grid-narrowing = backtest mining). Options:
   (a) accumulate more weeks + re-run periodically, (b) sell-side variant,
   (c) exit-side redesign. See spec §12.
+- **WIRED TO UI 2026-08-10 (Partha override — watch-only paper experiment):**
+  `live_runner.py` tails today's raw recordings (read-only, 3s flush lag),
+  decides at candle close, enters via /validateTrade (cohort `sma_model`,
+  server-pinned to PAPER book), exits via cohort-scoped GLIDE close. Exit
+  strategy rides as sma5 cohort (ladder) → rule-vs-model same-vehicle race.
+  Start: `py -m python_modules.sma_model.live_runner --go` (dry-run without
+  --go). Log: `data/sma_model_dataset/live_<date>.log`. NOT in launcher yet —
+  manual start per session.
 - 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
 - **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
   ITM strike / sell-side variant / wait for more data) — see spec §12.

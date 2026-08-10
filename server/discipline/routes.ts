@@ -191,6 +191,21 @@ export function registerDisciplineRoutes(app: Express): void {
         let targetChannels: Array<typeof body.channel> =
           aiChannels.length > 0 ? aiChannels : [body.channel];
 
+        // T154 — the sma-model cohort is a WATCH-ONLY paper experiment (its
+        // Gate-1 backtest is red). Hard-pin it to the paper book so it can
+        // never reach the live account, whatever the AI routing switches say.
+        if (body.cohort === "sma_model") {
+          targetChannels = targetChannels.filter((ch) => ch === "paper");
+          if (targetChannels.length === 0) {
+            return res.json({
+              approved: false,
+              reason: "sma_model cohort is paper-only (Gate 1 not passed)",
+              checks: [],
+              latencyMs: Date.now() - t0,
+            });
+          }
+        }
+
         // T128 — COHORT FILTER. SEA detects the union of both books' cohorts, so
         // a signal can arrive for a cohort a given book switched off. Each book
         // takes only the cohorts its OWN AI stream enabled. Without this, live —
