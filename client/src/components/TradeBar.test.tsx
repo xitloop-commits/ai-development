@@ -54,6 +54,22 @@ describe("TradeBar — markers draw only when the real level exists (T86 ④)", 
   });
 });
 
+describe("TradeBar — candle-TSL informational line (dynTslPercent)", () => {
+  const candleLine = () => screen.queryByTitle(/^Candle TSL /);
+  it("draws the faint candle-TSL line while the level is below entry", () => {
+    render(<TradeBar {...base} dynTslPercent={-2} />); // 2% below entry
+    expect(candleLine()).not.toBeNull();
+  });
+  it("does NOT draw it once the level is at/above entry (it's the live stop then)", () => {
+    render(<TradeBar {...base} dynTslPercent={2} slPercent={-2} />);
+    expect(candleLine()).toBeNull();
+  });
+  it("draws nothing when dynTslPercent is absent", () => {
+    render(<TradeBar {...base} />);
+    expect(candleLine()).toBeNull();
+  });
+});
+
 /**
  * T147 (Ladder) — the MSL safety-net marker draws only when mslPercent is given,
  * sits further out than the moving SL, and is independent of it.

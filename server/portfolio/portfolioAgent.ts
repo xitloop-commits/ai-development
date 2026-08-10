@@ -1813,6 +1813,7 @@ class PortfolioAgentImpl {
       if (live.msAboveEntry != null) r.msAboveEntry = live.msAboveEntry;
       if (live.stopLossPrice != null) r.stopLossPrice = live.stopLossPrice;
       if (live.targetPrice != null) r.targetPrice = live.targetPrice;
+      if (live.dynTslLevel != null) r.dynTslLevel = live.dynTslLevel;
     }
   }
 

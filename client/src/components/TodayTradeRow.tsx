@@ -439,6 +439,15 @@ function _TodayTradeRow({
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
                 mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
+                dynTslPercent={
+                  // Candle-TSL informational line: the raw candle level as a
+                  // favourable % (positive above entry). Drawn faint on the loss
+                  // side; once above entry it's the live yellow stop instead.
+                  trade.dynTslLevel != null && trade.dynTslLevel > 0 && trade.entryPrice > 0
+                    ? ((isBuy ? trade.dynTslLevel - trade.entryPrice : trade.entryPrice - trade.dynTslLevel) /
+                        trade.entryPrice) * 100
+                    : undefined
+                }
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
                 stopReadoutTop={trade.exitStrategy === "ladder"}
                 ttpPercent={

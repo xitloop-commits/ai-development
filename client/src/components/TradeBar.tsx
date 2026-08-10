@@ -51,6 +51,12 @@ export interface TradeBarProps {
    *  the stop can never cross). Drawn as a static tick on the loss side, further
    *  out than the moving SL. Absent for every non-Ladder trade. */
   mslPercent?: number;
+  /** Ladder honour-exit candle-TSL: the current candle level as a FAVOURABLE %
+   *  (signed — positive above entry, negative below). Drawn as a faint dashed
+   *  TSL line while it's still below entry (climbing toward becoming the live
+   *  stop); above entry it IS the stop, drawn as the solid yellow TSL instead so
+   *  this is only rendered on the loss side. Absent outside candle-TSL mode. */
+  dynTslPercent?: number;
   /** Take-profit %. TP = entry + tpPercent% (BUY). */
   tpPercent?: number;
   /** Label for the take-profit marker (default "TP"). Ladder passes "MTP" — its
@@ -169,6 +175,7 @@ export function TradeBar({
   ltp,
   slPercent,
   mslPercent,
+  dynTslPercent,
   tpPercent,
   tpLabel = "TP",
   stopReadoutTop = false,
@@ -382,6 +389,14 @@ export function TradeBar({
   const mslPrice = mslFav != null ? favToPrice(mslFav) : null;
   const mslTip = mslFav != null
     ? `Max stop-loss ${formatPrice(mslPrice as number)} (${fmtSign(mslFav)}) — the Ladder safety net; the stop can never cross it.`
+    : "";
+  // Candle-TSL informational line — only while it's still below entry (climbing
+  // up to become the live stop). Above entry it IS the stop (drawn yellow above).
+  const dynTslFav = dynTslPercent != null ? dynTslPercent : null;
+  const dynTslPos = dynTslFav != null && dynTslFav < 0 ? pos(dynTslFav) : null;
+  const dynTslPrice = dynTslFav != null ? favToPrice(dynTslFav) : null;
+  const dynTslTip = dynTslFav != null
+    ? `Candle TSL ${formatPrice(dynTslPrice as number)} (${fmtSign(dynTslFav)}) — the dynamic trailing stop is climbing; it goes live (yellow) once it rises above entry.`
     : "";
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `${tpLabel} ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
@@ -622,6 +637,17 @@ export function TradeBar({
         {/* Marker ticks — each its own hover tooltip. The stop/TSL marker is
             lifted above the gap arrows + bands so it's never obscured. */}
         <div className="absolute inset-0 pointer-events-none">
+          {/* Candle-TSL: faint dashed yellow line while it's still below entry,
+              climbing toward becoming the live (solid yellow) stop. */}
+          {dynTslPos != null && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
+              style={{ left: `${dynTslPos}%`, width: "12px", height: "16px", zIndex: 8 }}
+              title={dynTslTip}
+            >
+              <div style={{ width: 0, height: "11px", borderLeft: `2px dashed ${TSL_COLOR}`, opacity: 0.55 }} />
+            </div>
+          )}
           {mslPos != null && <Tick at={mslPos} color={MSL_COLOR} tip={mslTip} z={9} />}
           {hasStop && <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />}
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />

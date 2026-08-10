@@ -146,6 +146,11 @@ export interface TradeRecord {
   /** Peak (BUY) / trough (SELL) LTP since entry — the trailing-stop anchor.
    *  Sent by the server (positionDocToTradeRecord); absent on older trades. */
   peakLtp?: number | null;
+  /** Ladder honour-exit candle-TSL: the current ratcheted candle level (option
+   *  premium HA open/close of the candle X bars back). The TradeBar draws it as a
+   *  faint TSL line climbing toward entry before it becomes the live stop (above
+   *  entry it IS stopLossPrice). Absent outside candle-TSL mode. */
+  dynTslLevel?: number | null;
   /** MOST-ADVERSE LTP since entry (lowest for BUY, highest for SELL) — the mirror
    *  of peakLtp. peak↔trough = the trade's full travel, drawn on the TradeBar and
    *  frozen on close. Absent on trades that pre-date the field. */

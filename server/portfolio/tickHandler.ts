@@ -900,6 +900,9 @@ class TickHandler extends EventEmitter {
               && !trade.entryPending && trade.entryPrice > 0
               ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc)
               : undefined;
+          // Surface the raw candle level to the UI so the TradeBar can draw it as
+          // a faint TSL line climbing toward entry before it becomes the live stop.
+          trade.dynTslLevel = dynTsl ?? null;
           const out = ladderDecide(
             {
               entry: trade.entryPrice,

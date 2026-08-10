@@ -125,6 +125,12 @@ export interface TradeRecord {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Ladder honour-exit, candle-based TSL only: the current ratcheted candle
+   *  level (option-premium HA open/close of the candle X bars back). Written each
+   *  tick so the UI can draw it as a faint line climbing toward entry BEFORE it
+   *  becomes the live stop (above entry it IS stopLossPrice). Transient — not
+   *  persisted; recomputed from ticks. Absent outside candle-TSL mode. */
+  dynTslLevel?: number | null;
   /** Highest (BUY) / lowest (SELL) LTP seen since entry — the trailing-stop
    *  ratchet anchor. Persisted via position_state so the trail survives a
    *  server restart; absent on trades that pre-date the field. */
@@ -1345,6 +1351,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       status: t.status ?? "OPEN",
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
+      dynTslLevel: t.dynTslLevel ?? undefined,
       breakevenPrice: t.breakevenPrice ?? undefined,
       slDistance: t.slDistance ?? undefined,
       stopLossDisabled: t.stopLossDisabled ?? undefined,
