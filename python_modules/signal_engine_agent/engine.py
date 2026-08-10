@@ -115,6 +115,21 @@ def _build_structure_context(row: dict) -> StructureContext | None:
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
+
+def _append_entrywatch_log(instrument: str, note: str) -> None:
+    """Persist one SMA5 entry-watch transition to a dated, per-instrument file so
+    the deferred-entry trail survives after the console scrolls. Best-effort and
+    dashboard-safe (plain text, no ANSI) — never raises into the row loop. cwd is
+    the repo root (set by start-sea.bat), so ``logs/`` resolves there."""
+    try:
+        now = datetime.now(_IST)
+        os.makedirs("logs", exist_ok=True)
+        path = os.path.join("logs", f"sea_entrywatch_{instrument}_{now.date().isoformat()}.log")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{now.isoformat(timespec='seconds')}  {note}\n")
+    except Exception:
+        pass
+
 # ─── AI auto-trade wire (optional, off by default) ───────────────
 # SEA_AUTO_TRADE is the master ENABLE gate — set it to any non-empty value to
 # turn auto-trade on; leave it unset and no POST happens. When enabled, every
@@ -1414,6 +1429,7 @@ def run(
                     _s5_note = getattr(sma5_signal_detector, "last_watch_note", None)
                     if _s5_note and _live_cohorts["sma5"]:
                         print(f"  [sma5 entry-watch] {instrument.upper()} {_s5_note}", flush=True)
+                        _append_entrywatch_log(instrument, f"{instrument.upper()} {_s5_note}")
                     # Keep the detector FED even when toggled off (SMA stays
                     # current); just suppress the emit while off.
                     if not _live_cohorts["sma5"]:
