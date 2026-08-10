@@ -41,6 +41,17 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   ITM strike / sell-side variant / wait for more data) — see spec §12.
 Full spec + result: [docs/systems/11_sma_model.md](systems/11_sma_model.md).
 
+### T155 [SEA] — MCX engines (crudeoil, naturalgas) run sma5 cohort ONLY — WIRED 2026-08-10 🚧
+Partha mandate: MCX SEA emits sma5 signals only. New `--only-cohorts` engine
+flag pins all other cohorts OFF per-process (global toggles can't re-enable —
+guards the T91 global-cohort-control gap). start-all + launcher pass
+`--only-cohorts sma5` for both MCX instruments; auto-starts from 2026-08-11.
+Stopgap MCX models trained ONLY to satisfy SEA boot (crude 24 / natgas 9
+feature days) — their scalp/trend heads are pinned off, never consulted.
+- ⚠ MCX charge rates still NSE-approximate (CTT etc. pending) — paper P&L
+  for MCX options reads slightly optimistic until fixed.
+- Verify tomorrow: both MCX SEA windows boot + emit sma5 on their sessions.
+
 ### T152 [Signal Engine] — SMA-5 price-cross cohort (`sma5`) BUILT 2026-08-05 🚧 (paper-validate)
 New cohort mirroring MA-Signal but on a **5-period SMA of the underlying close**:
 CALL when a 1-min candle **closes above** the line, PUT when it **closes below**;
