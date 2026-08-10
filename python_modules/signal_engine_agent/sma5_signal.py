@@ -63,6 +63,11 @@ class Sma5SignalDetector:
         self._entered = False              # LONG already emitted for the current side?
         self._entry_watch_left = 0         # continuation candles still needed (0 = none pending)
         self._entry_ref_close = 0.0        # the prior candle's close the next must beat
+        # One-line audit note describing the LAST entry-watch transition (armed /
+        # confirming N/M / entered / cancelled), or None. Set on a candle close,
+        # cleared every tick — the engine prints it (with instrument) so the wait
+        # is visible in the SEA output. Diagnostic only; never affects decisions.
+        self.last_watch_note: str | None = None
         # Live-tunable (the engine may overwrite these from the control channel).
         self.confirm_candles = max(1, int(getattr(cfg, "confirm_candles", 1) or 1))
         # Deadband (% of the line) the close must clear to flip; 0 = exact cross.
@@ -73,6 +78,7 @@ class Sma5SignalDetector:
         self._o = self._h = self._l = self._c = spot
 
     def on_tick(self, ts: float, spot: float) -> list[str]:
+        self.last_watch_note = None        # only a candle-close transition sets it
         if not (math.isfinite(ts) and math.isfinite(spot)):
             return []
         minute = int(ts // 60)
@@ -155,9 +161,13 @@ class Sma5SignalDetector:
                 self._entered = False
                 self._entry_watch_left = self.entry_watch
                 self._entry_ref_close = value
+                side = "CE" if target == "ABOVE" else "PE"
                 if self._entry_watch_left <= 0:
                     events.append("LONG_CE" if target == "ABOVE" else "LONG_PE")
                     self._entered = True
+                else:
+                    # Cross confirmed, but hold entry until the watch is satisfied.
+                    self.last_watch_note = f"{side} armed — waiting {self.entry_watch} candle(s) to confirm"
                 return events
         else:
             # Holding the current side → any pending reversal is void.
@@ -170,13 +180,19 @@ class Sma5SignalDetector:
         # a fresh cross re-arms.
         if self._state != "FLAT" and not self._entered and self._entry_watch_left > 0:
             cont = value > self._entry_ref_close if self._state == "ABOVE" else value < self._entry_ref_close
+            side = "CE" if self._state == "ABOVE" else "PE"
             if cont:
                 self._entry_ref_close = value
                 self._entry_watch_left -= 1
+                done = self.entry_watch - self._entry_watch_left
                 if self._entry_watch_left <= 0:
                     events.append("LONG_CE" if self._state == "ABOVE" else "LONG_PE")
                     self._entered = True
+                    self.last_watch_note = f"{side} entered — {done}/{self.entry_watch} candles confirmed"
+                else:
+                    self.last_watch_note = f"{side} confirming {done}/{self.entry_watch}"
             else:
                 self._entry_watch_left = 0   # run broke → wait for a fresh cross
+                self.last_watch_note = f"{side} cancelled — candle closed against the move"
 
         return events

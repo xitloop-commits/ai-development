@@ -1407,6 +1407,13 @@ def run(
                         sma5_signal_detector.on_tick(_s5_ts, _s5_spot)
                         if _s5_ts is not None and _s5_spot is not None else []
                     )
+                    # Entry-watch audit: print the detector's one-line transition
+                    # note (armed / confirming N/M / entered / cancelled) so the
+                    # deferred entry is visible in the SEA output. Only when the
+                    # cohort is live, and only on the candle-close tick that set it.
+                    _s5_note = getattr(sma5_signal_detector, "last_watch_note", None)
+                    if _s5_note and _live_cohorts["sma5"]:
+                        print(f"  [sma5 entry-watch] {instrument.upper()} {_s5_note}", flush=True)
                     # Keep the detector FED even when toggled off (SMA stays
                     # current); just suppress the emit while off.
                     if not _live_cohorts["sma5"]:

@@ -120,3 +120,35 @@ def test_entry_watch_2_needs_two_rising_closes():
 def test_entry_watch_put_side_needs_lower_closes():
     """Symmetric for PE: after crossing below, the next candle must close LOWER."""
     assert _run(_det(use_ha=False, period=3, entry_watch=1), [1000, 990, 980, 970]) == ["LONG_PE"]
+
+
+def _run_notes(det, closes):
+    """Like _run but collects the entry-watch audit note from each candle close."""
+    notes = []
+    for m, c in enumerate(closes):
+        det.on_tick(m * 60 + 0.0, c)
+        if det.last_watch_note:
+            notes.append(det.last_watch_note)
+        det.on_tick(m * 60 + 40.0, c)
+    det.on_tick(len(closes) * 60 + 0.0, closes[-1])
+    if det.last_watch_note:
+        notes.append(det.last_watch_note)
+    return notes
+
+
+def test_entry_watch_audit_note_traces_arm_confirm_enter():
+    notes = _run_notes(_det(use_ha=False, period=3, entry_watch=2), [1000, 1010, 1020, 1030, 1040])
+    assert "armed" in notes[0]
+    assert "confirming 1/2" in notes[1]
+    assert "entered" in notes[2] and "2/2" in notes[2]
+
+
+def test_entry_watch_audit_note_traces_cancellation():
+    notes = _run_notes(_det(use_ha=False, period=3, entry_watch=1), [1000, 1010, 1020, 1018])
+    assert "armed" in notes[0]
+    assert "cancelled" in notes[-1]
+
+
+def test_entry_watch_0_sets_no_audit_note():
+    """When disabled, the immediate entry leaves no watch note (no log noise)."""
+    assert _run_notes(_det(use_ha=False, period=3, entry_watch=0), [1000, 1010, 1020, 1030]) == []
