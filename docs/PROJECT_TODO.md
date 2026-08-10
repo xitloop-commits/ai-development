@@ -27,6 +27,11 @@ recorded ATM weekly option bid/ask; 1 trade, 1 lot.
   Start: `py -m python_modules.sma_model.live_runner --go` (dry-run without
   --go). Log: `data/sma_model_dataset/live_<date>.log`. NOT in launcher yet —
   manual start per session.
+- **First-class cohort 2026-08-10:** `sma_model` registered end-to-end — AI-menu
+  toggle (SMA-Model, default ON for paper AI; T128-gated so the toggle really
+  blocks placement), ladder strategy row, teal pill/label, and the runner posts
+  ENTER/EXIT to the signal tray (correlationId links signal ↔ trade).
+  Pending: launcher auto-start entry for the runner (manual for now).
 - 2026-08-05 raw option gz corrupt — day skipped (repair candidate).
 - **Next: Partha picks a v2 lever** (pullback entry / leg-size selectivity /
   ITM strike / sell-side variant / wait for more data) — see spec §12.
