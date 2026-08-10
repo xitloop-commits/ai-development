@@ -456,7 +456,12 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
       return { stop, exit: false, target: esTarget, phase: "wide",
         stopActive: false, targetActive: c.esMtpEnabled };
     }
-    const esExit = stopBreached(i, effStop);
+    // Candle-based TSL exits ONLY on a confirmed 1-min candle close beyond the
+    // level — the tick engine owns that. So when the CANDLE trail is the binding
+    // stop, suppress the intra-candle breach here (the marker still shows). The
+    // safety SL (trailing=false) keeps its immediate tick-breach exit.
+    const candleTrailBinding = c.esTslMode === "candles" && trailing;
+    const esExit = candleTrailBinding ? false : stopBreached(i, effStop);
     const esFill = esExit ? (favour(i, i.ltp) < favour(i, effStop) ? i.ltp : effStop) : undefined;
     // phase "trailing" → reported as TSL_HIT; "wide" → SL_HIT (see tickHandler).
     return { stop: effStop, exit: esExit, exitPrice: esFill, target: esTarget,

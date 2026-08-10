@@ -478,14 +478,22 @@ describe("LADDER — ES honour: only the safety SL + MTP cap exit", () => {
   // The tick engine supplies the (already ratcheted) HA open/close of the candle
   // X bars back as `dynTslLevel`; ladderDecide just treats it as the trail level.
   const cnd = { ...es, esMtpEnabled: false, esTslMode: "candles" as const };
-  it("candles mode: exits when price falls to the supplied candle level", () => {
+  it("candles mode: does NOT exit intra-candle even when price dips below the level", () => {
+    // The candle trail is close-confirmed (tick engine owns the exit), so a live
+    // dip below the level must NOT exit here — but the marker still shows at it.
     const o = ladderDecide({ ...lbase, ltp: 109, peak: 120, now: at(5), dynTslLevel: 110 }, cnd, noFav);
-    expect(o.exit).toBe(true);
-    expect(o.phase).toBe("trailing"); // → reported as TSL_HIT
+    expect(o.exit).toBe(false);        // suppressed — no intra-candle trail exit
+    expect(o.phase).toBe("trailing");  // marker still drawn as the trailing stop
     expect(o.stop).toBeCloseTo(110, 5);
   });
   it("candles mode: holds while price stays above the candle level", () => {
     expect(ladderDecide({ ...lbase, ltp: 115, peak: 120, now: at(5), dynTslLevel: 110 }, cnd, noFav).exit).toBe(false);
+  });
+  it("candles mode: the safety SL still exits intra-candle (only the trail is close-only)", () => {
+    // Level below entry (not locked) → safety SL binds and fires live as normal.
+    const o = ladderDecide({ ...lbase, ltp: 98, peak: 100, now: at(5), dynTslLevel: 95 }, cnd, noFav);
+    expect(o.exit).toBe(true);
+    expect(o.phase).toBe("wide"); // safety SL, immediate
   });
   it("candles mode: a level below entry does NOT bind (not yet locked profit)", () => {
     // Safety SL off to isolate the candle trail; level 95 is below entry 100.

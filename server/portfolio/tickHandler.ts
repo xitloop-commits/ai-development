@@ -244,9 +244,10 @@ class TickHandler extends EventEmitter {
     isBuy: boolean,
     xBack: number,
     src: "open" | "close",
-  ): number | null {
-    if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return this.dynTslState.get(tradeId)?.stop ?? null;
-    let st = this.dynTslState.get(tradeId);
+  ): { level: number | null; closedBelow: boolean } {
+    const cur = this.dynTslState.get(tradeId);
+    if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
+    let st = cur;
     if (!st) {
       st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null };
       this.dynTslState.set(tradeId, st);
@@ -255,19 +256,24 @@ class TickHandler extends EventEmitter {
     if (st.minute === null) {
       st.minute = minute;
       st.o = st.h = st.l = st.c = ltp;
-      return st.stop;
+      return { level: st.stop, closedBelow: false };
     }
     if (minute === st.minute) {
       st.c = ltp;
       if (ltp > st.h) st.h = ltp;
       if (ltp < st.l) st.l = ltp;
-      return st.stop;
+      return { level: st.stop, closedBelow: false }; // intra-candle: level frozen, never a close-breach
     }
     // A new minute began → the current candle just CLOSED. Finalise its HA values.
     const haClose = (st.o + st.h + st.l + st.c) / 4;
     const haOpen = st.haOpenPrev === null ? (st.o + st.c) / 2 : (st.haOpenPrev + (st.haClosePrev as number)) / 2;
     st.haOpenPrev = haOpen;
     st.haClosePrev = haClose;
+    // Close-confirmed breach: did THIS candle close beyond the level that was live
+    // DURING it (i.e. before this candle ratchets it)? Intra-candle wicks are
+    // ignored — only the close counts. `closedBelow` is a one-tick pulse.
+    const levelDuringCandle = st.stop;
+    const closedBelow = levelDuringCandle !== null && (isBuy ? haClose < levelDuringCandle : haClose > levelDuringCandle);
     st.completed.push({ open: haOpen, close: haClose });
     // Keep only what the lookback needs (plus a little slack).
     const keep = Math.max(1, xBack) + 2;
@@ -283,7 +289,7 @@ class TickHandler extends EventEmitter {
     // Start the next candle.
     st.minute = minute;
     st.o = st.h = st.l = st.c = ltp;
-    return st.stop;
+    return { level: st.stop, closedBelow };
   }
 
   /** Drop the per-channel state cache. Pass a channel to drop just that one — used
@@ -895,14 +901,22 @@ class TickHandler extends EventEmitter {
           // Dynamic candle-based honour-exit TSL: build the option-premium HA
           // candles from ticks and hand ladderDecide the ratcheted trailing level.
           // Only when that mode is active — otherwise no candle state is kept.
-          const dynTsl =
+          const dyn =
             lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
               && !trade.entryPending && trade.entryPrice > 0
               ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc)
-              : undefined;
+              : null;
+          const dynTsl = dyn?.level ?? undefined;
           // Surface the raw candle level to the UI so the TradeBar can draw it as
           // a faint TSL line climbing toward entry before it becomes the live stop.
-          trade.dynTslLevel = dynTsl ?? null;
+          trade.dynTslLevel = dyn?.level ?? null;
+          // Candle-close TSL exit: fire ONLY when a completed 1-min candle CLOSED
+          // beyond the level, and only once it has locked profit (level past entry
+          // — below that the safety SL governs). Intra-candle touches never exit;
+          // ladderDecide is told to suppress the trail's tick-breach for this.
+          const dynLevelLocked = dyn?.level != null
+            && (isBuy ? dyn.level > trade.entryPrice : dyn.level < trade.entryPrice);
+          const candleTslExit = !!dyn?.closedBelow && dynLevelLocked;
           const out = ladderDecide(
             {
               entry: trade.entryPrice,
@@ -913,7 +927,7 @@ class TickHandler extends EventEmitter {
               openedAt: trade.openedAt,
               now: Date.now(),
               qty: trade.qty, // for the ES-honour gross-₹ safety SL
-              dynTslLevel: dynTsl ?? undefined,
+              dynTslLevel: dynTsl,
             },
             lcfg,
             {
@@ -952,6 +966,16 @@ class TickHandler extends EventEmitter {
             }
           }
           anyUpdated = true;
+          // Candle-close TSL exit — a 1-min candle closed beyond the locked trail.
+          // ladderDecide suppresses the trail's intra-candle breach in candles
+          // mode, so this owns the trailing exit; the safety SL still exits live.
+          if (candleTslExit && !mTSL) {
+            this.ladderFavSince.delete(trade.id);
+            this.dynTslState.delete(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
+            tradesToExit.push({ trade, reason: "TSL_HIT", exitPrice: tick.ltp });
+            continue;
+          }
           // Net-₹ MTP exit — bank when live net P&L crosses the ₹ target.
           if (netMtp && !mTP && netPnlAtPrice(trade, tick.ltp, chargeRates) >= lcfg.esMtpValue) {
             this.ladderFavSince.delete(trade.id);
