@@ -171,6 +171,19 @@ const ENTRY_FILL_TIMEOUT_MS = 15_000;
 // re-detected and re-emitted (a normal close finishes in ms).
 const EXIT_RETRY_MS = 30_000;
 
+/** Per-trade state for the dynamic candle-based honour-exit TSL. Aggregates the
+ *  option-premium ticks into 1-min candles, computes each candle's Heikin-Ashi
+ *  open/close (same recursion as sma5_signal.py so it matches the HA chart), and
+ *  keeps a rolling buffer of completed HA candles plus the ratcheted stop. */
+interface DynTslCandleState {
+  minute: number | null;          // current 1-min bucket (epoch seconds // 60)
+  o: number; h: number; l: number; c: number; // in-progress raw OHLC
+  haOpenPrev: number | null;      // prior HA open  (recursive)
+  haClosePrev: number | null;     // prior HA close (recursive)
+  completed: Array<{ open: number; close: number }>; // completed HA candles (rolling)
+  stop: number | null;            // ratcheted trailing level (never loosens)
+}
+
 class TickHandler extends EventEmitter {
   private running = false;
   /** Latest tick per instrument key, drained each processing pass. */
@@ -197,6 +210,10 @@ class TickHandler extends EventEmitter {
    *  favour and has since stayed there (cleared the moment it drops back to
    *  at-or-against entry). ladderDecide arms the TSL after tslArmSec of it. */
   private ladderFavSince = new Map<string, number>();
+  /** Dynamic candle-based TSL state per trade (ladder honour-exit, "candles"
+   *  mode). Builds the option-premium 1-min Heikin-Ashi candles from ticks and
+   *  keeps the ratcheted-up trailing level. Key = tradeId. */
+  private dynTslState = new Map<string, DynTslCandleState>();
   /** Zone-timer clock: tradeId → ms epoch of the last tick, used to accumulate
    *  msBelowEntry / msAboveEntry (time underwater vs in profit) per trade. */
   private zoneLastTickAt = new Map<string, number>();
@@ -209,6 +226,64 @@ class TickHandler extends EventEmitter {
   constructor() {
     super();
     this.setMaxListeners(50);
+  }
+
+  /** Dynamic candle-based honour-exit TSL. Feed each option-premium tick; on a
+   *  1-min candle close it finalises the HA candle, then sets the trailing stop
+   *  to the HA open/close of the candle `xBack` bars ago, ratcheting UP only (a
+   *  premium-long option: CE and PE both profit as the premium rises, so the stop
+   *  always sits below price and never loosens). Returns the current level, or
+   *  null during warmup (fewer than `xBack` completed candles). Pure per-trade
+   *  state — no exit decision here; ladderDecide reads the level via dynTslLevel.
+   *
+   *  HA recursion mirrors sma5_signal.py exactly, so the levels match the HA chart. */
+  private dynTslLevel(
+    tradeId: string,
+    lttSec: number,
+    ltp: number,
+    isBuy: boolean,
+    xBack: number,
+    src: "open" | "close",
+  ): number | null {
+    if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return this.dynTslState.get(tradeId)?.stop ?? null;
+    let st = this.dynTslState.get(tradeId);
+    if (!st) {
+      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null };
+      this.dynTslState.set(tradeId, st);
+    }
+    const minute = Math.floor(lttSec / 60);
+    if (st.minute === null) {
+      st.minute = minute;
+      st.o = st.h = st.l = st.c = ltp;
+      return st.stop;
+    }
+    if (minute === st.minute) {
+      st.c = ltp;
+      if (ltp > st.h) st.h = ltp;
+      if (ltp < st.l) st.l = ltp;
+      return st.stop;
+    }
+    // A new minute began → the current candle just CLOSED. Finalise its HA values.
+    const haClose = (st.o + st.h + st.l + st.c) / 4;
+    const haOpen = st.haOpenPrev === null ? (st.o + st.c) / 2 : (st.haOpenPrev + (st.haClosePrev as number)) / 2;
+    st.haOpenPrev = haOpen;
+    st.haClosePrev = haClose;
+    st.completed.push({ open: haOpen, close: haClose });
+    // Keep only what the lookback needs (plus a little slack).
+    const keep = Math.max(1, xBack) + 2;
+    if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
+    // Candidate = the chosen HA value of the candle `xBack` bars back (1 = the
+    // candle that just closed). Ratchet UP only — a lower candle never loosens it.
+    const idx = st.completed.length - Math.max(1, xBack);
+    if (idx >= 0) {
+      const candidate = src === "open" ? st.completed[idx].open : st.completed[idx].close;
+      if (st.stop === null) st.stop = candidate;
+      else st.stop = isBuy ? Math.max(st.stop, candidate) : Math.min(st.stop, candidate);
+    }
+    // Start the next candle.
+    st.minute = minute;
+    st.o = st.h = st.l = st.c = ltp;
+    return st.stop;
   }
 
   /** Drop the per-channel state cache. Pass a channel to drop just that one — used
@@ -388,6 +463,14 @@ class TickHandler extends EventEmitter {
       const openIds = new Set(openTrades.map((t) => t.id));
       this.exitingTrades.forEach((_ts, id) => {
         if (!openIds.has(id)) this.exitingTrades.delete(id);
+      });
+    }
+    // Same for the dynamic-TSL candle state — drop any trade no longer open so
+    // its per-trade candle buffer can't leak across the day (any close route).
+    if (this.dynTslState.size > 0) {
+      const openIds = new Set(openTrades.map((t) => t.id));
+      this.dynTslState.forEach((_st, id) => {
+        if (!openIds.has(id)) this.dynTslState.delete(id);
       });
     }
 
@@ -809,6 +892,14 @@ class TickHandler extends EventEmitter {
           // the ₹ mode (only %); this owns it.
           const netMtp = lcfg.esHonour && lcfg.esMtpEnabled && lcfg.esMtpMode === "rupees"
             && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0;
+          // Dynamic candle-based honour-exit TSL: build the option-premium HA
+          // candles from ticks and hand ladderDecide the ratcheted trailing level.
+          // Only when that mode is active — otherwise no candle state is kept.
+          const dynTsl =
+            lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
+              && !trade.entryPending && trade.entryPrice > 0
+              ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc)
+              : undefined;
           const out = ladderDecide(
             {
               entry: trade.entryPrice,
@@ -819,6 +910,7 @@ class TickHandler extends EventEmitter {
               openedAt: trade.openedAt,
               now: Date.now(),
               qty: trade.qty, // for the ES-honour gross-₹ safety SL
+              dynTslLevel: dynTsl ?? undefined,
             },
             lcfg,
             {
@@ -860,6 +952,7 @@ class TickHandler extends EventEmitter {
           // Net-₹ MTP exit — bank when live net P&L crosses the ₹ target.
           if (netMtp && !mTP && netPnlAtPrice(trade, tick.ltp, chargeRates) >= lcfg.esMtpValue) {
             this.ladderFavSince.delete(trade.id);
+            this.dynTslState.delete(trade.id);
             this.exitingTrades.set(trade.id, Date.now());
             tradesToExit.push({ trade, reason: "TP_HIT", exitPrice: tick.ltp });
             continue;
@@ -874,6 +967,7 @@ class TickHandler extends EventEmitter {
               (mSL && reason === "SL_HIT") || (mTSL && reason === "TSL_HIT") || (mTP && reason === "TP_HIT");
             if (!ownedByMaster) {
               this.ladderFavSince.delete(trade.id);
+              this.dynTslState.delete(trade.id);
               this.exitingTrades.set(trade.id, Date.now());
               tradesToExit.push({ trade, reason, exitPrice: out.exitPrice ?? tick.ltp });
             }

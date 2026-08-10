@@ -91,6 +91,11 @@ export interface ExitInput {
   /** Position size — used only to convert a gross-₹ safety SL into a premium
    *  distance (Ladder ES-honour, rupees mode). */
   qty?: number;
+  /** Dynamic candle-based TSL level (premium). The tick engine builds the
+   *  option-premium 1-min Heikin-Ashi candles and passes the (already
+   *  ratcheted-up) open/close of the candle X bars back. Used ONLY by the
+   *  honour-exit TSL in "candles" mode; undefined during warmup (no exit then). */
+  dynTslLevel?: number;
 }
 
 export type ExitPhase = "cooling" | "wide" | "breakeven" | "trailing" | "target-bank";
@@ -271,12 +276,16 @@ export interface LadderConfig {
   esMtpValue: number; // NET ₹ P&L after charges (rupees mode) — the tick engine owns it
   // ES-honour trailing stop — trails behind the peak; exits when the trade gives
   // back this much from its high (once the trail has locked profit above entry).
-  // Its OWN on/off + %/₹ basis. "percent" = % below the peak; "rupees" = a gross
-  // ₹ giveback (converted to a premium distance via qty).
+  // Its OWN on/off + basis. "percent" = % below the peak; "rupees" = a gross ₹
+  // giveback (via qty); "candles" = a DYNAMIC stop pinned to the option premium's
+  // 1-min Heikin-Ashi candles — the open/close (esTslCandleSrc) of the candle
+  // esTslCandles bars back, ratcheting up only (the tick engine builds these).
   esTslEnabled: boolean;
-  esTslMode: "percent" | "rupees";
+  esTslMode: "percent" | "rupees" | "candles";
   esTslPct: number;   // % below the peak (percent mode)
   esTslValue: number; // gross ₹ giveback (rupees mode)
+  esTslCandles: number; // candles-mode: X bars back (1 = the most recent completed candle)
+  esTslCandleSrc: "open" | "close"; // candles-mode: which HA value of that candle
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -311,6 +320,8 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   esTslMode: "percent",
   esTslPct: 2.5,
   esTslValue: 2500,
+  esTslCandles: 2,
+  esTslCandleSrc: "close",
 };
 
 export interface LadderState {
@@ -418,15 +429,24 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
           : i.entry * (1 - d * (c.esSlPct / 100));
     }
     if (c.esTslEnabled) {
-      // Trailing stop — a giveback from the peak (% of the peak, or a gross ₹
-      // amount via qty). Only binds once it has LOCKED profit (sits in favour
-      // beyond entry); below that the safety SL governs the downside.
-      const giveback =
-        c.esTslMode === "rupees" && i.qty && i.qty > 0
-          ? c.esTslValue / i.qty
-          : i.peak * (c.esTslPct / 100);
-      const trail = i.peak - d * giveback;
-      if (favour(i, trail) > 0 && (effStop == null || favour(i, trail) > favour(i, effStop))) {
+      // The trailing level:
+      //   • "candles" = a DYNAMIC stop the tick engine supplies (i.dynTslLevel):
+      //     the HA open/close of the candle X bars back, already ratcheted up. It
+      //     may be absent during warmup — then there's no trail this tick.
+      //   • otherwise a giveback from the peak (% of the peak, or a gross ₹ via qty).
+      // Either way it only BINDS once it has LOCKED profit (sits in favour beyond
+      // entry); below that the safety SL governs the downside.
+      let trail: number | null;
+      if (c.esTslMode === "candles") {
+        trail = i.dynTslLevel ?? null;
+      } else {
+        const giveback =
+          c.esTslMode === "rupees" && i.qty && i.qty > 0
+            ? c.esTslValue / i.qty
+            : i.peak * (c.esTslPct / 100);
+        trail = i.peak - d * giveback;
+      }
+      if (trail != null && favour(i, trail) > 0 && (effStop == null || favour(i, trail) > favour(i, effStop))) {
         effStop = trail;
         trailing = true;
       }

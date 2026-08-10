@@ -57,7 +57,8 @@ interface LadderCfg {
   mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
   esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
   esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
-  esTslEnabled: boolean; esTslMode: "percent" | "rupees"; esTslPct: number; esTslValue: number;
+  esTslEnabled: boolean; esTslMode: "percent" | "rupees" | "candles"; esTslPct: number; esTslValue: number;
+  esTslCandles: number; esTslCandleSrc: "open" | "close";
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -434,7 +435,7 @@ const HELP = {
   ladderEsMtp:
     "Take-profit cap kept while riding to the exit signal (ES-honour ON) â€” bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis â‚¹: a NET â‚¹ P&L target AFTER round-trip charges â€” the trade banks when its actual net profit reaches â‚¹X (charge-aware, evaluated live). Its own toggle, separate from the SL's.",
   ladderEsTsl:
-    "Trailing stop kept while riding to the exit signal (ES-honour ON) â€” trails behind the peak and exits when the trade gives back this much from its high, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis â‚¹: a gross rupee giveback (via position size). Its own toggle.",
+    "Trailing stop kept while riding to the exit signal (ES-honour ON) â€” exits when the trade gives back to the trailing level, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis â‚¹: a gross rupee giveback (via position size). Basis ðŸ•¯ (candles): a DYNAMIC stop pinned to the option premium's 1-min Heikin-Ashi candles â€” set it to the OPEN or CLOSE of the candle X bars back (1 = the last completed candle); it ratchets up only, never loosens. Uses HA candles to match the chart. Its own toggle.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -887,15 +888,54 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                           value={ed.ladder.esMtpMode === "percent" ? ed.ladder.esMtpPct : ed.ladder.esMtpValue}
                           onValue={(v) => editExits((x) => { if (x.ladder.esMtpMode === "percent") x.ladder.esMtpPct = v; else x.ladder.esMtpValue = v; })}
                         />
-                        <CapRow
-                          label="Trailing SL" help={HELP.ladderEsTsl}
-                          enabled={ed.ladder.esTslEnabled}
-                          onToggle={() => editExits((x) => { x.ladder.esTslEnabled = !x.ladder.esTslEnabled; })}
-                          mode={ed.ladder.esTslMode}
-                          onMode={() => editExits((x) => { x.ladder.esTslMode = x.ladder.esTslMode === "percent" ? "rupees" : "percent"; })}
-                          value={ed.ladder.esTslMode === "percent" ? ed.ladder.esTslPct : ed.ladder.esTslValue}
-                          onValue={(v) => editExits((x) => { if (x.ladder.esTslMode === "percent") x.ladder.esTslPct = v; else x.ladder.esTslValue = v; })}
-                        />
+                        <Row label="Trailing SL" help={HELP.ladderEsTsl}>
+                          <div className="flex items-center gap-1">
+                            <Pill label={ed.ladder.esTslEnabled ? "ON" : "OFF"} on={ed.ladder.esTslEnabled}
+                              onClick={() => editExits((x) => { x.ladder.esTslEnabled = !x.ladder.esTslEnabled; })} />
+                            {/* Basis cycles % → ₹ → Candles (dynamic HA-candle stop). */}
+                            <button
+                              type="button" disabled={!ed.ladder.esTslEnabled}
+                              onClick={() => editExits((x) => {
+                                x.ladder.esTslMode = x.ladder.esTslMode === "percent" ? "rupees"
+                                  : x.ladder.esTslMode === "rupees" ? "candles" : "percent";
+                              })}
+                              title="Switch % / ₹ / candle-based (dynamic)"
+                              className="min-w-[1.5rem] px-1 rounded border border-border bg-muted/30 py-0.5 text-[0.6875rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
+                            >
+                              {ed.ladder.esTslMode === "rupees" ? "₹" : ed.ladder.esTslMode === "candles" ? "🕯" : "%"}
+                            </button>
+                            {ed.ladder.esTslMode === "candles" ? (
+                              <>
+                                {/* X candles back + which HA value (open/close) of that candle. */}
+                                <input
+                                  type="number" disabled={!ed.ladder.esTslEnabled}
+                                  step={1} min={1} max={20} value={ed.ladder.esTslCandles}
+                                  title="Candles back (1 = the last completed candle)"
+                                  onChange={(e) => editExits((x) => { x.ladder.esTslCandles = e.target.value === "" ? 1 : Math.round(Number(e.target.value)); })}
+                                  className="w-12 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
+                                />
+                                <button
+                                  type="button" disabled={!ed.ladder.esTslEnabled}
+                                  onClick={() => editExits((x) => { x.ladder.esTslCandleSrc = x.ladder.esTslCandleSrc === "close" ? "open" : "close"; })}
+                                  title="Use the HA candle's open or close"
+                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
+                                >
+                                  {ed.ladder.esTslCandleSrc === "open" ? "OPEN" : "CLOSE"}
+                                </button>
+                              </>
+                            ) : (
+                              <input
+                                type="number" disabled={!ed.ladder.esTslEnabled}
+                                step={ed.ladder.esTslMode === "rupees" ? 100 : 0.5}
+                                min={ed.ladder.esTslMode === "rupees" ? 50 : 0.1}
+                                max={ed.ladder.esTslMode === "rupees" ? 1000000 : 500}
+                                value={ed.ladder.esTslMode === "percent" ? ed.ladder.esTslPct : ed.ladder.esTslValue}
+                                onChange={(e) => editExits((x) => { const v = e.target.value === "" ? 0 : Number(e.target.value); if (x.ladder.esTslMode === "percent") x.ladder.esTslPct = v; else x.ladder.esTslValue = v; })}
+                                className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
+                              />
+                            )}
+                          </div>
+                        </Row>
                       </>
                     ) : (
                       <>
