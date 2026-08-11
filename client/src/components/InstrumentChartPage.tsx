@@ -403,8 +403,13 @@ function TradePane({
   );
 }
 
-export default function InstrumentChartPage() {
-  const inst = useMemo(chartInstrumentFromUrl, []);
+export default function InstrumentChartPage({ instOverride, singlePane }: {
+  /** Test-chart embed (2026-08-11): instrument from the host page's dropdown
+   *  instead of the URL, and the layout pinned to the single underlying pane. */
+  instOverride?: string;
+  singlePane?: boolean;
+} = {}) {
+  const inst = useMemo(() => instOverride ?? chartInstrumentFromUrl(), [instOverride]);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
   const { theme } = useTheme();
 
@@ -430,7 +435,7 @@ export default function InstrumentChartPage() {
   }, [fullscreenPane]);
 
   // ── Grid layout (T88) — chosen from the top-bar menu, persisted per instrument.
-  const [layoutId, setLayoutId] = useState<string>(() => loadGridLayout(inst));
+  const [layoutId, setLayoutId] = useState<string>(() => (singlePane ? "1" : loadGridLayout(inst)));
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   // Focus-layout thumbnails are OFF by default — turned on from the top-bar
   // toggle. Each can also be dismissed with its ✕. Layout switch resets to off.

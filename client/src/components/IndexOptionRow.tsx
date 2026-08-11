@@ -161,7 +161,22 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
         <div className="flex items-center gap-2 px-2.5 pt-1.5">
           <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color }} />
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <span className="text-xs font-bold truncate" style={{ color }}>{label}</span>
+            <span
+              className="text-xs font-bold truncate cursor-pointer hover:underline"
+              style={{ color }}
+              title="Open the test chart (single-pane underlying) for this instrument"
+              onClick={() => {
+                const w = Math.round((window.screen.availWidth || 1280) * 0.85);
+                const h = Math.round((window.screen.availHeight || 800) * 0.9);
+                window.open(
+                  `${window.location.origin}/?view=testchart&inst=${encodeURIComponent(name)}`,
+                  'lubas-testchart',
+                  `popup=yes,width=${w},height=${h},left=60,top=0`,
+                );
+              }}
+            >
+              {label}
+            </span>
             {daysToExp != null && (
               <span
                 className={`shrink-0 rounded px-1 py-px text-[0.5rem] font-bold tabular-nums ${
