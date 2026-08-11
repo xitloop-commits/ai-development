@@ -33,7 +33,6 @@ import {
 } from '@/lib/tradeTypes';
 // The AI/My workspace tabs (ChannelTabs) were removed in T87 — one desk always;
 // the app bar keeps only the My Paper/Live mode tabs (ChannelModeToggle).
-import { instrumentChartUrl, NSE_CHART_INSTRUMENTS, MCX_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
 import { toast } from 'sonner';
 
 /**
@@ -48,27 +47,25 @@ import { toast } from 'sonner';
  * first chart. We detect the blocked ones (window.open returns null) and toast a
  * one-time instruction, so it never fails silently.
  */
-function openChartGroup(keys: string[], groupLabel: string) {
-  const w = Math.round((window.screen.availWidth || 1280) / 2);
-  const h = Math.round((window.screen.availHeight || 800) * 0.9);
-  const blocked: string[] = [];
-  keys.forEach((key, i) => {
-    const win = window.open(
-      instrumentChartUrl(key),
-      `lubas-chart-${key}`,
-      `popup=yes,width=${w},height=${h},left=${i * w},top=0`,
-    );
-    if (!win) blocked.push(key.replace('_', ' '));  // null ⇒ blocked by the pop-up blocker
-  });
-  if (blocked.length) {
+function openChartGroup(group: 'NSE' | 'MCX', groupLabel: string) {
+  // ONE window per exchange with the 2×2 ATM grid (2026-08-11) — the old
+  // per-instrument windows remain reachable via instrumentChartUrl elsewhere.
+  const w = Math.round((window.screen.availWidth || 1280) * 0.95);
+  const h = Math.round((window.screen.availHeight || 800) * 0.95);
+  const win = window.open(
+    `${window.location.origin}/?view=multichart&group=${group}`,
+    `lubas-multichart-${group}`,
+    `popup=yes,width=${w},height=${h},left=0,top=0`,
+  );
+  if (!win) {
     toast.error(
-      `Pop-up blocked: ${blocked.join(' + ')} chart didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click ${groupLabel} again.`,
+      `Pop-up blocked: the ${groupLabel} window didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click ${groupLabel} again.`,
       { duration: 9000 },
     );
   }
 }
-const openNseCharts = () => openChartGroup(NSE_CHART_INSTRUMENTS, 'NSE CHART');
-const openMcxCharts = () => openChartGroup(MCX_CHART_INSTRUMENTS, 'MCX CHART');
+const openNseCharts = () => openChartGroup('NSE', 'NSE CHART');
+const openMcxCharts = () => openChartGroup('MCX', 'MCX CHART');
 
 // ── Right-side status cluster (API · FEED · AI · Discipline) ──
 // All four indicators consolidated into a single component so AppBar
@@ -583,14 +580,14 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         <button
           onClick={openNseCharts}
           className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
-          title="Open pop-out charts — NIFTY + BANK (each a separate window; drag to a second monitor)"
+          title="One window, 4 panes — NIFTY (top) + BANK (bottom), ATM call left / put right"
         >
           <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">NSE CHART</span>
         </button>
         <button
           onClick={openMcxCharts}
           className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
-          title="Open pop-out charts — CRUDE OIL + NATURAL GAS (each a separate window; drag to a second monitor)"
+          title="One window, 4 panes — CRUDE OIL (top) + NATURAL GAS (bottom), ATM call left / put right"
         >
           <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">MCX CHART</span>
         </button>

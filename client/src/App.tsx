@@ -15,6 +15,7 @@ const TradingDeskMockupPage = lazy(() => import("./mockups/TradingDeskMockupPage
 const HeadToHeadPage = lazy(() => import("./pages/HeadToHeadPage"));
 const SignalChartPage = lazy(() => import("./components/SignalChartPage"));
 const InstrumentChartPage = lazy(() => import("./components/InstrumentChartPage"));
+const MultiChartPage = lazy(() => import("./components/MultiChartPage"));
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
@@ -50,11 +51,18 @@ function isInstrumentChartRoute() {
   return params.get("view") === "instchart";
 }
 
+function isMultiChartRoute() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("view") === "multichart";
+}
+
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
   const showHeadToHead = isHeadToHeadRoute();
   const showSignalChart = isSignalChartRoute();
   const showInstrumentChart = isInstrumentChartRoute();
+  const showMultiChart = isMultiChartRoute();
 
   // H6 — in production, if a user lands on a mockup URL, redirect to
   // home instead of silently rendering MainScreen at the wrong URL.
@@ -131,6 +139,10 @@ function App() {
               ) : showInstrumentChart ? (
                 <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading chart…</div>}>
                   <InstrumentChartPage />
+                </Suspense>
+              ) : showMultiChart ? (
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading charts…</div>}>
+                  <MultiChartPage />
                 </Suspense>
               ) : (
                 <CredentialGate>
