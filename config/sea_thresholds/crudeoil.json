@@ -1,7 +1,7 @@
 {
   "prob_min": 0.65,
   "rr_min": 1.5,
-  "upside_percentile_min": 60.0,
+  "upside_percentile_min": 60,
   "gate_mode": "wave1",
   "v2": {
     "momentum_persistence_min": 5,
@@ -17,6 +17,16 @@
     "use_ha": true,
     "sl_pct": 12,
     "confirm_candles": 1,
-    "entry_watch": 0
+    "entry_watch": 0,
+    "entry_gate": true
+  },
+  "ma_signal": {
+    "enabled": true,
+    "ema_period": 20,
+    "slope_lookback": 10,
+    "thr_hi": 0.015,
+    "thr_lo": 0.006,
+    "rev_pct": 0,
+    "sl_pct": 12
   }
 }
