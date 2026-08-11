@@ -46,7 +46,15 @@ Crude/natgas pop-out chart windows enabled. MCX charts plot the future itself
 (no spot index): re-poll recorded disk ticks every 10s while live, no index
 seed-shift. Server chart endpoints were already instrument-generic.
 
-### T161 [EXEC/UI] — session strike lock + per-instrument signal/trade switch 🚧 BUILDING 2026-08-11
+### T161 [EXEC/UI] — session strike lock + per-instrument signal/trade switch ✅ BUILT 2026-08-11 (paper-validate)
+All 8 steps SHIPPED same day (commits 8fe643b→69205f2): config + sanitizers,
+chain-ladder lock service (persisted config/strike_lock_state.json),
+validateTrade contract override + instrument kill switch, signal-ingest
+drop, endpoints, watchlist lock/re-lock + tick toggle, drift toast
+(≥3 strikes → bottom-center OK→relock), panes follow lock.
+**Paper-enabled / live OFF until one clean paper day is reviewed.**
+Verify next session: locks computed at open, ITM entries in paper book,
+drift alert fires on a trend day, tick toggle blocks signals+trades.
 Approved design (Partha): symmetric ITM lock — CE = ATM−N strikes, PE = ATM+N
 (N per instrument, default 2, configurable −1/−2/−3…); computed once after
 open, SAME contract all session, enforced server-side in validateTrade's AI
