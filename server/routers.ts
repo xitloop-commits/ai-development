@@ -80,6 +80,41 @@ export const appRouter = router({
         return { lock };
       }),
 
+    // T162 test chart — strike ladder for an instrument's nearest expiry.
+    chainStrikes: publicProcedure
+      .input(z.object({ instrument: z.string() }))
+      .query(async ({ input }) => {
+        const { resolveNearestExpiry, resolveUnderlyingForExpiry } = await import("./executor/tradeResolution");
+        const { getActiveBroker } = await import("./broker/brokerService");
+        const broker = getActiveBroker();
+        const inst = logFolderFor(input.instrument);
+        const resolved = broker ? await resolveUnderlyingForExpiry(inst) : null;
+        const expiry = resolved ? await resolveNearestExpiry(inst) : null;
+        if (!broker || !resolved || !expiry) return { expiry: null, strikes: [] as number[] };
+        try {
+          const chain = await broker.getOptionChain(resolved.underlying, expiry, resolved.exchangeSegment);
+          const strikes = ((chain?.rows ?? []) as { strike?: number }[])
+            .map((r) => r.strike)
+            .filter((s): s is number => s != null)
+            .sort((a, b) => a - b);
+          return { expiry, strikes };
+        } catch {
+          return { expiry, strikes: [] as number[] };
+        }
+      }),
+
+    // T162 test chart — resolve one strike+side to its contract id.
+    optionContractId: publicProcedure
+      .input(z.object({ instrument: z.string(), strike: z.number(), isCall: z.boolean() }))
+      .query(async ({ input }) => {
+        const { resolveNearestExpiry, resolveContract } = await import("./executor/tradeResolution");
+        const inst = logFolderFor(input.instrument);
+        const expiry = await resolveNearestExpiry(inst);
+        if (!expiry) return { securityId: null, expiry: null, strike: input.strike };
+        const r = await resolveContract(inst, expiry, input.strike, input.isCall);
+        return { securityId: r?.secId ?? null, expiry, strike: r?.strike ?? input.strike };
+      }),
+
     // T161 — watchlist tick icon: per-instrument signals/trades master switch.
     setInstrumentEnabled: publicProcedure
       .input(z.object({ instrument: z.string(), enabled: z.boolean() }))

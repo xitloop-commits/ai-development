@@ -40,6 +40,7 @@ import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
+import { trendRibbon } from "@/lib/trendRibbon";
 
 const REPLAY_STEP_MS = 250;
 
@@ -677,118 +678,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         .reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null),
     [tradeRows],
   );
-  // Test chart (2026-08-11): trend segments from the SMA5 angle logic —
-  // GREEN 0.05% below the SMA5 while its 5-candle angle > +30° (uptrend),
-  // RED 0.05% above while < −30° (downtrend); whitespace gaps elsewhere.
-  // Underlying scale: 0.2%/5c ≈ 45° (same yardstick as the hover readout).
+  // Test chart: SMA5-angle trend ribbon (logic shared in lib/trendRibbon).
   const trendLines = useMemo(() => {
-    if (!singlePane || baseCandles.length < 10) return undefined;
-    // ALWAYS measure on 1-MINUTE buckets — the detector's candle size — no
-    // matter what interval the chart displays. At the 1s view "5 candles"
-    // would otherwise mean 5 seconds and the angle never leaves ~0°.
-    const p = sma5Period || 5;
-    const minuteClose = new Map<number, number>();
-    for (const c of baseCandles) minuteClose.set(Math.floor((c.time as number) / 60), c.close);
-    const mins = Array.from(minuteClose.keys()).sort((a, b) => a - b);
-    const mClose = mins.map((m) => minuteClose.get(m)!);
-    const mSma: (number | null)[] = mClose.map((_, i) => {
-      if (i < p - 1) return null;
-      let s = 0;
-      for (let k = 0; k < p; k++) s += mClose[i - k];
-      return s / p;
-    });
-    // Per-minute 5-minute % moves of the SMA5.
-    const pctOfMin = new Map<number, { pct: number; sma: number }>();
-    const allAbs: number[] = [];
-    mins.forEach((m, i) => {
-      const now = mSma[i];
-      const then = i >= 5 ? mSma[i - 5] : null;
-      if (now == null || then == null || !(then > 0)) return;
-      const pct = ((now - then) / then) * 100;
-      pctOfMin.set(m, { pct, sma: now });
-      allAbs.push(Math.abs(pct));
-    });
-    // TREND painter (2026-08-12 rework): colour by slope DIRECTION whenever
-    // the slope clears the day's own noise floor — NOT only the fastest
-    // bursts (the earlier top-20% rule left long obvious trends gray).
-    // Noise floor = P40 of the day's |5-min moves|, self-calibrating per
-    // instrument: the flattest ~40% of minutes read gray, everything with a
-    // real lean paints green/red like the eye expects.
-    const sortedAbs = [...allAbs].sort((a, b) => a - b);
-    const noise = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.4)] ?? 0.01, 0.002);
-    const p80 = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? noise * 2, noise);
-    const angleOfMin = new Map<number, { deg: number; sma: number; trend: -1 | 0 | 1 }>();
-    pctOfMin.forEach((v, m) => {
-      angleOfMin.set(m, {
-        deg: (Math.atan(v.pct / p80) * 180) / Math.PI, // display scale: P80 = 45°
-        sma: v.sma,
-        trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
-      });
-    });
-    // Transition blips (Partha 2026-08-12): a SHORT gray run (≤3 min) that
-    // leads straight into a red run is the turn already happening — paint it
-    // red so the down-trend starts where the eye says it starts. (History
-    // only; the live edge can't know its next state yet.)
-    {
-      const seq = mins.filter((m) => angleOfMin.has(m));
-      let i2 = 0;
-      while (i2 < seq.length) {
-        let j2 = i2;
-        while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
-        const runTrend = angleOfMin.get(seq[i2])!.trend;
-        const runLen = j2 - i2;
-        // Gray flowing into RED prefills red — ANY length (Partha 2026-08-12).
-        if (runTrend === 0 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
-          for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = -1;
-        }
-        // Mirror: short gray blip flowing into a GREEN run → green.
-        if (runTrend === 0 && runLen <= 3 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === 1) {
-          for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = 1;
-        }
-        i2 = j2;
-      }
-      // GREEN run endings (Partha 2026-08-12): the lagging 5-min slope keeps
-      // the ribbon green a few minutes past the top, "covering a bit of the
-      // downtrend". Trim: walk back from each green run's end while the SMA5
-      // itself is already falling minute-over-minute, and hand those minutes
-      // to the RED run that follows.
-      i2 = 0;
-      while (i2 < seq.length) {
-        let j2 = i2;
-        while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
-        // Any run (green OR gray) flowing into red: walk back while the SMA5
-        // is already declining and hand those minutes to the red run — so the
-        // red ribbon starts where the line actually rolls over, not late.
-        if (angleOfMin.get(seq[i2])!.trend !== -1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
-          let t = j2 - 1;
-          while (t > i2 && angleOfMin.get(seq[t])!.sma < angleOfMin.get(seq[t - 1])!.sma) {
-            angleOfMin.get(seq[t])!.trend = -1;
-            t--;
-          }
-        }
-        // Mirror: green starts pulled to the actual upturn — walk back from a
-        // green run through minutes where the SMA5 was already rising.
-        if (angleOfMin.get(seq[i2])!.trend !== 1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === 1) {
-          let t = j2 - 1;
-          while (t > i2 && angleOfMin.get(seq[t])!.sma > angleOfMin.get(seq[t - 1])!.sma) {
-            angleOfMin.get(seq[t])!.trend = 1;
-            t--;
-          }
-        }
-        i2 = j2;
-      }
-    }
-    // ONE continuous tri-coloured line just under the SMA5: GREEN while the
-    // slope leans up past the noise floor, RED leaning down, GRAY only when
-    // genuinely flat.
-    const line: { time: number; value?: number; color?: string }[] = [];
-    baseCandles.forEach((c) => {
-      const a = angleOfMin.get(Math.floor((c.time as number) / 60));
-      if (!a) { line.push({ time: c.time as number }); return; }
-      const color = a.trend > 0 ? "#1a9850" : a.trend < 0 ? "#d7301f" : "#9CA3AF";
-      line.push({ time: c.time as number, value: a.sma * 0.9995, color });
-    });
-    return [{ data: line as never[], color: "#9CA3AF" }];
+    if (!singlePane) return undefined;
+    return trendRibbon(baseCandles as { time: number; close: number }[], sma5Period) as never;
   }, [singlePane, baseCandles, sma5Period]);
 
   const underlyingEntryLine = useMemo(() => {
