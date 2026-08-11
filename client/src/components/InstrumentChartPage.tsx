@@ -679,32 +679,40 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   // Underlying scale: 0.2%/5c ≈ 45° (same yardstick as the hover readout).
   const trendLines = useMemo(() => {
     if (!singlePane || baseCandles.length < 10) return undefined;
-    const src = (sma5Ha ? baseCandles.map((c) => c) : baseCandles); // HA applied inside TickChart for display; compute on closes here
-    const closes = src.map((c) => c.close);
+    // ALWAYS measure on 1-MINUTE buckets — the detector's candle size — no
+    // matter what interval the chart displays. At the 1s view "5 candles"
+    // would otherwise mean 5 seconds and the angle never leaves ~0°.
     const p = sma5Period || 5;
-    const smaV: (number | null)[] = closes.map((_, i) => {
+    const minuteClose = new Map<number, number>();
+    for (const c of baseCandles) minuteClose.set(Math.floor((c.time as number) / 60), c.close);
+    const mins = Array.from(minuteClose.keys()).sort((a, b) => a - b);
+    const mClose = mins.map((m) => minuteClose.get(m)!);
+    const mSma: (number | null)[] = mClose.map((_, i) => {
       if (i < p - 1) return null;
       let s = 0;
-      for (let k = 0; k < p; k++) s += closes[i - k];
+      for (let k = 0; k < p; k++) s += mClose[i - k];
       return s / p;
+    });
+    const angleOfMin = new Map<number, { deg: number; sma: number }>();
+    mins.forEach((m, i) => {
+      const now = mSma[i];
+      const then = i >= 5 ? mSma[i - 5] : null;
+      if (now == null || then == null || !(then > 0)) return;
+      const deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
+      angleOfMin.set(m, { deg, sma: now });
     });
     const up: { time: number; value?: number }[] = [];
     const down: { time: number; value?: number }[] = [];
-    baseCandles.forEach((c, i) => {
-      const now = smaV[i];
-      const then = i >= 5 ? smaV[i - 5] : null;
-      let deg = 0;
-      if (now != null && then != null && then > 0) {
-        deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
-      }
-      up.push(deg > 30 && now != null ? { time: c.time as number, value: now * 0.9995 } : { time: c.time as number });
-      down.push(deg < -30 && now != null ? { time: c.time as number, value: now * 1.0005 } : { time: c.time as number });
+    baseCandles.forEach((c) => {
+      const a = angleOfMin.get(Math.floor((c.time as number) / 60));
+      up.push(a && a.deg > 30 ? { time: c.time as number, value: a.sma * 0.9995 } : { time: c.time as number });
+      down.push(a && a.deg < -30 ? { time: c.time as number, value: a.sma * 1.0005 } : { time: c.time as number });
     });
     return [
       { data: up as never[], color: "#1a9850" },  // green — uptrend
       { data: down as never[], color: "#d7301f" }, // red — downtrend
     ];
-  }, [singlePane, baseCandles, sma5Ha, sma5Period]);
+  }, [singlePane, baseCandles, sma5Period]);
 
   const underlyingEntryLine = useMemo(() => {
     if (!openTrade || baseCandles.length === 0) return [];
