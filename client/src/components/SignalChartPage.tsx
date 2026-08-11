@@ -50,6 +50,7 @@ import {
 const UP = "#22c55e"; // green — GO_CALL / profit
 const DOWN = "#ef4444"; // red — GO_PUT / loss
 const ENTRY = "#22d3ee"; // cyan — trade entry
+const MUTED = "#64748b"; // slate — off-contract trades (other strike/side) in the all-strikes overlay
 
 type ChartKind = "underlying" | "option";
 
@@ -147,6 +148,7 @@ export default function SignalChartPage() {
       strike: target?.strike ?? 0,
       side: (target?.side ?? "CE") as "CE" | "PE",
       date,
+      allStrikes: true, // overlay every trade on this instrument, not just this contract
     },
     {
       enabled: isOption && !!target?.channel && target?.strike != null,
@@ -198,11 +200,14 @@ export default function SignalChartPage() {
     const times = candles.map((c) => c.time);
     const out: SeriesMarker<UTCTimestamp>[] = [];
     for (const t of trades) {
-      const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
+      // Off-contract trades (other strike/side) are labelled with their side so
+      // they're distinguishable from this contract's own trades, and dimmed.
+      const off = t.onContract === false;
+      const label = t.signalSeq != null ? `#${t.signalSeq}${off ? ` ${t.side}` : ""}` : "";
       out.push({
         time: snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS) as UTCTimestamp,
         position: "belowBar",
-        color: ENTRY,
+        color: off ? MUTED : ENTRY,
         shape: "arrowUp",
         text: label ? `${label} in` : "in",
       });
@@ -210,7 +215,7 @@ export default function SignalChartPage() {
         out.push({
           time: snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS) as UTCTimestamp,
           position: "aboveBar",
-          color: t.pnl >= 0 ? UP : DOWN,
+          color: off ? MUTED : (t.pnl >= 0 ? UP : DOWN),
           shape: "arrowDown",
           text: label ? `${label} out` : "out",
         });
@@ -230,6 +235,7 @@ export default function SignalChartPage() {
     const out: { price: number; color: string; title: string }[] = [];
     for (const t of trades) {
       if (t.status !== "OPEN") continue;
+      if (t.onContract === false) continue; // off-contract premium is a different scale — no price line
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
       if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: ENTRY, title: `${tag}entry` });
       if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: DOWN, title: `${tag}SL` });

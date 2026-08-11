@@ -223,6 +223,11 @@ export interface ChartTrade {
   signalSeq: number | null;
   tradeNo?: number | null;       // day-chronological "#N" — matches the desk row
   side: "CE" | "PE";
+  strike?: number | null;   // the trade's strike — lets an all-strikes overlay label off-contract trades
+  /** True when this trade is on the SAME contract the chart draws (its strike +
+   *  side). Off-contract trades (allStrikes overlay) get a time marker only — no
+   *  SL/TP price line, since their premium is on a different scale. */
+  onContract?: boolean;
   entryTime: number;        // epoch SECONDS (real UTC)
   entryPrice: number;
   exitTime: number | null;  // epoch SECONDS (real UTC), null while OPEN

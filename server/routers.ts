@@ -294,6 +294,10 @@ export const appRouter = router({
           strike: z.number(),
           side: z.enum(["CE", "PE"]),
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          // Include the instrument's OTHER-contract trades too (other strike / side),
+          // tagged onContract:false. The chart marks them by time but skips their
+          // SL/TP price lines (their premium is on a different scale).
+          allStrikes: z.boolean().optional(),
         }),
       )
       .query(async ({ input }) => {
@@ -304,28 +308,36 @@ export const appRouter = router({
         return rows
           .filter(({ trade: t }) => {
             if (logFolderFor(t.instrument) !== wantFolder) return false;
+            if (input.allStrikes) return true; // every trade on this instrument
             if (t.strike !== input.strike) return false;
             const side = t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : null;
             return side === input.side;
           })
-          .map(({ trade: t, cycleNo }) => ({
-            id: t.id ?? null,
-            signalSeq: t.signalSeq ?? null,
-            tradeNo: cycleNo,
-            side: input.side,
-            entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
-            entryPrice: t.entryPrice,
-            exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
-            exitPrice: t.exitPrice,
-            status: t.status,
-            exitReason: t.exitReason,
-            pnl: t.pnl,
-            cohort: t.cohort ?? null,
-            exitStrategy: t.exitStrategy ?? null,
-            // Current SL/TP (they trail) — drawn as price lines on the chart.
-            stopLossPrice: t.stopLossPrice ?? null,
-            targetPrice: t.targetPrice ?? null,
-          }))
+          .map(({ trade: t, cycleNo }) => {
+            const side = t.type.startsWith("CALL_") ? "CE" : "PE";
+            return {
+              id: t.id ?? null,
+              signalSeq: t.signalSeq ?? null,
+              tradeNo: cycleNo,
+              side,
+              strike: t.strike ?? null,
+              // This chart's own contract → drawn on-price (SL/TP lines); others are
+              // time markers only.
+              onContract: t.strike === input.strike && side === input.side,
+              entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
+              entryPrice: t.entryPrice,
+              exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
+              exitPrice: t.exitPrice,
+              status: t.status,
+              exitReason: t.exitReason,
+              pnl: t.pnl,
+              cohort: t.cohort ?? null,
+              exitStrategy: t.exitStrategy ?? null,
+              // Current SL/TP (they trail) — drawn as price lines on the chart.
+              stopLossPrice: t.stopLossPrice ?? null,
+              targetPrice: t.targetPrice ?? null,
+            };
+          })
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
 

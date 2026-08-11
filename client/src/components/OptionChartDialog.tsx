@@ -38,6 +38,7 @@ import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 
 const REFRESH_MS = 5000;
+const MUTED = "#64748b"; // slate — off-contract trades (other strike/side) in the all-strikes overlay
 
 export interface OptionChartTargetLite {
   instrumentKey: string;
@@ -240,6 +241,7 @@ function OptionChart({
       strike: target.strike,
       side: target.side,
       date: target.date,
+      allStrikes: true, // overlay every trade on this instrument, not just this contract
     },
     { enabled: !!target.channel, retry: 1, refetchOnWindowFocus: false, refetchInterval },
   );
@@ -266,7 +268,6 @@ function OptionChart({
   const markers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
     if (candles.length === 0 || visibleTrades.length === 0) return [];
     const times = candles.map((c) => c.time as number);
-    const isCall = target.side === "CE";
     // A marker only renders when a candle exists near its trade time.
     // Tick-built sub-minute charts can stop mid-day (a strike is recorded
     // only while near the money) — without this guard every later trade
@@ -278,18 +279,23 @@ function OptionChart({
     };
     const out: SeriesMarker<UTCTimestamp>[] = [];
     for (const t of visibleTrades) {
-      const color = resolveCohortHex(t.cohort ?? null);
+      // Off-contract trades (other strike/side, from the all-strikes overlay) are
+      // dimmed and labelled with their side; positioned by THEIR side, not the
+      // chart's. On-contract keep the cohort colour.
+      const off = t.onContract === false;
+      const tCall = t.side === "CE";
+      const color = off ? MUTED : resolveCohortHex(t.cohort ?? null);
       // Day-trade number (matches the desk row #N — unique per twin); falls
       // back to the signal # for older records without one.
       const n = t.tradeNo ?? t.signalSeq;
-      const label = n != null ? `#${n}` : "";
+      const label = n != null ? `#${n}${off ? ` ${t.side}` : ""}` : "";
       const entrySnap = snapOrNull(t.entryTime + IST_OFFSET_SECONDS);
       if (entrySnap != null) {
         out.push({
           time: entrySnap as UTCTimestamp,
-          position: isCall ? "belowBar" : "aboveBar",
+          position: tCall ? "belowBar" : "aboveBar",
           color,
-          shape: isCall ? "arrowUp" : "arrowDown",
+          shape: tCall ? "arrowUp" : "arrowDown",
           text: label ? `${label} in` : "in",
         });
       }
@@ -298,7 +304,7 @@ function OptionChart({
         if (exitSnap != null) {
           out.push({
             time: exitSnap as UTCTimestamp,
-            position: isCall ? "aboveBar" : "belowBar",
+            position: tCall ? "aboveBar" : "belowBar",
             color,
             shape: "circle",
             text: label ? `${label} out` : "out",
@@ -313,7 +319,7 @@ function OptionChart({
   // Which open trade's Target line can be dragged — the focused one, else the
   // first open trade on the strike. Paper only (live TP isn't app-editable here).
   const dragTrade = useMemo(
-    () => (focusedTrade?.status === "OPEN" ? focusedTrade : visibleTrades.find((t) => t.status === "OPEN")) ?? null,
+    () => (focusedTrade?.status === "OPEN" && focusedTrade.onContract !== false ? focusedTrade : visibleTrades.find((t) => t.status === "OPEN" && t.onContract !== false)) ?? null,
     [focusedTrade, visibleTrades],
   );
   const canDrag = !!dragTrade?.id && target.channel === "paper";
@@ -332,6 +338,7 @@ function OptionChart({
     const out: { price: number; color: string; title: string; draggable?: boolean }[] = [];
     for (const t of visibleTrades) {
       if (t.status !== "OPEN") continue;
+      if (t.onContract === false) continue; // off-contract premium is a different scale — no price line
       const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
       if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: CHART_ENTRY, title: `${tag}entry` });
       if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: CHART_DOWN, title: `${tag}SL`, draggable: canDrag && t.id === dragTrade?.id });
