@@ -740,6 +740,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         if (runTrend === 0 && runLen <= 3 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
           for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = -1;
         }
+        // Mirror: short gray blip flowing into a GREEN run → green.
+        if (runTrend === 0 && runLen <= 3 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === 1) {
+          for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = 1;
+        }
         i2 = j2;
       }
       // GREEN run endings (Partha 2026-08-12): the lagging 5-min slope keeps
@@ -758,6 +762,15 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
           let t = j2 - 1;
           while (t > i2 && angleOfMin.get(seq[t])!.sma < angleOfMin.get(seq[t - 1])!.sma) {
             angleOfMin.get(seq[t])!.trend = -1;
+            t--;
+          }
+        }
+        // Mirror: green starts pulled to the actual upturn — walk back from a
+        // green run through minutes where the SMA5 was already rising.
+        if (angleOfMin.get(seq[i2])!.trend !== 1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === 1) {
+          let t = j2 - 1;
+          while (t > i2 && angleOfMin.get(seq[t])!.sma > angleOfMin.get(seq[t - 1])!.sma) {
+            angleOfMin.get(seq[t])!.trend = 1;
             t--;
           }
         }
