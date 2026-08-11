@@ -725,6 +725,24 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
       });
     });
+    // Transition blips (Partha 2026-08-12): a SHORT gray run (≤3 min) that
+    // leads straight into a red run is the turn already happening — paint it
+    // red so the down-trend starts where the eye says it starts. (History
+    // only; the live edge can't know its next state yet.)
+    {
+      const seq = mins.filter((m) => angleOfMin.has(m));
+      let i2 = 0;
+      while (i2 < seq.length) {
+        let j2 = i2;
+        while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
+        const runTrend = angleOfMin.get(seq[i2])!.trend;
+        const runLen = j2 - i2;
+        if (runTrend === 0 && runLen <= 3 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
+          for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = -1;
+        }
+        i2 = j2;
+      }
+    }
     // ONE continuous tri-coloured line just under the SMA5: GREEN while the
     // slope leans up past the noise floor, RED leaning down, GRAY only when
     // genuinely flat.
