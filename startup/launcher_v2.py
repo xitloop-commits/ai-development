@@ -1289,7 +1289,7 @@ def act_sea() -> None:
                 # MCX mandate (2026-08-10, +ma 2026-08-11): sma5 + MA-Signal
                 # only — their scalp/trend models are boot-satisfying stopgaps.
                 _launch_no_pause(f"SEA: {inst}", "start-sea.bat", inst,
-                                 "--only-cohorts", "sma5,ma")
+                                 "--only-cohorts", "sma5+ma")
             else:
                 _launch_no_pause(f"SEA: {inst}", "start-sea.bat", inst)
         _pause_briefly()

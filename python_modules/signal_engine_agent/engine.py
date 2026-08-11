@@ -1684,7 +1684,9 @@ def main() -> int:
 
     only_cohorts = None
     if args.only_cohorts:
-        only_cohorts = [c.strip() for c in args.only_cohorts.split(",") if c.strip()]
+        # '+' or ',' both accepted — cmd.exe splits batch args on commas, so
+        # the .bat launchers pass "sma5+ma" (see start-all.bat).
+        only_cohorts = [c.strip() for c in args.only_cohorts.replace("+", ",").split(",") if c.strip()]
 
     run(
         args.instrument,
