@@ -701,21 +701,19 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
       const deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
       angleOfMin.set(m, { deg, sma: now });
     });
-    // Trigger ±10° — calibrated on 2026-08-11 (quiet 100-pt day): max angle
-    // was ±24° so ±30° never fired; >10° marks ~17% of minutes = the real
-    // trend stretches. Tune alongside the 0.2%/5c yardstick.
+    // ONE continuous tri-coloured line just under the SMA5 (Partha
+    // 2026-08-11): GREEN angle > +10°, RED < −10°, GRAY in between (chop).
+    // Trigger calibrated on today's quiet 100-pt day (max angle ±24°,
+    // >10° ≈ 17% of minutes). Tune with the 0.2%/5c yardstick.
     const TRIGGER_DEG = 10;
-    const up: { time: number; value?: number }[] = [];
-    const down: { time: number; value?: number }[] = [];
+    const line: { time: number; value?: number; color?: string }[] = [];
     baseCandles.forEach((c) => {
       const a = angleOfMin.get(Math.floor((c.time as number) / 60));
-      up.push(a && a.deg > TRIGGER_DEG ? { time: c.time as number, value: a.sma * 0.9995 } : { time: c.time as number });
-      down.push(a && a.deg < -TRIGGER_DEG ? { time: c.time as number, value: a.sma * 1.0005 } : { time: c.time as number });
+      if (!a) { line.push({ time: c.time as number }); return; }
+      const color = a.deg > TRIGGER_DEG ? "#1a9850" : a.deg < -TRIGGER_DEG ? "#d7301f" : "#9CA3AF";
+      line.push({ time: c.time as number, value: a.sma * 0.9995, color });
     });
-    return [
-      { data: up as never[], color: "#1a9850" },  // green — uptrend
-      { data: down as never[], color: "#d7301f" }, // red — downtrend
-    ];
+    return [{ data: line as never[], color: "#9CA3AF" }];
   }, [singlePane, baseCandles, sma5Period]);
 
   const underlyingEntryLine = useMemo(() => {
