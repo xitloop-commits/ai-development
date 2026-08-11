@@ -59,9 +59,9 @@ export interface TickChartProps {
   /** Dashed horizontal price lines (e.g. entry/SL/TP for the option panels).
    *  `draggable` lines get a grab handle (needs `onLineDrag`). */
   tradeLines?: { price: number; color: string; title: string; draggable?: boolean }[];
-  /** T-angle overlay: a free-form line series with gaps (points without a
-   *  `value` are whitespace). Used for the blue steep-MA parallel line. */
-  extraLine?: { data: { time: UTCTimestamp; value?: number }[]; color: string };
+  /** T-angle overlays: free-form line series with gaps (points without a
+   *  `value` are whitespace). Blue steep-up + pink steep-down MA parallels. */
+  extraLines?: { data: { time: UTCTimestamp; value?: number }[]; color: string }[];
   /** Called when a draggable line is dropped at a new price (title, newPrice). */
   onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
@@ -90,7 +90,7 @@ export function TickChart({
   intervalSec,
   sma5Ha = true,
   sma5Period = 5,
-  extraLine,
+  extraLines,
   header,
   loading,
   emptyText,
@@ -176,16 +176,17 @@ export function TickChart({
       );
     }
     if (markers.length) createSeriesMarkers(series, markers);
-    // Free-form gap-capable overlay (blue steep-MA parallel line, T-angle).
-    if (extraLine && extraLine.data.length) {
+    // Free-form gap-capable overlays (blue steep-up / pink steep-down MA lines).
+    for (const line of extraLines ?? []) {
+      if (!line.data.length) continue;
       const s = chart.addSeries(LineSeries, {
-        color: extraLine.color,
+        color: line.color,
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
       });
-      s.setData(extraLine.data);
+      s.setData(line.data);
     }
     for (const l of tradeLines) {
       series.createPriceLine({
@@ -444,7 +445,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, extraLine]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, extraLines]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

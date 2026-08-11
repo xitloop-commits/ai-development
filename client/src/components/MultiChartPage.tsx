@@ -85,25 +85,31 @@ function maAngles(candles: { close: number }[]): { ma: ReturnType<typeof lineAng
 }
 
 /**
- * Blue steep-zone line (Partha 2026-08-11): a parallel line 0.3% BELOW the
- * MA(20-EMA), drawn only where the MA's 5-candle angle exceeds +50° — gaps
- * (whitespace points) everywhere else, so the line literally stops when the
- * slope flattens under 50°.
+ * Steep-zone parallels (Partha 2026-08-11): BLUE 0.3% below the MA(20-EMA)
+ * where its 5-candle angle exceeds +50°, PINK 0.3% ABOVE it where the angle
+ * is below −50°. Gaps (whitespace points) everywhere else, so each line
+ * literally stops when the slope leaves its zone.
  */
-function steepMaLine(candles: { time: number; close: number }[]): { time: number; value?: number }[] {
-  if (candles.length < 25) return [];
+function steepMaLines(candles: { time: number; close: number }[]): {
+  up: { time: number; value?: number }[];
+  down: { time: number; value?: number }[];
+} {
+  if (candles.length < 25) return { up: [], down: [] };
   const closes = candles.map((c) => c.close);
   const k = 2 / 21;
   let e = closes[0];
   const ema: number[] = [e];
   for (let i = 1; i < closes.length; i++) { e = closes[i] * k + e * (1 - k); ema.push(e); }
-  return candles.map((c, i) => {
-    if (i < 25) return { time: c.time };
-    const then = ema[i - 5];
-    if (!(then > 0)) return { time: c.time };
-    const deg = (Math.atan(((ema[i] - then) / then) * 100) * 180) / Math.PI;
-    return deg > 50 ? { time: c.time, value: ema[i] * 0.997 } : { time: c.time };
+  const up: { time: number; value?: number }[] = [];
+  const down: { time: number; value?: number }[] = [];
+  candles.forEach((c, i) => {
+    let deg = 0;
+    const then = i >= 25 ? ema[i - 5] : 0;
+    if (then > 0) deg = (Math.atan(((ema[i] - then) / then) * 100) * 180) / Math.PI;
+    up.push(deg > 50 ? { time: c.time, value: ema[i] * 0.997 } : { time: c.time });
+    down.push(deg < -50 ? { time: c.time, value: ema[i] * 1.003 } : { time: c.time });
   });
+  return { up, down };
 }
 
 function AngleReading({ label, a }: { label: string; a: ReturnType<typeof lineAngle> }) {
@@ -223,11 +229,14 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
 
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
-  // Blue parallel line below the MA while its angle is > +50° (gaps elsewhere).
-  const steepLine = useMemo(
-    () => ({ data: steepMaLine(c.candles as { time: number; close: number }[]) as never[], color: "#3B82F6" }),
-    [c.candles],
-  );
+  // Blue below-MA line while angle > +50°; pink above-MA line while < −50°.
+  const steepLines = useMemo(() => {
+    const { up, down } = steepMaLines(c.candles as { time: number; close: number }[]);
+    return [
+      { data: up as never[], color: "#3B82F6" },   // blue — steep climb
+      { data: down as never[], color: "#F472B6" }, // pink — steep fall
+    ];
+  }, [c.candles]);
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
 
@@ -265,7 +274,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
               : "Waiting for live ticks…"
         }
         loading={!!secId && seedQ.isLoading}
-        extraLine={steepLine}
+        extraLines={steepLines}
         className="h-full"
         header={<>
           <span className="font-bold">{label}</span>
