@@ -737,7 +737,8 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
         const runTrend = angleOfMin.get(seq[i2])!.trend;
         const runLen = j2 - i2;
-        if (runTrend === 0 && runLen <= 3 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
+        // Gray flowing into RED prefills red — ANY length (Partha 2026-08-12).
+        if (runTrend === 0 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
           for (let k = i2; k < j2; k++) angleOfMin.get(seq[k])!.trend = -1;
         }
         // Mirror: short gray blip flowing into a GREEN run → green.
