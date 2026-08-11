@@ -46,6 +46,13 @@ Crude/natgas pop-out chart windows enabled. MCX charts plot the future itself
 (no spot index): re-poll recorded disk ticks every 10s while live, no index
 seed-shift. Server chart endpoints were already instrument-generic.
 
+### T159 [UI] — single chart window per exchange: 2×2 live ATM option grid ✅ BUILT 2026-08-11
+NSE CHART / MCX CHART buttons open ONE window each (rows = instruments,
+CE pane left / PE pane right, live ATM premium candles; ATM roll restarts
+the pane). v1 live-only — panes fill from window-open; per-contract disk
+backfill deferred (needs an incremental option-tick endpoint). Old
+per-instrument windows still reachable (?view=instchart).
+
 ### T157 [UI] — MCX watchlist rows: expiry/strike/CE-PE/LONG-SHORT ✅ DONE 2026-08-10
 One-line OPTION_TRADEABLE gate change; IndexOptionRow was already MCX-aware.
 
