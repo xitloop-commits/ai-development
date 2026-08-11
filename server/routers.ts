@@ -57,6 +57,42 @@ export const appRouter = router({
         return getInstrumentLiveState(input.instrument);
       }),
 
+    // T161 — session strike lock: today's locks + config + instrument switches.
+    strikeLockState: publicProcedure.query(async () => {
+      const { lockSnapshot } = await import("./portfolio/strikeLock");
+      const { getCommonConfig } = await import("./portfolio/aiModeConfig");
+      const common = getCommonConfig();
+      return {
+        locks: lockSnapshot(),
+        config: common.strikeLock,
+        instrumentEnabled: common.instrumentEnabled,
+      };
+    }),
+
+    // T161 — ensure today's lock exists for an instrument (computes on first
+    // call), or force a fresh one from the CURRENT ATM (`force` = drift OK /
+    // watchlist re-lock).
+    strikeRelock: publicProcedure
+      .input(z.object({ instrument: z.string(), force: z.boolean().optional() }))
+      .mutation(async ({ input }) => {
+        const { getLock, relock } = await import("./portfolio/strikeLock");
+        const lock = input.force ? await relock(input.instrument) : await getLock(input.instrument);
+        return { lock };
+      }),
+
+    // T161 — watchlist tick icon: per-instrument signals/trades master switch.
+    setInstrumentEnabled: publicProcedure
+      .input(z.object({ instrument: z.string(), enabled: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const { updateCommonConfig, getCommonConfig } = await import("./portfolio/aiModeConfig");
+        const { logFolderFor } = await import("./seaSignals");
+        const key = logFolderFor(input.instrument);
+        updateCommonConfig({
+          instrumentEnabled: { ...getCommonConfig().instrumentEnabled, [key]: input.enabled },
+        });
+        return { instrumentEnabled: getCommonConfig().instrumentEnabled };
+      }),
+
     // Get SEA signals from Mongo (sea_signals), recent-first. Used for the
     // signal tray's initial paint and lazy-load: pass `before` (the oldest
     // `ts` already loaded) to page older. Live updates arrive over /ws/ticks.
