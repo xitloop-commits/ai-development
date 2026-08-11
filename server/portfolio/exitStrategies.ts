@@ -285,7 +285,9 @@ export interface LadderConfig {
   esTslPct: number;   // % below the peak (percent mode)
   esTslValue: number; // gross ₹ giveback (rupees mode)
   esTslCandles: number; // candles-mode: X bars back (1 = the most recent completed candle)
-  esTslCandleSrc: "open" | "close"; // candles-mode: which HA value of that candle
+  esTslCandleSrc: "open" | "close"; // candles-mode: which value of that candle
+  esTslCandleHa: boolean; // candles-mode: Heikin-Ashi candles (true) or RAW candles
+                          // (false — matches a raw candlestick chart)
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -322,6 +324,7 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   esTslValue: 2500,
   esTslCandles: 2,
   esTslCandleSrc: "close",
+  esTslCandleHa: false, // raw candles by default — matches the raw candlestick chart
 };
 
 export interface LadderState {

@@ -557,6 +557,7 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.esTslValue = clampNum(l.esTslValue, 50, 1_000_000, 2500);
   l.esTslCandles = Math.round(clampNum(l.esTslCandles, 1, 20, 2));
   l.esTslCandleSrc = l.esTslCandleSrc === "open" ? "open" : "close";
+  l.esTslCandleHa = l.esTslCandleHa === true; // default raw (matches the raw chart)
   return e;
 }
 

@@ -58,7 +58,7 @@ interface LadderCfg {
   esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
   esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
   esTslEnabled: boolean; esTslMode: "percent" | "rupees" | "candles"; esTslPct: number; esTslValue: number;
-  esTslCandles: number; esTslCandleSrc: "open" | "close";
+  esTslCandles: number; esTslCandleSrc: "open" | "close"; esTslCandleHa: boolean;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -436,7 +436,7 @@ const HELP = {
   ladderEsMtp:
     "Take-profit cap kept while riding to the exit signal (ES-honour ON) â€” bank the trade if it reaches this, even before the model says exit. Basis %: a % above entry (default 10%). Basis â‚¹: a NET â‚¹ P&L target AFTER round-trip charges â€” the trade banks when its actual net profit reaches â‚¹X (charge-aware, evaluated live). Its own toggle, separate from the SL's.",
   ladderEsTsl:
-    "Trailing stop kept while riding to the exit signal (ES-honour ON) â€” exits when the trade gives back to the trailing level, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis â‚¹: a gross rupee giveback (via position size). Basis ðŸ•¯ (candles): a DYNAMIC stop pinned to the option premium's 1-min Heikin-Ashi candles â€” set it to the OPEN or CLOSE of the candle X bars back (1 = the last completed candle); it ratchets up only, never loosens. Uses HA candles to match the chart. Its own toggle.",
+    "Trailing stop kept while riding to the exit signal (ES-honour ON) â€” exits when the trade gives back to the trailing level, but only once the trail has locked profit above entry (below that the safety SL governs). Basis %: a % below the peak (default 2.5%). Basis â‚¹: a gross rupee giveback (via position size). Basis ðŸ•¯ (candles): a DYNAMIC stop pinned to the option premium's 1-min candles â€” set it to the OPEN or CLOSE of the candle X bars back (1 = the last completed candle); it ratchets up only, never loosens, and exits on a confirmed candle close through the level. Candle type RAW (matches a raw candlestick chart) or HA (Heikin-Ashi, smoother). Its own toggle.",
 } as const;
 
 /** Instruments with trained models (the two index books SEA runs). */
@@ -918,10 +918,19 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                                 <button
                                   type="button" disabled={!ed.ladder.esTslEnabled}
                                   onClick={() => editExits((x) => { x.ladder.esTslCandleSrc = x.ladder.esTslCandleSrc === "close" ? "open" : "close"; })}
-                                  title="Use the HA candle's open or close"
+                                  title="Use the candle's open or close"
                                   className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
                                 >
                                   {ed.ladder.esTslCandleSrc === "open" ? "OPEN" : "CLOSE"}
+                                </button>
+                                {/* Candle type: RAW (matches a raw chart) or HA (smoother). */}
+                                <button
+                                  type="button" disabled={!ed.ladder.esTslEnabled}
+                                  onClick={() => editExits((x) => { x.ladder.esTslCandleHa = !x.ladder.esTslCandleHa; })}
+                                  title="Candle type: RAW (matches a raw candlestick chart) or HA (Heikin-Ashi, smoother)"
+                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
+                                >
+                                  {ed.ladder.esTslCandleHa ? "HA" : "RAW"}
                                 </button>
                               </>
                             ) : (

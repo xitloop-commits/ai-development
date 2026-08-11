@@ -244,6 +244,7 @@ class TickHandler extends EventEmitter {
     isBuy: boolean,
     xBack: number,
     src: "open" | "close",
+    useHa: boolean,
   ): { level: number | null; closedBelow: boolean } {
     const cur = this.dynTslState.get(tradeId);
     if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
@@ -264,17 +265,25 @@ class TickHandler extends EventEmitter {
       if (ltp < st.l) st.l = ltp;
       return { level: st.stop, closedBelow: false }; // intra-candle: level frozen, never a close-breach
     }
-    // A new minute began → the current candle just CLOSED. Finalise its HA values.
-    const haClose = (st.o + st.h + st.l + st.c) / 4;
-    const haOpen = st.haOpenPrev === null ? (st.o + st.c) / 2 : (st.haOpenPrev + (st.haClosePrev as number)) / 2;
-    st.haOpenPrev = haOpen;
-    st.haClosePrev = haClose;
+    // A new minute began → the current candle just CLOSED. Take its open/close as
+    // Heikin-Ashi (smoother) or RAW (matches a raw candlestick chart) per config.
+    let candleClose: number;
+    let candleOpen: number;
+    if (useHa) {
+      candleClose = (st.o + st.h + st.l + st.c) / 4;
+      candleOpen = st.haOpenPrev === null ? (st.o + st.c) / 2 : (st.haOpenPrev + (st.haClosePrev as number)) / 2;
+      st.haOpenPrev = candleOpen;
+      st.haClosePrev = candleClose;
+    } else {
+      candleOpen = st.o;   // raw open  = first tick of the minute
+      candleClose = st.c;  // raw close = last tick of the minute
+    }
     // Close-confirmed breach: did THIS candle close beyond the level that was live
     // DURING it (i.e. before this candle ratchets it)? Intra-candle wicks are
     // ignored — only the close counts. `closedBelow` is a one-tick pulse.
     const levelDuringCandle = st.stop;
-    const closedBelow = levelDuringCandle !== null && (isBuy ? haClose < levelDuringCandle : haClose > levelDuringCandle);
-    st.completed.push({ open: haOpen, close: haClose });
+    const closedBelow = levelDuringCandle !== null && (isBuy ? candleClose < levelDuringCandle : candleClose > levelDuringCandle);
+    st.completed.push({ open: candleOpen, close: candleClose });
     // Keep only what the lookback needs (plus a little slack).
     const keep = Math.max(1, xBack) + 2;
     if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
@@ -904,7 +913,7 @@ class TickHandler extends EventEmitter {
           const dyn =
             lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
               && !trade.entryPending && trade.entryPrice > 0
-              ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc)
+              ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc, lcfg.esTslCandleHa)
               : null;
           const dynTsl = dyn?.level ?? undefined;
           // Surface the raw candle level to the UI so the TradeBar can draw it as
