@@ -15,6 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { holidayCue } from '@/lib/holidayCue';
+import { StrikeDriftAlert } from './StrikeDriftAlert';
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
@@ -504,6 +505,8 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
+      {/* T161 — invisible watcher; raises the bottom-center strike-drift toast */}
+      <StrikeDriftAlert />
       <div className="relative flex items-stretch h-10">
         {/* Drawer Toggle */}
         <button

@@ -99,14 +99,23 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
   );
   const ls = liveState.data as { live?: AtmShape; signal?: AtmShape } | undefined;
   const atm = ls?.live ?? ls?.signal ?? null;
+  // T161 — when the session strike lock is on (paper view), idle panes chart
+  // the LOCKED contract, not the rolling ATM. Query deduped across panes.
+  const lockState = trpc.trading.strikeLockState.useQuery(undefined, { refetchInterval: 30_000, refetchOnWindowFocus: false });
+  const lock = lockState.data?.config?.paperEnabled
+    ? lockState.data?.locks?.[instKey.toLowerCase().replace(/_/g, "")] ?? null
+    : null;
+  const lockLeg = lock ? (side === "CE" ? lock.ce : lock.pe) : null;
   // While a trade is OPEN on this side, PIN the pane to the trade's contract —
   // an ATM roll must not switch the chart away from the position being managed
-  // (Partha 2026-08-11). Idle panes follow the rolling ATM as before.
+  // (Partha 2026-08-11). Precedence: open trade > session lock > rolling ATM.
   const pinned = active && trade?.contractSecurityId ? trade : null;
   const secId = pinned
     ? pinned.contractSecurityId
-    : (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
-  const strike = pinned ? pinned.strike : atm?.atm_strike ?? null;
+    : lockLeg
+      ? lockLeg.securityId
+      : (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
+  const strike = pinned ? pinned.strike : lockLeg ? lockLeg.strike : atm?.atm_strike ?? null;
 
   // Session history for THIS contract from the server's option-day index
   // (instant after the index's one-time build) — seeds the pane so a refresh
