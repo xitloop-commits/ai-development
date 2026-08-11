@@ -191,6 +191,23 @@ export function registerDisciplineRoutes(app: Express): void {
         let targetChannels: Array<typeof body.channel> =
           aiChannels.length > 0 ? aiChannels : [body.channel];
 
+        // T161 — per-instrument master switch (watchlist tick icon). OFF drops
+        // every AI placement for the instrument on BOTH books; manual (USER)
+        // trades stay allowed — you asked for those by hand.
+        if (body.origin === "AI") {
+          const { getCommonConfig } = await import("../portfolio/aiModeConfig");
+          const { logFolderFor } = await import("../seaSignals");
+          if (getCommonConfig().instrumentEnabled[logFolderFor(body.instrument)] === false) {
+            log.info(`AI trade blocked — ${body.instrument} is switched off (watchlist tick)`);
+            return res.json({
+              approved: false,
+              reason: `${body.instrument} is switched off`,
+              checks: [],
+              latencyMs: Date.now() - t0,
+            });
+          }
+        }
+
         // T154 — the sma-model cohort is a WATCH-ONLY paper experiment (its
         // Gate-1 backtest is red). Hard-pin it to the paper book so it can
         // never reach the live account, whatever the AI routing switches say.
@@ -281,6 +298,31 @@ export function registerDisciplineRoutes(app: Express): void {
                 decision: "REJECT",
                 reason: `position already open for ${body.instrument}`,
               };
+            }
+          }
+
+          // T161 — session strike lock. For AI entries on an enabled book,
+          // swap the signal's ATM contract for the session-locked ITM one
+          // (CE = ATM−N, PE = ATM+N at lock time) BEFORE re-pricing/sizing,
+          // so the price, SL/TP shift and lot maths all run on the contract
+          // we actually buy. Lock unreachable (chain down) → trade proceeds
+          // on the signal's own ATM contract rather than being dropped.
+          if (body.origin === "AI" && (body.optionType === "CE" || body.optionType === "PE")) {
+            const { strikeLockEnabledFor, getLock } = await import("../portfolio/strikeLock");
+            if (strikeLockEnabledFor(body.channel)) {
+              const lock = await getLock(body.instrument).catch(() => null);
+              if (lock) {
+                const leg = body.optionType === "CE" ? lock.ce : lock.pe;
+                if (leg.securityId && leg.securityId !== body.contractSecurityId) {
+                  log.info(
+                    `strike lock ${body.instrument} ${body.optionType}: ` +
+                      `${body.strike} → ${leg.strike} (ATM@lock ${lock.atmAtLock})`,
+                  );
+                }
+                body.strike = leg.strike;
+                body.contractSecurityId = leg.securityId;
+                body.expiry = lock.expiry;
+              }
             }
           }
 

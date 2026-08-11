@@ -34,6 +34,17 @@ export function registerSeaSignalRoutes(app: Express): void {
       res.status(400).json({ success: false, error: "missing signal body" });
       return;
     }
+    // T161 — per-instrument master switch (watchlist tick icon). OFF drops the
+    // signal at the door: nothing enters the tray, nothing broadcasts. 200 so
+    // SEA doesn't treat the drop as a delivery failure worth retrying/logging.
+    try {
+      const { getCommonConfig } = await import("./portfolio/aiModeConfig");
+      const { logFolderFor } = await import("./seaSignals");
+      if (getCommonConfig().instrumentEnabled[logFolderFor(String(body.instrument))] === false) {
+        res.json({ success: true, dropped: "instrument switched off" });
+        return;
+      }
+    } catch { /* config unreadable — let the signal through */ }
     try {
       const doc = await insertSeaSignal(body);
       tickBus.emitSeaSignal(doc); // live fan-out to browser tray over /ws/ticks
