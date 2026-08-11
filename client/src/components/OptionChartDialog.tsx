@@ -367,8 +367,12 @@ function OptionChart({
     optionType: target.side,
     expiry: target.expiry,
   });
+  // History loading → shown as a bottom pill (non-blocking). In tick mode BOTH
+  // the recorded-tick history and the broker-candle backfill count; the pill
+  // stays up while either does its first load, even once some candles are drawn.
   const loading = useTicks
-    ? histQuery.isLoading && histQuery.fetchStatus !== "idle" && live.candles.length === 0
+    ? (histQuery.isLoading && histQuery.fetchStatus !== "idle") ||
+      (candleQuery.isLoading && candleQuery.fetchStatus !== "idle")
     : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
 
   const btn = (active: boolean, disabled = false) =>

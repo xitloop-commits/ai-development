@@ -509,7 +509,14 @@ export function TickChart({
       {header && <div className="flex items-center gap-2 pb-1 text-[0.6875rem]">{header}</div>}
       <div className="relative flex-1 min-h-0 w-full">
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-[0.6875rem] text-muted-foreground">Loading…</div>
+          // History load → a small non-blocking pill at the BOTTOM of the chart,
+          // so any candles already drawn stay visible while more history streams.
+          <div className="absolute inset-x-0 bottom-2 z-20 flex justify-center pointer-events-none">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/85 px-2.5 py-0.5 text-[0.625rem] text-muted-foreground shadow-sm backdrop-blur-sm">
+              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted-foreground/40 border-t-transparent" />
+              Loading history…
+            </span>
+          </div>
         )}
         {noData && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-[0.6875rem] text-muted-foreground">
