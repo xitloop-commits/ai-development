@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   CHART_INTERVALS,
+  INDICATOR_OPTIONS,
   INSTRUMENT_CHART_META,
   NSE_CHART_INSTRUMENTS,
   MCX_CHART_INSTRUMENTS,
@@ -172,7 +173,14 @@ export default function MultiChartPage() {
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's candles.
   const [style, setStyle] = useState<ChartStyle>("ha");
-  const [indicators] = useState<Set<IndicatorKey>>(new Set());
+  // SMA-5 on by default (Partha, 2026-08-05) — same default as the other charts.
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(new Set(["sma5"]));
+  const toggleIndicator = (k: IndicatorKey) =>
+    setIndicators((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
 
   if (!group) {
     return (
@@ -201,6 +209,13 @@ export default function MultiChartPage() {
           <button className={btn(style === "candle")} onClick={() => setStyle("candle")}>Candle</button>
           <button className={btn(style === "ha")} onClick={() => setStyle("ha")}>HA</button>
           <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
+        </div>
+        <div className="flex items-center gap-0.5">
+          {INDICATOR_OPTIONS.map((o) => (
+            <button key={o.key} className={btn(indicators.has(o.key))} onClick={() => toggleIndicator(o.key)} title={o.label}>
+              {o.label.split(" (")[0]}
+            </button>
+          ))}
         </div>
         <span className="text-[0.625rem] text-muted-foreground">
           live-only — panes fill from the moment the window opened; ATM roll restarts a pane on the new strike
