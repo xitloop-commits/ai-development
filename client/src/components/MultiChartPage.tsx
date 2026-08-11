@@ -30,6 +30,7 @@ import { TickChart } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
+import { istDateString } from "@/lib/signalChart";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -54,12 +55,15 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
+  /** An OPEN paper trade exists on this instrument+side. Panes without one
+   *  are dimmed so the eye lands on where money is actually working. */
+  active: boolean;
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -76,7 +80,12 @@ function AtmPane({ instKey, side, intervalSec, style, indicators }: {
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
 
   return (
-    <div className="min-h-0 relative rounded border border-border/60">
+    <div
+      className={`min-h-0 relative rounded border border-border/60 transition-opacity duration-300 ${
+        active ? "opacity-100" : "opacity-40 hover:opacity-80"
+      }`}
+      style={active ? { borderColor: sideColor } : undefined}
+    >
       <TickChart
         candles={c.candles}
         markers={NO_MARKERS}
@@ -143,12 +152,32 @@ export default function MultiChartPage() {
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <div key={inst} className="grid min-h-0 grid-cols-2 gap-1">
-            <AtmPane instKey={inst} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} />
-            <AtmPane instKey={inst} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} />
-          </div>
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
+ *  panes) that drives the active/dimmed state. */
+function InstrumentRow({ instKey, intervalSec, style, indicators }: {
+  instKey: string;
+  intervalSec: number;
+  style: ChartStyle;
+  indicators: Set<IndicatorKey>;
+}) {
+  const trades = trpc.trading.tradesForChart.useQuery(
+    { channel: "paper", instrument: instKey, date: istDateString() },
+    { refetchInterval: 10_000, refetchOnWindowFocus: false },
+  );
+  const rows = (trades.data ?? []) as Array<{ side: "CE" | "PE"; status: string }>;
+  const openCE = rows.some((t) => t.side === "CE" && t.status === "OPEN");
+  const openPE = rows.some((t) => t.side === "PE" && t.status === "OPEN");
+  return (
+    <div className="grid min-h-0 grid-cols-2 gap-1">
+      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={openCE} />
+      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={openPE} />
     </div>
   );
 }
