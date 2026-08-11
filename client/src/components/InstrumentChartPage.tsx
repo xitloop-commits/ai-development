@@ -708,27 +708,31 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
       pctOfMin.set(m, { pct, sma: now });
       allAbs.push(Math.abs(pct));
     });
-    // SELF-CALIBRATING yardstick (2026-08-11): each instrument moves a
-    // different % per 5 min, so a fixed 0.2% scale left crude/banknifty
-    // almost entirely gray. Trend = the day's own top-20% steepness: the
-    // 80th percentile of |move| becomes the 45° mark, trigger stays at
-    // effectively that P80 (top quintile colours, rest gray).
+    // TREND painter (2026-08-12 rework): colour by slope DIRECTION whenever
+    // the slope clears the day's own noise floor — NOT only the fastest
+    // bursts (the earlier top-20% rule left long obvious trends gray).
+    // Noise floor = P40 of the day's |5-min moves|, self-calibrating per
+    // instrument: the flattest ~40% of minutes read gray, everything with a
+    // real lean paints green/red like the eye expects.
     const sortedAbs = [...allAbs].sort((a, b) => a - b);
-    const yard = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? 0.02, 0.005);
-    const angleOfMin = new Map<number, { deg: number; sma: number }>();
+    const noise = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.4)] ?? 0.01, 0.002);
+    const p80 = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? noise * 2, noise);
+    const angleOfMin = new Map<number, { deg: number; sma: number; trend: -1 | 0 | 1 }>();
     pctOfMin.forEach((v, m) => {
-      angleOfMin.set(m, { deg: (Math.atan(v.pct / yard) * 180) / Math.PI, sma: v.sma });
+      angleOfMin.set(m, {
+        deg: (Math.atan(v.pct / p80) * 180) / Math.PI, // display scale: P80 = 45°
+        sma: v.sma,
+        trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
+      });
     });
-    // ONE continuous tri-coloured line just under the SMA5 (Partha
-    // 2026-08-11): GREEN when the 5-min move is in the day's top-20%
-    // steepness upward (reads > +45° on the adaptive scale), RED downward,
-    // GRAY otherwise. 45° = the P80 move by construction.
-    const TRIGGER_DEG = 45;
+    // ONE continuous tri-coloured line just under the SMA5: GREEN while the
+    // slope leans up past the noise floor, RED leaning down, GRAY only when
+    // genuinely flat.
     const line: { time: number; value?: number; color?: string }[] = [];
     baseCandles.forEach((c) => {
       const a = angleOfMin.get(Math.floor((c.time as number) / 60));
       if (!a) { line.push({ time: c.time as number }); return; }
-      const color = a.deg > TRIGGER_DEG ? "#1a9850" : a.deg < -TRIGGER_DEG ? "#d7301f" : "#9CA3AF";
+      const color = a.trend > 0 ? "#1a9850" : a.trend < 0 ? "#d7301f" : "#9CA3AF";
       line.push({ time: c.time as number, value: a.sma * 0.9995, color });
     });
     return [{ data: line as never[], color: "#9CA3AF" }];
