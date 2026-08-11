@@ -52,39 +52,64 @@ const NO_LINES: never[] = [];
  * reads 0°. Chart-pixel angles depend on zoom, so a % basis is the only
  * stable definition; the tooltip spells it out.
  */
-function maAngle(candles: { close: number }[]): { deg: number; pct: number } | null {
-  const EMA_N = 20;
-  if (candles.length < EMA_N + 5) return null;
-  const k = 2 / (EMA_N + 1);
-  let e = candles[0].close;
-  const ema: number[] = [e];
-  for (let i = 1; i < candles.length; i++) {
-    e = candles[i].close * k + e * (1 - k);
-    ema.push(e);
-  }
-  const now = ema[ema.length - 1];
-  const then = ema[ema.length - 1 - 5];
+function lineAngle(values: number[]): { deg: number; pct: number } | null {
+  if (values.length < 6) return null;
+  const now = values[values.length - 1];
+  const then = values[values.length - 1 - 5];
   if (!(then > 0)) return null;
   const pct = ((now - then) / then) * 100;
   return { deg: (Math.atan(pct) * 180) / Math.PI, pct };
 }
 
-function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
-  const a = useMemo(() => maAngle(candles), [candles]);
+function maAngles(candles: { close: number }[]): { ma: ReturnType<typeof lineAngle>; sma5: ReturnType<typeof lineAngle> } {
+  const closes = candles.map((c) => c.close);
+  // 20-EMA (the chart's MA line)
+  let ma: ReturnType<typeof lineAngle> = null;
+  if (closes.length >= 25) {
+    const k = 2 / 21;
+    let e = closes[0];
+    const ema: number[] = [e];
+    for (let i = 1; i < closes.length; i++) { e = closes[i] * k + e * (1 - k); ema.push(e); }
+    ma = lineAngle(ema);
+  }
+  // SMA-5 (the detector's line)
+  let sma5: ReturnType<typeof lineAngle> = null;
+  if (closes.length >= 10) {
+    const s: number[] = [];
+    for (let i = 4; i < closes.length; i++) {
+      s.push((closes[i] + closes[i - 1] + closes[i - 2] + closes[i - 3] + closes[i - 4]) / 5);
+    }
+    sma5 = lineAngle(s);
+  }
+  return { ma, sma5 };
+}
+
+function AngleReading({ label, a }: { label: string; a: ReturnType<typeof lineAngle> }) {
   if (!a) return null;
   const tone = a.deg > 5 ? "text-bullish" : a.deg < -5 ? "text-bearish" : "text-muted-foreground";
   return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-20 flex items-center gap-2 px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
-      title="MA(20-EMA) slope over the LAST 5 CANDLES: % change mapped to degrees (atan; +1%/5c ≈ +45°). Zoom-independent."
-    >
-      <span className="text-muted-foreground">MA ∠</span>
+    <span className="flex items-center gap-1">
+      <span className="text-muted-foreground">{label} ∠</span>
       <span className={`font-bold tabular-nums ${tone}`}>
         {a.deg >= 0 ? "+" : ""}{a.deg.toFixed(1)}°
       </span>
       <span className="text-muted-foreground tabular-nums">
-        ({a.pct >= 0 ? "+" : ""}{a.pct.toFixed(2)}% / 5c)
+        ({a.pct >= 0 ? "+" : ""}{a.pct.toFixed(2)}%)
       </span>
+    </span>
+  );
+}
+
+function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
+  const a = useMemo(() => maAngles(candles), [candles]);
+  if (!a.ma && !a.sma5) return null;
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
+      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; +1%/5c ≈ +45°). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
+    >
+      <AngleReading label="MA" a={a.ma} />
+      <AngleReading label="SMA5" a={a.sma5} />
     </div>
   );
 }
