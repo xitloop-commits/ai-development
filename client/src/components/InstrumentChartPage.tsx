@@ -799,7 +799,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
     `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
   return (
-    <div className="flex h-screen w-screen flex-col p-2 text-foreground" style={{ background: chartColors(theme).background }}>
+    <div
+      className={`flex flex-col p-2 text-foreground ${instOverride ? "h-full w-full overflow-hidden" : "h-screen w-screen"}`}
+      style={{ background: chartColors(theme).background }}
+    >
       {/* Control bar (drives every panel) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-2 text-xs">
         <span className="font-bold tracking-wide">{meta.displayName}</span>

@@ -21,7 +21,7 @@ export default function TestChartPage() {
   });
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-background text-foreground">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs shrink-0">
         <span className="font-bold tracking-wider text-[0.625rem] text-muted-foreground">TEST CHART</span>
         <select
