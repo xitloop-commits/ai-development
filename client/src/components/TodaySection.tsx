@@ -111,6 +111,12 @@ export function TodaySection({
   const ladderEsHonour = useMemo(() => {
     return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esHonour;
   }, [aiConfigQuery.data, exitBook]);
+  // Under ES-honour, the trailing stop is the honour-exit TSL cap. When it's on,
+  // the bar should LABEL the stop "TSL" (it's what manages + exits the trade),
+  // not "SL". Off → only the safety SL governs, so "SL" is correct.
+  const ladderEsTslEnabled = useMemo(() => {
+    return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esTslEnabled;
+  }, [aiConfigQuery.data, exitBook]);
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -318,6 +324,7 @@ export function TodaySection({
           ladderMslPct={ladderMslPct}
           ladderTtp={ladderTtp}
           ladderEsHonour={ladderEsHonour}
+          ladderEsTslEnabled={ladderEsTslEnabled}
           tradeNo={trades.indexOf(trade) + 1}
           onGoLive={channel === 'paper' ? handleGoLive : undefined}
           goneLive={goneLive.has(trade.id)}

@@ -65,6 +65,7 @@ export interface TodayTradeRowProps {
   ladderTtp?: { start: number; trail: number } | null;
   /** ES-honour ON → the ladder's own exits are off; hide its TSL + TTP markers. */
   ladderEsHonour?: boolean;
+  ladderEsTslEnabled?: boolean;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
   /** Paper workspace only — Ctrl+click the Capital-column CTA to mirror this OPEN
@@ -97,6 +98,7 @@ function _TodayTradeRow({
   ladderMslPct,
   ladderTtp,
   ladderEsHonour,
+  ladderEsTslEnabled,
   tradeNo,
   liveLtp,
   onGoLive,
@@ -420,7 +422,16 @@ function _TodayTradeRow({
                         trade.entryPrice) * 100
                     : undefined
                 }
-                trailingEnabled={(trade.exitStrategy === "ladder" && ladderEsHonour) ? false : serverTrails}
+                trailingEnabled={
+                  // Under ES-honour the trailing stop IS the honour-exit TSL cap —
+                  // label it "TSL" when that cap is on (it manages + exits the
+                  // trade, e.g. candle TSL → TSL_HIT); "SL" only when it's off and
+                  // just the safety SL governs. Non-honour ladder / other strategies
+                  // keep the classic server-trail label.
+                  trade.exitStrategy === "ladder" && ladderEsHonour
+                    ? !!ladderEsTslEnabled
+                    : serverTrails
+                }
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
                 coolingEndsAt={(() => {
@@ -780,6 +791,7 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.ladderMslPct === b.ladderMslPct &&
     a.ladderTtp === b.ladderTtp &&
     a.ladderEsHonour === b.ladderEsHonour &&
+    a.ladderEsTslEnabled === b.ladderEsTslEnabled &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&
     // By-value compare neutralises the per-poll reference + undefined/absent churn.
