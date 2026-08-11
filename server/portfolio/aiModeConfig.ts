@@ -264,6 +264,18 @@ export interface CommonConfig {
    * detector has flipped meanwhile), capped at `maxReentries` per leg.
    */
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
+  /** T161 — session strike lock. CE locks at ATM−offset strikes, PE at
+   *  ATM+offset (both ITM), computed once after open and enforced in the
+   *  validateTrade AI path for the enabled books. Offset per instrument. */
+  strikeLock: {
+    paperEnabled: boolean;
+    liveEnabled: boolean;
+    perInstrument: Record<string, number>; // instrument → ITM offset in strikes (≥0)
+  };
+  /** T161 — per-instrument master switch (watchlist tick icon). OFF drops the
+   *  instrument's signal ingest AND its AI placements on both books; manual
+   *  row buys stay allowed. */
+  instrumentEnabled: Record<string, boolean>;
 }
 
 /** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
@@ -335,6 +347,13 @@ function baseCommon(): CommonConfig {
     // Re-enter on a stop-out while the trend runs — on by default, 30s window,
     // 3 re-entries max per leg. See CommonConfig.reentryOnTrend.
     reentryOnTrend: { enabled: true, windowSec: 30, maxReentries: 3 },
+    // T161 — strike lock: paper first, live off until a clean paper day.
+    strikeLock: {
+      paperEnabled: true,
+      liveEnabled: false,
+      perInstrument: { nifty50: 2, banknifty: 2, crudeoil: 2, naturalgas: 2 },
+    },
+    instrumentEnabled: { nifty50: true, banknifty: true, crudeoil: true, naturalgas: true },
     // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
     masterExits: {
       tp: { enabled: false, mode: "percent", value: 10 },
@@ -615,6 +634,25 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   r.enabled = r.enabled !== false;
   r.windowSec = Math.round(clampNum(r.windowSec, 5, 600, 30));
   r.maxReentries = Math.round(clampNum(r.maxReentries, 0, 20, 3));
+  // T161 — strike lock + instrument switch. Back-fill for older configs.
+  if (!c.strikeLock) {
+    (c as CommonConfig).strikeLock = {
+      paperEnabled: true,
+      liveEnabled: false,
+      perInstrument: { nifty50: 2, banknifty: 2, crudeoil: 2, naturalgas: 2 },
+    };
+  }
+  const sl = c.strikeLock;
+  sl.paperEnabled = sl.paperEnabled !== false;
+  sl.liveEnabled = sl.liveEnabled === true; // live must be opted in explicitly
+  if (!sl.perInstrument) sl.perInstrument = {};
+  for (const k of ["nifty50", "banknifty", "crudeoil", "naturalgas"]) {
+    sl.perInstrument[k] = Math.round(clampNum(sl.perInstrument[k], 0, 10, 2));
+  }
+  if (!c.instrumentEnabled) (c as CommonConfig).instrumentEnabled = {};
+  for (const k of ["nifty50", "banknifty", "crudeoil", "naturalgas"]) {
+    c.instrumentEnabled[k] = c.instrumentEnabled[k] !== false;
+  }
   return c;
 }
 
