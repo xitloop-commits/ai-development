@@ -751,7 +751,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
       while (i2 < seq.length) {
         let j2 = i2;
         while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
-        if (angleOfMin.get(seq[i2])!.trend === 1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
+        // Any run (green OR gray) flowing into red: walk back while the SMA5
+        // is already declining and hand those minutes to the red run — so the
+        // red ribbon starts where the line actually rolls over, not late.
+        if (angleOfMin.get(seq[i2])!.trend !== -1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
           let t = j2 - 1;
           while (t > i2 && angleOfMin.get(seq[t])!.sma < angleOfMin.get(seq[t - 1])!.sma) {
             angleOfMin.get(seq[t])!.trend = -1;
