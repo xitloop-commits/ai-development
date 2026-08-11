@@ -409,11 +409,18 @@ export function TickChart({
     // rebuild on 30s seed re-polls, and a cleanup-time-only stash proved racy
     // there — zoom kept snapping back to full-fit. Live tracking makes the
     // restore above deterministic for every rebuild trigger.
+    //
+    // `disposed` guard: chart.remove() (and the resize that precedes it) can
+    // emit one final range-change AFTER cleanup stashed the good window —
+    // without the guard that late event clobbers viewRef with a reset range
+    // and the next rebuild (every ~1s on live panes) "forgets" the zoom.
+    let disposed = false;
     chart.timeScale().subscribeVisibleLogicalRangeChange((lr) => {
-      if (lr) viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length };
+      if (!disposed && lr) viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length };
     });
 
     return () => {
+      disposed = true;
       // Stash the visible window BEFORE removing so the next rebuild can restore it.
       try {
         const lr = chart.timeScale().getVisibleLogicalRange();
