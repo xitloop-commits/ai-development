@@ -52,10 +52,11 @@ const NO_LINES: never[] = [];
  * reads 0°. Chart-pixel angles depend on zoom, so a % basis is the only
  * stable definition; the tooltip spells it out.
  */
-// Angle scale for OPTION premiums: ±4% over 5 candles reads as ±45°. The
-// original 1%→45° mapping saturated — premiums move >1.2%/5c most of the
-// session, so the >50° condition was effectively always true.
-const PCT_PER_45_DEG = 4;
+// Angle scale for OPTION premiums: ±2% over 5 candles reads as ±45°.
+// Calibrated on 2026-08-11 locked-CE data: 1%→45° saturated (46% of candles
+// past 50°), 4%→45° starved (0%), 2%→45° puts ~18% of candles in the steep
+// zones — selective stretches during real pushes.
+const PCT_PER_45_DEG = 2;
 
 function lineAngle(values: number[]): { deg: number; pct: number } | null {
   if (values.length < 6) return null;
@@ -140,7 +141,7 @@ function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
   return (
     <div
       className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
-      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; ±4%/5c ≈ ±45° — premium scale). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
+      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; ±2%/5c ≈ ±45° — premium scale). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
     >
       <AngleReading label="MA" a={a.ma} />
       <AngleReading label="SMA5" a={a.sma5} />
