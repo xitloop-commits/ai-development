@@ -181,17 +181,29 @@ export function TickChart({
       );
     }
     if (markers.length) createSeriesMarkers(series, markers);
-    // Free-form gap-capable overlays (blue steep-up / pink steep-down MA lines).
+    // Free-form gap overlays (steep/trend MA parallels). Whitespace points do
+    // NOT reliably break a LineSeries (observed: it connected across gaps), so
+    // each contiguous valued run becomes its OWN tiny series — guaranteed gaps.
     for (const line of extraLines ?? []) {
-      if (!line.data.length) continue;
-      const s = chart.addSeries(LineSeries, {
-        color: line.color,
-        lineWidth: 2,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-      });
-      s.setData(line.data);
+      let seg: { time: UTCTimestamp; value: number }[] = [];
+      const flush = () => {
+        if (seg.length >= 2) {
+          const s = chart.addSeries(LineSeries, {
+            color: line.color,
+            lineWidth: 2,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          s.setData(seg);
+        }
+        seg = [];
+      };
+      for (const p of line.data) {
+        if (p.value != null) seg.push(p as { time: UTCTimestamp; value: number });
+        else flush();
+      }
+      flush();
     }
     for (const l of tradeLines) {
       series.createPriceLine({
