@@ -84,6 +84,28 @@ function maAngles(candles: { close: number }[]): { ma: ReturnType<typeof lineAng
   return { ma, sma5 };
 }
 
+/**
+ * Blue steep-zone line (Partha 2026-08-11): a parallel line 0.3% BELOW the
+ * MA(20-EMA), drawn only where the MA's 5-candle angle exceeds +50° — gaps
+ * (whitespace points) everywhere else, so the line literally stops when the
+ * slope flattens under 50°.
+ */
+function steepMaLine(candles: { time: number; close: number }[]): { time: number; value?: number }[] {
+  if (candles.length < 25) return [];
+  const closes = candles.map((c) => c.close);
+  const k = 2 / 21;
+  let e = closes[0];
+  const ema: number[] = [e];
+  for (let i = 1; i < closes.length; i++) { e = closes[i] * k + e * (1 - k); ema.push(e); }
+  return candles.map((c, i) => {
+    if (i < 25) return { time: c.time };
+    const then = ema[i - 5];
+    if (!(then > 0)) return { time: c.time };
+    const deg = (Math.atan(((ema[i] - then) / then) * 100) * 180) / Math.PI;
+    return deg > 50 ? { time: c.time, value: ema[i] * 0.997 } : { time: c.time };
+  });
+}
+
 function AngleReading({ label, a }: { label: string; a: ReturnType<typeof lineAngle> }) {
   if (!a) return null;
   const tone = a.deg > 5 ? "text-bullish" : a.deg < -5 ? "text-bearish" : "text-muted-foreground";
@@ -201,6 +223,11 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
 
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
+  // Blue parallel line below the MA while its angle is > +50° (gaps elsewhere).
+  const steepLine = useMemo(
+    () => ({ data: steepMaLine(c.candles as { time: number; close: number }[]) as never[], color: "#3B82F6" }),
+    [c.candles],
+  );
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
 
@@ -238,6 +265,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
               : "Waiting for live ticks…"
         }
         loading={!!secId && seedQ.isLoading}
+        extraLine={steepLine}
         className="h-full"
         header={<>
           <span className="font-bold">{label}</span>
