@@ -46,6 +46,25 @@ Crude/natgas pop-out chart windows enabled. MCX charts plot the future itself
 (no spot index): re-poll recorded disk ticks every 10s while live, no index
 seed-shift. Server chart endpoints were already instrument-generic.
 
+### T161 [EXEC/UI] — session strike lock + per-instrument signal/trade switch 🚧 BUILDING 2026-08-11
+Approved design (Partha): symmetric ITM lock — CE = ATM−N strikes, PE = ATM+N
+(N per instrument, default 2, configurable −1/−2/−3…); computed once after
+open, SAME contract all session, enforced server-side in validateTrade's AI
+path so watchlist + every cohort (incl. sma-model) obey. Paper-enabled first,
+live off until one clean paper day. Drift ≥3 strikes → bottom-center alert
+with OK → relock at current ATM∓N. Watchlist: lock toggle (on/locked by
+default; re-lock recomputes) + NEW tick icon per instrument = kill switch
+(OFF: server drops that instrument's signal ingest + AI placements, both
+books; manual row buys still allowed). Chart panes follow locked strike
+unless open-trade pin wins.
+Build order: (1) CommonConfig `strikeLock` {paperEnabled:true, liveEnabled:false,
+perInstrument offsets} + `instrumentEnabled` map + sanitizers; (2) server
+strikeLock service (state json persist, compute via resolveContract, relock);
+(3) validateTrade gates (tick switch reject + contract override BEFORE
+repricing/sizing); (4) /api/sea/signal ingest gate; (5) tRPC state/relock/
+toggle endpoints; (6) watchlist toggles UI; (7) bottom-center drift alert;
+(8) panes follow lock. Commit per step.
+
 ### T159 [UI] — single chart window per exchange: 2×2 live ATM option grid ✅ BUILT 2026-08-11
 NSE CHART / MCX CHART buttons open ONE window each (rows = instruments,
 CE pane left / PE pane right, live ATM premium candles; ATM roll restarts
