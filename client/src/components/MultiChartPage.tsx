@@ -52,13 +52,18 @@ const NO_LINES: never[] = [];
  * reads 0°. Chart-pixel angles depend on zoom, so a % basis is the only
  * stable definition; the tooltip spells it out.
  */
+// Angle scale for OPTION premiums: ±4% over 5 candles reads as ±45°. The
+// original 1%→45° mapping saturated — premiums move >1.2%/5c most of the
+// session, so the >50° condition was effectively always true.
+const PCT_PER_45_DEG = 4;
+
 function lineAngle(values: number[]): { deg: number; pct: number } | null {
   if (values.length < 6) return null;
   const now = values[values.length - 1];
   const then = values[values.length - 1 - 5];
   if (!(then > 0)) return null;
   const pct = ((now - then) / then) * 100;
-  return { deg: (Math.atan(pct) * 180) / Math.PI, pct };
+  return { deg: (Math.atan(pct / PCT_PER_45_DEG) * 180) / Math.PI, pct };
 }
 
 function maAngles(candles: { close: number }[]): { ma: ReturnType<typeof lineAngle>; sma5: ReturnType<typeof lineAngle> } {
@@ -105,7 +110,7 @@ function steepMaLines(candles: { time: number; close: number }[]): {
   candles.forEach((c, i) => {
     let deg = 0;
     const then = i >= 25 ? ema[i - 5] : 0;
-    if (then > 0) deg = (Math.atan(((ema[i] - then) / then) * 100) * 180) / Math.PI;
+    if (then > 0) deg = (Math.atan((((ema[i] - then) / then) * 100) / PCT_PER_45_DEG) * 180) / Math.PI;
     // 1.5% offset — 0.3% visually overlapped the MA line on option premiums.
     up.push(deg > 50 ? { time: c.time, value: ema[i] * 0.985 } : { time: c.time });
     down.push(deg < -50 ? { time: c.time, value: ema[i] * 1.015 } : { time: c.time });
@@ -135,7 +140,7 @@ function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
   return (
     <div
       className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
-      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; +1%/5c ≈ +45°). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
+      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; ±4%/5c ≈ ±45° — premium scale). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
     >
       <AngleReading label="MA" a={a.ma} />
       <AngleReading label="SMA5" a={a.sma5} />
