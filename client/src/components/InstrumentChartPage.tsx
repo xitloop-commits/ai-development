@@ -701,12 +701,16 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
       const deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
       angleOfMin.set(m, { deg, sma: now });
     });
+    // Trigger ±10° — calibrated on 2026-08-11 (quiet 100-pt day): max angle
+    // was ±24° so ±30° never fired; >10° marks ~17% of minutes = the real
+    // trend stretches. Tune alongside the 0.2%/5c yardstick.
+    const TRIGGER_DEG = 10;
     const up: { time: number; value?: number }[] = [];
     const down: { time: number; value?: number }[] = [];
     baseCandles.forEach((c) => {
       const a = angleOfMin.get(Math.floor((c.time as number) / 60));
-      up.push(a && a.deg > 30 ? { time: c.time as number, value: a.sma * 0.9995 } : { time: c.time as number });
-      down.push(a && a.deg < -30 ? { time: c.time as number, value: a.sma * 1.0005 } : { time: c.time as number });
+      up.push(a && a.deg > TRIGGER_DEG ? { time: c.time as number, value: a.sma * 0.9995 } : { time: c.time as number });
+      down.push(a && a.deg < -TRIGGER_DEG ? { time: c.time as number, value: a.sma * 1.0005 } : { time: c.time as number });
     });
     return [
       { data: up as never[], color: "#1a9850" },  // green — uptrend
