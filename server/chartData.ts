@@ -16,7 +16,7 @@
  * NOTE: the OPTION tick files (…_option_ticks.ndjson.gz) are 0.5–1 GB (every
  * strike) and are deliberately NOT read here — only the tiny underlying files.
  */
-import { readFileSync, existsSync, readdirSync, createReadStream } from "fs";
+import { readFileSync, existsSync, readdirSync, createReadStream, statSync, openSync, readSync, closeSync } from "fs";
 import readline from "readline";
 import path from "path";
 import zlib from "zlib";
@@ -47,38 +47,59 @@ export interface UnderlyingTicks {
 const SECID_RE = /"security_id":\s*"?([0-9]+)"?/;
 const SEG_RE = /"exchange_segment":\s*"([A-Z_]+)"/;
 
-/**
- * Read one instrument's recorded underlying ticks for a date. Returns empty
- * arrays when the file is missing (unrecorded day) or unreadable.
- */
-export function readUnderlyingTicks(instrument: string, date: string): UnderlyingTicks {
-  if (!DATE_RE.test(date)) return { t: [], ltp: [] };
-  const file = underlyingFilePath(instrument, date);
-  if (!existsSync(file)) return { t: [], ltp: [] };
+// ─── Incremental per-(instrument,date) tick cache (2026-08-11) ─────────────
+// The old path re-decompressed and re-parsed the WHOLE day file on every
+// request (~6s for a late-session MCX file), and the MCX charts poll every
+// 30s. This cache keeps a long-lived Gunzip stream per (instrument, date):
+// the first request pays the full parse once; each later request feeds ONLY
+// the bytes the recorder appended since (the recorder sync-flushes every 3s,
+// so the tail is always decodable). Node's Gunzip handles the multi-member
+// files a recorder restart produces.
 
-  let text: string;
-  try {
-    // TODAY's file is a LIVE-appended gzip whose final member isn't closed yet,
-    // so a strict gunzip throws "unexpected end of file". Z_SYNC_FLUSH returns
-    // everything decompressed so far (all closed members + the partial tail);
-    // the half-written trailing line is skipped by the per-line guard below.
-    text = zlib
-      .gunzipSync(readFileSync(file), { finishFlush: zlib.constants.Z_SYNC_FLUSH })
-      .toString("utf8");
-  } catch {
-    return { t: [], ltp: [] };
-  }
+interface TickCacheEntry {
+  bytesFed: number;
+  gunzip: zlib.Gunzip;
+  dead: boolean;            // decompressor errored → legacy full read fallback
+  pending: string;          // trailing partial line, waiting for its newline
+  t: number[];
+  ltp: number[];
+  securityId: string | null;
+  exchangeSegment: string | null;
+  chain: Promise<unknown>;  // serializes appends per entry
+  lastAccess: number;
+}
 
-  const t: number[] = [];
-  const ltp: number[] = [];
-  let securityId: string | null = null;
-  let exchangeSegment: string | null = null;
+const tickCache = new Map<string, TickCacheEntry>();
+const TICK_CACHE_MAX = 8; // ~6 MB/entry worst case — bounded, LRU-evicted
+
+function newCacheEntry(): TickCacheEntry {
+  const entry: TickCacheEntry = {
+    bytesFed: 0,
+    gunzip: zlib.createGunzip(),
+    dead: false,
+    pending: "",
+    t: [],
+    ltp: [],
+    securityId: null,
+    exchangeSegment: null,
+    chain: Promise.resolve(),
+    lastAccess: Date.now(),
+  };
+  entry.gunzip.on("error", () => { entry.dead = true; });
+  return entry;
+}
+
+/** Parse complete NDJSON lines out of `text` into the entry's arrays; keep the
+ *  trailing partial line in `entry.pending` for the next append. */
+function parseIntoEntry(entry: TickCacheEntry, decoded: string): void {
+  const text = entry.pending + decoded;
+  const lastNl = text.lastIndexOf("\n");
+  if (lastNl === -1) { entry.pending = text; return; }
+  entry.pending = text.slice(lastNl + 1);
   let start = 0;
-  const len = text.length;
-  // Iterate lines without allocating a giant array (split would double memory).
-  while (start < len) {
+  while (start <= lastNl) {
     let end = text.indexOf("\n", start);
-    if (end === -1) end = len;
+    if (end === -1 || end > lastNl) end = lastNl;
     const line = text.slice(start, end);
     start = end + 1;
     if (line.length < 8) continue;
@@ -89,17 +110,127 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
     const price = parseFloat(lm[1]);
     const ts = parseFloat(tm[1]);
     if (!(price > 0) || !(ts > 0)) continue;
-    t.push(ts);
-    ltp.push(price);
-    // Capture the recorded contract id/segment once (one security per file).
-    if (securityId == null) {
+    entry.t.push(ts);
+    entry.ltp.push(price);
+    if (entry.securityId == null) {
       const sm = SECID_RE.exec(line);
-      if (sm) securityId = sm[1];
+      if (sm) entry.securityId = sm[1];
       const gm = SEG_RE.exec(line);
-      if (gm) exchangeSegment = gm[1];
+      if (gm) entry.exchangeSegment = gm[1];
     }
   }
-  return { t, ltp, securityId, exchangeSegment };
+}
+
+/** Feed one raw chunk through the entry's decompressor; resolves with the
+ *  decoded text once a Z_SYNC_FLUSH has pushed everything through. */
+function feedChunk(entry: TickCacheEntry, chunk: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parts: Buffer[] = [];
+    const onData = (d: Buffer) => parts.push(d);
+    const fail = (err: unknown) => { cleanup(); reject(err); };
+    const cleanup = () => {
+      entry.gunzip.off("data", onData);
+      entry.gunzip.off("error", fail);
+    };
+    entry.gunzip.on("data", onData);
+    entry.gunzip.on("error", fail);
+    entry.gunzip.write(chunk, (err) => {
+      if (err) return fail(err);
+      entry.gunzip.flush(zlib.constants.Z_SYNC_FLUSH, () => {
+        cleanup();
+        resolve(Buffer.concat(parts).toString("utf8"));
+      });
+    });
+  });
+}
+
+/** Read [from, to) of a file without holding it open between calls. */
+function readFileSlice(file: string, from: number, to: number): Buffer {
+  const fd = openSync(file, "r");
+  try {
+    const buf = Buffer.allocUnsafe(to - from);
+    let off = 0;
+    while (off < buf.length) {
+      const n = readSync(fd, buf, off, buf.length - off, from + off);
+      if (n <= 0) break;
+      off += n;
+    }
+    return off === buf.length ? buf : buf.subarray(0, off);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Legacy one-shot full read — fallback when the streaming entry went dead. */
+function readUnderlyingTicksFull(file: string): UnderlyingTicks {
+  const entry = newCacheEntry(); // reuse the parser, throw the entry away
+  try {
+    const text = zlib
+      .gunzipSync(readFileSync(file), { finishFlush: zlib.constants.Z_SYNC_FLUSH })
+      .toString("utf8");
+    parseIntoEntry(entry, text + "\n");
+  } catch {
+    return { t: [], ltp: [] };
+  }
+  return { t: entry.t, ltp: entry.ltp, securityId: entry.securityId, exchangeSegment: entry.exchangeSegment };
+}
+
+/**
+ * Read one instrument's recorded underlying ticks for a date. Returns empty
+ * arrays when the file is missing (unrecorded day) or unreadable. Cached
+ * incrementally — repeat calls only decompress the newly appended bytes.
+ */
+export async function readUnderlyingTicks(instrument: string, date: string): Promise<UnderlyingTicks> {
+  if (!DATE_RE.test(date)) return { t: [], ltp: [] };
+  const file = underlyingFilePath(instrument, date);
+  if (!existsSync(file)) return { t: [], ltp: [] };
+
+  const key = `${logFolderFor(instrument)}:${date}`;
+  let entry = tickCache.get(key);
+  const size = statSync(file).size;
+  // A shrunk file means it was replaced (repair/re-record) — start over.
+  if (entry && size < entry.bytesFed) {
+    tickCache.delete(key);
+    entry = undefined;
+  }
+  if (!entry) {
+    entry = newCacheEntry();
+    tickCache.set(key, entry);
+    // LRU eviction, never evicting the entry we just made.
+    if (tickCache.size > TICK_CACHE_MAX) {
+      let oldestKey: string | null = null;
+      let oldestTs = Infinity;
+      tickCache.forEach((e, k) => {
+        if (k !== key && e.lastAccess < oldestTs) { oldestTs = e.lastAccess; oldestKey = k; }
+      });
+      if (oldestKey) {
+        tickCache.get(oldestKey)?.gunzip.destroy();
+        tickCache.delete(oldestKey);
+      }
+    }
+  }
+  entry.lastAccess = Date.now();
+
+  if (entry.dead) return readUnderlyingTicksFull(file);
+
+  const e = entry;
+  const job = e.chain.then(async () => {
+    if (e.dead || size <= e.bytesFed) return;
+    const chunk = readFileSlice(file, e.bytesFed, size);
+    try {
+      const decoded = await feedChunk(e, chunk);
+      e.bytesFed += chunk.length;
+      parseIntoEntry(e, decoded);
+    } catch {
+      e.dead = true; // corrupt stream — future calls use the full-read fallback
+    }
+  });
+  e.chain = job.catch(() => {});
+  await job;
+
+  if (e.dead) return readUnderlyingTicksFull(file);
+  // Snapshot copies: a later append must never mutate arrays mid-serialization.
+  return { t: e.t.slice(), ltp: e.ltp.slice(), securityId: e.securityId, exchangeSegment: e.exchangeSegment };
 }
 
 /**

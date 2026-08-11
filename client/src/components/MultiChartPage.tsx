@@ -14,7 +14,7 @@
  * endpoint decompresses the full option gz, far too heavy × 4 panes).
  * Reached via ?view=multichart&group=NSE|MCX.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   CHART_INTERVALS,
@@ -23,6 +23,7 @@ import {
   MCX_CHART_INSTRUMENTS,
   CHART_UP,
   CHART_DOWN,
+  CHART_ENTRY,
   type ChartStyle,
   type IndicatorKey,
 } from "@/lib/instrumentChart";
@@ -43,6 +44,28 @@ function optionSegmentFor(inst: string): string {
 const NO_MARKERS: never[] = [];
 const NO_LINES: never[] = [];
 
+/** The slice of a tradesForChart row the panes need for their price lines. */
+interface PaneTradeRow {
+  side: "CE" | "PE";
+  status: string;
+  entryTime: number;
+  entryPrice: number;
+  stopLossPrice: number | null;
+  targetPrice: number | null;
+  exitPrice: number | null;
+}
+
+/** The trade whose levels a pane draws: the latest OPEN one on that side, or
+ *  — when the side is idle — the most recent closed one (Partha 2026-08-11:
+ *  "if no active trade, show the previous"). */
+function pickTradeForSide(rows: PaneTradeRow[], side: "CE" | "PE"): PaneTradeRow | null {
+  const mine = rows.filter((r) => r.side === side);
+  if (!mine.length) return null;
+  const open = mine.filter((r) => r.status === "OPEN");
+  const pool = open.length ? open : mine;
+  return pool.reduce((a, b) => (b.entryTime > a.entryTime ? b : a));
+}
+
 export function multiChartGroupFromUrl(): "NSE" | "MCX" | null {
   if (typeof window === "undefined") return null;
   const g = new URLSearchParams(window.location.search).get("group");
@@ -55,7 +78,7 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
@@ -64,6 +87,8 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active }: {
   /** An OPEN paper trade exists on this instrument+side. Panes without one
    *  are dimmed so the eye lands on where money is actually working. */
   active: boolean;
+  /** The trade whose levels to draw (active one, else the previous). */
+  trade: PaneTradeRow | null;
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -79,6 +104,20 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active }: {
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
 
+  // Reference lines: Entry / TSL / Target always; Exit only once closed.
+  // Memoized on the primitive levels so an unchanged trade never rebuilds
+  // the chart (which would reset the user's zoom).
+  const tradeLines = useMemo(() => {
+    if (!trade) return NO_LINES as { price: number; color: string; title: string }[];
+    const lines: { price: number; color: string; title: string }[] = [];
+    if (trade.entryPrice > 0) lines.push({ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" });
+    if (trade.stopLossPrice != null && trade.stopLossPrice > 0) lines.push({ price: trade.stopLossPrice, color: "#FB923C", title: "TSL" });
+    if (trade.targetPrice != null && trade.targetPrice > 0) lines.push({ price: trade.targetPrice, color: CHART_UP, title: "Target" });
+    if (trade.status !== "OPEN" && trade.exitPrice != null && trade.exitPrice > 0) lines.push({ price: trade.exitPrice, color: "#94A3B8", title: "Exit" });
+    return lines;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the primitive levels, not the row object identity
+  }, [trade?.entryPrice, trade?.stopLossPrice, trade?.targetPrice, trade?.exitPrice, trade?.status]);
+
   return (
     <div
       className={`min-h-0 relative rounded border border-border/60 transition-opacity duration-300 ${
@@ -89,7 +128,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active }: {
       <TickChart
         candles={c.candles}
         markers={NO_MARKERS}
-        tradeLines={NO_LINES}
+        tradeLines={tradeLines}
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}
@@ -171,13 +210,13 @@ function InstrumentRow({ instKey, intervalSec, style, indicators }: {
     { channel: "paper", instrument: instKey, date: istDateString() },
     { refetchInterval: 10_000, refetchOnWindowFocus: false },
   );
-  const rows = (trades.data ?? []) as Array<{ side: "CE" | "PE"; status: string }>;
-  const openCE = rows.some((t) => t.side === "CE" && t.status === "OPEN");
-  const openPE = rows.some((t) => t.side === "PE" && t.status === "OPEN");
+  const rows = (trades.data ?? []) as PaneTradeRow[];
+  const ceTrade = pickTradeForSide(rows, "CE");
+  const peTrade = pickTradeForSide(rows, "PE");
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={openCE} />
-      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={openPE} />
+      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={ceTrade?.status === "OPEN"} trade={ceTrade} />
+      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={peTrade?.status === "OPEN"} trade={peTrade} />
     </div>
   );
 }
