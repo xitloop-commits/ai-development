@@ -742,6 +742,24 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         }
         i2 = j2;
       }
+      // GREEN run endings (Partha 2026-08-12): the lagging 5-min slope keeps
+      // the ribbon green a few minutes past the top, "covering a bit of the
+      // downtrend". Trim: walk back from each green run's end while the SMA5
+      // itself is already falling minute-over-minute, and hand those minutes
+      // to the RED run that follows.
+      i2 = 0;
+      while (i2 < seq.length) {
+        let j2 = i2;
+        while (j2 < seq.length && angleOfMin.get(seq[j2])!.trend === angleOfMin.get(seq[i2])!.trend) j2++;
+        if (angleOfMin.get(seq[i2])!.trend === 1 && j2 < seq.length && angleOfMin.get(seq[j2])!.trend === -1) {
+          let t = j2 - 1;
+          while (t > i2 && angleOfMin.get(seq[t])!.sma < angleOfMin.get(seq[t - 1])!.sma) {
+            angleOfMin.get(seq[t])!.trend = -1;
+            t--;
+          }
+        }
+        i2 = j2;
+      }
     }
     // ONE continuous tri-coloured line just under the SMA5: GREEN while the
     // slope leans up past the noise floor, RED leaning down, GRAY only when
