@@ -418,8 +418,12 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   const [style, setStyle] = useState<ChartStyle>("ha"); // Heikin-Ashi by default (matches the SMA5 detector)
   // SEA signals still power the MA-line colouring + the trade-reason panel, but
   // are no longer drawn as chart markers (trades only).
-  const [showTrades, setShowTrades] = useState(true);
-  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => new Set<IndicatorKey>(["ma", "sma5"]));
+  // Test chart (singlePane): clean view — trades + MA off, SMA5 + the
+  // tri-colour angle line carry the story (Partha 2026-08-11).
+  const [showTrades, setShowTrades] = useState(!singlePane);
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
+    () => new Set<IndicatorKey>(singlePane ? ["sma5"] : ["ma", "sma5"]),
+  );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
