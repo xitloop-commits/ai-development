@@ -87,6 +87,9 @@ interface CommonCfg {
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
+  // T161 — session strike lock + per-instrument master switch (mirrors server).
+  strikeLock: { paperEnabled: boolean; liveEnabled: boolean; perInstrument: Record<string, number> };
+  instrumentEnabled: Record<string, boolean>;
   masterExits: {
     tp: { enabled: boolean; mode: ExitLevelMode; value: number };
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };
