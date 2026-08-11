@@ -54,6 +54,8 @@ interface PaneTradeRow {
   stopLossPrice: number | null;
   targetPrice: number | null;
   exitPrice: number | null;
+  strike: number | null;
+  contractSecurityId: string | null;
 }
 
 /** The trade whose levels a pane draws: the latest OPEN one on that side, or
@@ -97,8 +99,14 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
   );
   const ls = liveState.data as { live?: AtmShape; signal?: AtmShape } | undefined;
   const atm = ls?.live ?? ls?.signal ?? null;
-  const secId = (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
-  const strike = atm?.atm_strike ?? null;
+  // While a trade is OPEN on this side, PIN the pane to the trade's contract —
+  // an ATM roll must not switch the chart away from the position being managed
+  // (Partha 2026-08-11). Idle panes follow the rolling ATM as before.
+  const pinned = active && trade?.contractSecurityId ? trade : null;
+  const secId = pinned
+    ? pinned.contractSecurityId
+    : (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
+  const strike = pinned ? pinned.strike : atm?.atm_strike ?? null;
 
   // Session history for THIS contract from the server's option-day index
   // (instant after the index's one-time build) — seeds the pane so a refresh
@@ -155,8 +163,8 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
         className="h-full"
         header={<>
           <span className="font-bold">{label}</span>
-          <span className="font-bold" style={{ color: sideColor }}>
-            {strike ?? "—"} {side}
+          <span className="font-bold" style={{ color: sideColor }} title={pinned ? "Pinned to the open trade's contract (ATM roll won't switch this pane)" : "Following the current ATM strike"}>
+            {strike ?? "—"} {side}{pinned ? " 📌" : ""}
           </span>
           <span className="text-muted-foreground">
             {last != null ? last.toFixed(2) : ""} · {c.tickCount} tk
