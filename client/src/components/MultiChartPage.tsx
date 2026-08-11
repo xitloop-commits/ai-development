@@ -99,7 +99,20 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
   const secId = (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
   const strike = atm?.atm_strike ?? null;
 
-  const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true);
+  // Session history for THIS contract from the server's option-day index
+  // (instant after the index's one-time build) — seeds the pane so a refresh
+  // shows the whole session, not just ticks since the window opened. Keyed by
+  // securityId: an ATM roll fetches the new contract's history automatically.
+  const seedQ = trpc.trading.optionTicksForContract.useQuery(
+    { instrument: instKey, date: istDateString(), securityId: secId ?? "" },
+    { enabled: !!secId, staleTime: Infinity, refetchOnWindowFocus: false, retry: 1 },
+  );
+  const seed = useMemo(() => {
+    const d = seedQ.data as { t: number[]; ltp: number[] } | undefined;
+    return d && d.t.length ? { t: d.t, ltp: d.ltp } : undefined;
+  }, [seedQ.data]);
+
+  const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
@@ -132,7 +145,12 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}
-        emptyText={secId ? "Waiting for live ticks…" : "Waiting for the ATM contract (feed warming up)…"}
+        emptyText={
+          !secId ? "Waiting for the ATM contract (feed warming up)…"
+            : seedQ.isLoading ? "Loading session history… (first load builds the day index)"
+              : "Waiting for live ticks…"
+        }
+        loading={!!secId && seedQ.isLoading}
         className="h-full"
         header={<>
           <span className="font-bold">{label}</span>

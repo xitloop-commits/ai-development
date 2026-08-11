@@ -123,7 +123,7 @@ function parseIntoEntry(entry: TickCacheEntry, decoded: string): void {
 
 /** Feed one raw chunk through the entry's decompressor; resolves with the
  *  decoded text once a Z_SYNC_FLUSH has pushed everything through. */
-function feedChunk(entry: TickCacheEntry, chunk: Buffer): Promise<string> {
+function feedChunk(entry: { gunzip: zlib.Gunzip }, chunk: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const parts: Buffer[] = [];
     const onData = (d: Buffer) => parts.push(d);
@@ -250,6 +250,95 @@ export async function readUnderlyingTicks(instrument: string, date: string): Pro
 // periodic yielding keeps the loop responsive so live ticks always get through.
 let optionScanChain: Promise<unknown> = Promise.resolve();
 
+// ─── TODAY's option-file index (2026-08-11) ────────────────────────────────
+// The multichart ATM panes need per-contract session history, and ATM rolls
+// mean fresh contracts all day — a 15–30s full-file scan per contract was a
+// non-starter. Instead, index TODAY's option file ONCE into per-security
+// arrays (incrementally fed exactly like the underlying tick cache), so any
+// contract's history is an O(1) lookup and stays fresh as the recorder
+// appends. First build streams the whole file (chunked + yielding, ~10–30s,
+// serialized on optionScanChain so live WS ticks never starve); after that
+// each refresh decompresses only the new bytes. Historical dates keep the
+// legacy one-contract scan (indexing every visited day would hoard memory).
+
+interface OptionDayIndex {
+  bytesFed: number;
+  gunzip: zlib.Gunzip;
+  dead: boolean;
+  pending: string;
+  bySec: Map<string, { t: number[]; ltp: number[] }>;
+  chain: Promise<unknown>;
+}
+
+const optionIndexCache = new Map<string, OptionDayIndex>();
+
+function todayIST(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function newOptionIndex(): OptionDayIndex {
+  const idx: OptionDayIndex = {
+    bytesFed: 0,
+    gunzip: zlib.createGunzip(),
+    dead: false,
+    pending: "",
+    bySec: new Map(),
+    chain: Promise.resolve(),
+  };
+  idx.gunzip.on("error", () => { idx.dead = true; });
+  return idx;
+}
+
+function parseOptionLines(idx: OptionDayIndex, decoded: string): void {
+  const text = idx.pending + decoded;
+  const lastNl = text.lastIndexOf("\n");
+  if (lastNl === -1) { idx.pending = text; return; }
+  idx.pending = text.slice(lastNl + 1);
+  let start = 0;
+  while (start <= lastNl) {
+    let end = text.indexOf("\n", start);
+    if (end === -1 || end > lastNl) end = lastNl;
+    const line = text.slice(start, end);
+    start = end + 1;
+    if (line.length < 8) continue;
+    const lm = LTP_RE.exec(line);
+    if (!lm) continue;
+    const price = parseFloat(lm[1]);
+    if (!(price > 0)) continue; // pre-open zero rows — most lines skip here
+    const sm = SECID_RE.exec(line);
+    if (!sm) continue;
+    const tm = RECV_TS_RE.exec(line);
+    if (!tm) continue;
+    const ts = parseFloat(tm[1]);
+    if (!(ts > 0)) continue;
+    let rec = idx.bySec.get(sm[1]);
+    if (!rec) { rec = { t: [], ltp: [] }; idx.bySec.set(sm[1], rec); }
+    rec.t.push(ts);
+    rec.ltp.push(price);
+  }
+}
+
+/** Bring the index up to the file's current size, 4 MB at a time, yielding
+ *  the event loop between chunks so the live WS broadcast keeps flowing. */
+async function refreshOptionIndex(idx: OptionDayIndex, file: string): Promise<void> {
+  const size = statSync(file).size;
+  const CHUNK = 4 << 20;
+  while (!idx.dead && idx.bytesFed < size) {
+    const to = Math.min(idx.bytesFed + CHUNK, size);
+    const raw = readFileSlice(file, idx.bytesFed, to);
+    if (raw.length === 0) return;
+    try {
+      const decoded = await feedChunk(idx, raw);
+      idx.bytesFed += raw.length;
+      parseOptionLines(idx, decoded);
+    } catch {
+      idx.dead = true;
+      return;
+    }
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
 export function readOptionContractTicks(
   instrument: string,
   date: string,
@@ -259,6 +348,35 @@ export function readOptionContractTicks(
   const folder = logFolderFor(instrument);
   const file = path.resolve(DATA_RAW, date, `${folder}_option_ticks.ndjson.gz`);
   if (!existsSync(file)) return Promise.resolve({ t: [], ltp: [] });
+
+  // TODAY → serve from the incrementally-fed per-security index.
+  if (date === todayIST()) {
+    const key = `${folder}:${date}`;
+    let idx = optionIndexCache.get(key);
+    if (idx && statSync(file).size < idx.bytesFed) {
+      idx.gunzip.destroy(); // file replaced — start over
+      optionIndexCache.delete(key);
+      idx = undefined;
+    }
+    if (!idx) {
+      // Evict stale-date entries (yesterday's indexes after midnight roll).
+      optionIndexCache.forEach((v, k) => {
+        if (!k.endsWith(date)) { v.gunzip.destroy(); optionIndexCache.delete(k); }
+      });
+      idx = newOptionIndex();
+      optionIndexCache.set(key, idx);
+    }
+    const i = idx;
+    const run = async (): Promise<UnderlyingTicks> => {
+      await refreshOptionIndex(i, file);
+      if (i.dead) return scanOptionFile(file, securityId); // legacy fallback
+      const rec = i.bySec.get(securityId);
+      return rec ? { t: rec.t.slice(), ltp: rec.ltp.slice() } : { t: [], ltp: [] };
+    };
+    const result = optionScanChain.then(run, run);
+    optionScanChain = result.catch(() => {});
+    return result;
+  }
 
   const run = () => scanOptionFile(file, securityId);
   const result = optionScanChain.then(run, run);
