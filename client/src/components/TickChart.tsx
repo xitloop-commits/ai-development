@@ -71,6 +71,9 @@ export interface TickChartProps {
    *  candle mode) + its period. Defaults to HA/5 = the detector default. */
   sma5Ha?: boolean;
   sma5Period?: number;
+  /** Test-chart (2026-08-11): show the SMA5 line's angle at the HOVERED candle
+   *  in a bottom strip — degrees + %/5c (0.2%/5c ≈ 45°, underlying scale). */
+  hoverAngleStrip?: boolean;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -91,6 +94,7 @@ export function TickChart({
   sma5Ha = true,
   sma5Period = 5,
   extraLines,
+  hoverAngleStrip,
   header,
   loading,
   emptyText,
@@ -113,6 +117,7 @@ export function TickChart({
   // (keep following live) from "zoomed/panned" (preserve the window).
   const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number }>({ logical: null, count: 0 });
   const legendRef = useRef<HTMLDivElement>(null);
+  const angleRef = useRef<HTMLDivElement>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
   const { theme } = useTheme(); // re-theme the chart when the operator toggles
@@ -396,13 +401,47 @@ export function TickChart({
     };
     if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
     const timeIndex = new Map(candles.map((c, i) => [c.time as number, i]));
+
+    // Hover angle strip: SMA5 values on the detector's candle mode, angle =
+    // atan(pct-per-5-candles / 0.2) — so a 0.2% move over 5 candles reads 45°
+    // (underlying scale; nifty 0.2%/5c ≈ 50 pts in 5 min = steep).
+    const ANGLE_PCT_45 = 0.2;
+    let sma5Vals: (number | null)[] | null = null;
+    if (hoverAngleStrip) {
+      const src = (sma5Ha ? heikinAshi(rawCandles) : rawCandles).map((k) => k.close);
+      sma5Vals = sma(src, sma5Period);
+    }
+    const renderAngle = (i: number | null) => {
+      const el = angleRef.current;
+      if (!el || !sma5Vals) return;
+      if (i == null || i < 5 || sma5Vals[i] == null || sma5Vals[i - 5] == null) {
+        el.textContent = "SMA5 ∠ —";
+        return;
+      }
+      const now = sma5Vals[i]!;
+      const then = sma5Vals[i - 5]!;
+      const pct = ((now - then) / then) * 100;
+      const deg = (Math.atan(pct / ANGLE_PCT_45) * 180) / Math.PI;
+      const d = new Date(((candles[i].time as number) - 19800) * 1000);
+      const hh = new Date(d.getTime() + 19800 * 1000);
+      el.textContent =
+        `SMA5 ∠ ${deg >= 0 ? "+" : ""}${deg.toFixed(1)}°  (${pct >= 0 ? "+" : ""}${pct.toFixed(3)}% /5c)  @ ` +
+        `${String(hh.getUTCHours()).padStart(2, "0")}:${String(hh.getUTCMinutes()).padStart(2, "0")}`;
+      el.style.color = deg > 5 ? "#4ADE80" : deg < -5 ? "#F87171" : "";
+    };
+    if (hoverAngleStrip) renderAngle(candles.length - 1);
+
     chart.subscribeCrosshairMove((param) => {
       if (param.time == null) {
         if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
+        if (hoverAngleStrip) renderAngle(candles.length - 1);
         return;
       }
       const i = timeIndex.get(param.time as number);
-      if (i != null) renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
+      if (i != null) {
+        renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
+        if (hoverAngleStrip) renderAngle(i);
+      }
     });
 
     // Restore the user's window across this rebuild. Bar indices are stable on
@@ -445,7 +484,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, extraLines]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, extraLines, hoverAngleStrip]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
@@ -528,6 +567,14 @@ export function TickChart({
           ref={legendRef}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
+        {/* SMA5 hover-angle readout (test chart) — filled from the crosshair. */}
+        {hoverAngleStrip && (
+          <div
+            ref={angleRef}
+            className="absolute bottom-1 left-1 z-10 pointer-events-none rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
+            title="SMA5 slope at the hovered candle: % over 5 candles → degrees (0.2%/5c ≈ 45°)"
+          />
+        )}
         <div ref={containerRef} className="h-full w-full" />
         {/* Drag handles for movable lines (e.g. Target). A full-width grab strip
             at the line's Y with a grip + live price on the right. */}

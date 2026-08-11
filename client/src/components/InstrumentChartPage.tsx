@@ -982,6 +982,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
             sma5Ha={sma5Ha}
             sma5Period={sma5Period}
             loading={ticksLoading}
+            hoverAngleStrip={singlePane}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"
             onTimeClick={onUnderlyingClick}
