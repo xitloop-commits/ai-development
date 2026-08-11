@@ -173,8 +173,10 @@ export default function MultiChartPage() {
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's candles.
   const [style, setStyle] = useState<ChartStyle>("ha");
-  // SMA-5 on by default (Partha, 2026-08-05) — same default as the other charts.
-  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(new Set(["sma5"]));
+  // SMA-5 + MA on by default (Partha, 2026-08-11).
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
+    () => new Set<IndicatorKey>(["sma5", "ma"]),
+  );
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
