@@ -45,6 +45,50 @@ function optionSegmentFor(inst: string): string {
 const NO_MARKERS: never[] = [];
 const NO_LINES: never[] = [];
 
+/**
+ * MA angle over the last 5 candles (Partha 2026-08-11). Slope is measured on
+ * the 20-EMA (the chart's MA line): % change across the 5 most recent candles,
+ * mapped to degrees as atan(pct) — so +1% over 5 candles reads ≈ +45°, flat
+ * reads 0°. Chart-pixel angles depend on zoom, so a % basis is the only
+ * stable definition; the tooltip spells it out.
+ */
+function maAngle(candles: { close: number }[]): { deg: number; pct: number } | null {
+  const EMA_N = 20;
+  if (candles.length < EMA_N + 5) return null;
+  const k = 2 / (EMA_N + 1);
+  let e = candles[0].close;
+  const ema: number[] = [e];
+  for (let i = 1; i < candles.length; i++) {
+    e = candles[i].close * k + e * (1 - k);
+    ema.push(e);
+  }
+  const now = ema[ema.length - 1];
+  const then = ema[ema.length - 1 - 5];
+  if (!(then > 0)) return null;
+  const pct = ((now - then) / then) * 100;
+  return { deg: (Math.atan(pct) * 180) / Math.PI, pct };
+}
+
+function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
+  const a = useMemo(() => maAngle(candles), [candles]);
+  if (!a) return null;
+  const tone = a.deg > 5 ? "text-bullish" : a.deg < -5 ? "text-bearish" : "text-muted-foreground";
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 z-20 flex items-center gap-2 px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
+      title="MA(20-EMA) slope over the LAST 5 CANDLES: % change mapped to degrees (atan; +1%/5c ≈ +45°). Zoom-independent."
+    >
+      <span className="text-muted-foreground">MA ∠</span>
+      <span className={`font-bold tabular-nums ${tone}`}>
+        {a.deg >= 0 ? "+" : ""}{a.deg.toFixed(1)}°
+      </span>
+      <span className="text-muted-foreground tabular-nums">
+        ({a.pct >= 0 ? "+" : ""}{a.pct.toFixed(2)}% / 5c)
+      </span>
+    </div>
+  );
+}
+
 /** The slice of a tradesForChart row the panes need for their price lines. */
 interface PaneTradeRow {
   side: "CE" | "PE";
@@ -180,6 +224,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
           </span>
         </>}
       />
+      <MaAngleStrip candles={c.candles} />
     </div>
   );
 }
