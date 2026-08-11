@@ -25,7 +25,7 @@ import { useSeaStatus } from "@/stores/seaStatusStore";
 import { useChannel } from "@/contexts/CapitalContext";
 import { useSignalEpoch } from "@/stores/liveSignals";
 
-// â”€â”€ Local mirror of the server AiModeConfig (client has no router-output type) â”€â”€
+// ── Local mirror of the server AiModeConfig (client has no router-output type) ──
 /** "percent" = % of premium; "rupees" = net ₹ P&L (after charges) on the position. */
 type ExitLevelMode = "percent" | "rupees";
 interface ExitCfg {
@@ -101,7 +101,7 @@ type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };
 type AllCfg = { common: CommonCfg; paper: BookCfg; live: BookCfg; replay: BookCfg };
 type Mode = "paper" | "live";
 
-// â”€â”€ Small building blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Small building blocks ────────────────────────────────────────────────────
 function Pill({ label, on, onClick, disabled }: { label: string; on: boolean; onClick?: () => void; disabled?: boolean }) {
   return (
     <button
@@ -291,7 +291,7 @@ function Group({ title, children, help, collapsible = false }: {
             className="flex items-center gap-1 hover:text-foreground transition-colors"
             title={bodyOpen ? "Collapse" : "Expand"}
           >
-            <span className="text-[0.5rem] text-muted-foreground w-2">{bodyOpen ? "â–¾" : "â–¸"}</span>
+            <span className="text-[0.5rem] text-muted-foreground w-2">{bodyOpen ? "▾" : "▸"}</span>
             <SectionLabel>{title}</SectionLabel>
           </button>
         ) : (
@@ -323,7 +323,7 @@ function SubGroup({ children }: { children: React.ReactNode }) {
   );
 }
 
-// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Component ─────────────────────────────────────────────────────────────────
 const COHORTS: { key: "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing"; label: string }[] = [
   { key: "scalp", label: "Scalp" },
   { key: "trend", label: "Trend" },
@@ -362,7 +362,7 @@ const HELP = {
     "Same staged stops as Runway, but banks the profit AT the target instead of riding past it. Use when you'd rather take the sure gain than risk giving it back.",
 
   // Sprint-only.
-  sprintSL: "Stop-loss. % = a % move below entry premium. ₹ = a NET rupee loss (after round-trip charges) on the whole position — exits the moment live net P&L drops to âˆ’₹ this, whatever the lot size.",
+  sprintSL: "Stop-loss. % = a % move below entry premium. ₹ = a NET rupee loss (after round-trip charges) on the whole position — exits the moment live net P&L drops to −₹ this, whatever the lot size.",
   sprintTP: "Take-profit. % = a % move above entry premium. ₹ = a NET rupee profit (after round-trip charges) on the whole position — banks the moment live net P&L reaches +₹ this.",
   dailyTarget:
     "Day's profit goal as a % of capital. Once the book reaches it, no new trades are taken for the rest of the day.",
@@ -618,7 +618,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
               </span>
             </div>
 
-            {/* â‘  AI trades switch — normal AI menu only. A replay never places on
+            {/* ① AI trades switch — normal AI menu only. A replay never places on
                 a real book (trades redirect to the run), so it has no such switch. */}
             {!replay && (
             <div className="p-3 border-b border-border flex items-center justify-between">
@@ -665,7 +665,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
             ) : (
               <>
                 <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-cyan p-3 space-y-3">
-                {/* â‘¡ Cohorts */}
+                {/* ② Cohorts */}
                 <div className="border-t border-border pt-2 flex flex-col gap-2">
                   {/* Label + toggles share one row to save vertical space. */}
                   <div className="flex items-center justify-between gap-2">
@@ -684,7 +684,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                   </div>
                 </div>
 
-                {/* â‘¡b Model — which trained version the RUNNING SEA scores with.
+                {/* ②b Model — which trained version the RUNNING SEA scores with.
                     Applies immediately (hot-swap, no restart) and is NOT part of
                     the paper/live draft: there is one SEA process, so the model
                     is global, not per-mode. Hidden in Replay settings — a replay
@@ -720,7 +720,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                 </Group>
                 )}
 
-                {/* â‘¢ Strategy RACE per cohort (T144). For each cohort that's on,
+                {/* ③ Strategy RACE per cohort (T144). For each cohort that's on,
                     toggle which exit strategies to run — a signal places ONE trade
                     per enabled strategy, so you can compare them on the same
                     signal. The Common default is locked ON (can't be muted);
