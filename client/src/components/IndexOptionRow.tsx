@@ -180,8 +180,8 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
           </span>
         </div>
 
-        {/* Line 2 — expiry · strike · CE/PE · Long */}
-        <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-1">
+        {/* Line 2 — expiry · strike · re-lock · instrument switch */}
+        <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-1">
           <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
             {expiryLabel ?? '—'}
           </span>
@@ -215,14 +215,19 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
             {instOn ? '✓' : '✕'}
           </button>
 
+        </div>
+
+        {/* Line 3 — CE/PE toggle + Long/Short (moved off line 2, which now
+            holds expiry · strike · re-lock · instrument switch) */}
+        <div className="flex items-center gap-1.5 px-2.5 pb-1.5">
           {/* CE / PE toggle */}
-          <div className="flex rounded border border-border overflow-hidden ml-auto">
+          <div className="flex rounded border border-border overflow-hidden">
             {(['CE', 'PE'] as const).map((s) => (
               <button
                 key={s}
                 type="button"
                 onClick={() => setSide(s)}
-                className={`px-1.5 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
                   side === s
                     ? s === 'CE'
                       ? 'bg-bullish/20 text-bullish'
@@ -236,25 +241,27 @@ export function IndexOptionRow({ name, label, color }: { name: string; label: st
           </div>
 
           {/* Long / Short — ctrl+click places */}
-          {([
-            { dir: 'LONG' as const, verb: 'BUY', cls: 'bg-bullish/15 text-bullish border-bullish/40 hover:bg-bullish/25' },
-            { dir: 'SHORT' as const, verb: 'SELL', cls: 'bg-bearish/15 text-bearish border-bearish/40 hover:bg-bearish/25' },
-          ]).map(({ dir, verb, cls }) => (
-            <button
-              key={dir}
-              type="button"
-              disabled={!ready}
-              onClick={(e) => { if (e.ctrlKey || e.metaKey) place(dir); }}
-              title={
-                ready
-                  ? `Ctrl+click to ${verb} ${label} ${atmStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord}) · ${exitStrategy} exit`
-                  : 'Waiting for the ATM contract and its premium'
-              }
-              className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${cls}`}
-            >
-              {dir === 'LONG' ? 'Long' : 'Short'}
-            </button>
-          ))}
+          <div className="flex gap-1.5 ml-auto">
+            {([
+              { dir: 'LONG' as const, verb: 'BUY', cls: 'bg-bullish/15 text-bullish border-bullish/40 hover:bg-bullish/25' },
+              { dir: 'SHORT' as const, verb: 'SELL', cls: 'bg-bearish/15 text-bearish border-bearish/40 hover:bg-bearish/25' },
+            ]).map(({ dir, verb, cls }) => (
+              <button
+                key={dir}
+                type="button"
+                disabled={!ready}
+                onClick={(e) => { if (e.ctrlKey || e.metaKey) place(dir); }}
+                title={
+                  ready
+                    ? `Ctrl+click to ${verb} ${label} ${shownStrike} ${side} at ~₹${premium.toFixed(2)} (${liveWord}) · ${exitStrategy} exit`
+                    : 'Waiting for the contract and its premium'
+                }
+                className={`px-2.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${cls}`}
+              >
+                {dir === 'LONG' ? 'Long' : 'Short'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
