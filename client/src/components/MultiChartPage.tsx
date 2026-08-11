@@ -154,12 +154,32 @@ interface PaneTradeRow {
   side: "CE" | "PE";
   status: string;
   entryTime: number;
+  exitTime?: number | null;
   entryPrice: number;
   stopLossPrice: number | null;
   targetPrice: number | null;
   exitPrice: number | null;
+  pnl?: number;
+  tradeNo?: number | null;
   strike: number | null;
   contractSecurityId: string | null;
+}
+
+/** Snap a trade timestamp onto the pane's candle grid. Tries the raw epoch
+ *  AND the IST-shifted epoch (chart surfaces differ); null when neither lands
+ *  within 3 candles — the marker is dropped rather than drawn misplaced. */
+function snapTradeTime(times: number[], raw: number, intervalSec: number): number | null {
+  if (!times.length || !raw) return null;
+  const sec = raw > 1e11 ? raw / 1000 : raw;
+  let best: number | null = null;
+  let bestD = Infinity;
+  for (const target of [sec, sec + 19800]) {
+    for (const t of times) {
+      const d = Math.abs(t - target);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+  }
+  return bestD <= intervalSec * 3 ? best : null;
 }
 
 /** The trade whose levels a pane draws: the latest OPEN one on that side, or
@@ -185,7 +205,7 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
@@ -196,6 +216,9 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
   active: boolean;
   /** The trade whose levels to draw (active one, else the previous). */
   trade: PaneTradeRow | null;
+  /** ALL of today's trades on this side — entry/exit markers for every one
+   *  that sits on the pane's contract (Partha 2026-08-11). */
+  trades: PaneTradeRow[];
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -236,6 +259,24 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
 
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
+  // Entry/exit markers for EVERY today-trade on this pane's contract.
+  const markers = useMemo(() => {
+    const times = c.candles.map((cd) => cd.time as number);
+    const out: { time: never; position: "belowBar" | "aboveBar"; color: string; shape: "arrowUp" | "arrowDown"; text: string }[] = [];
+    for (const t of trades) {
+      const onThis = (t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike);
+      if (!onThis) continue;
+      const tIn = snapTradeTime(times, t.entryTime, intervalSec);
+      if (tIn != null) out.push({ time: tIn as never, position: "belowBar", color: CHART_ENTRY, shape: "arrowUp", text: t.tradeNo != null ? `#${t.tradeNo}` : "" });
+      const tOut = t.exitTime ? snapTradeTime(times, t.exitTime, intervalSec) : null;
+      if (tOut != null) {
+        const win = (t.pnl ?? 0) >= 0;
+        out.push({ time: tOut as never, position: "aboveBar", color: win ? CHART_UP : CHART_DOWN, shape: "arrowDown", text: "" });
+      }
+    }
+    return out.sort((a, b) => (a.time as unknown as number) - (b.time as unknown as number));
+  }, [c.candles, trades, secId, strike, intervalSec]);
+
   // Blue below-MA line while angle > +50°; pink above-MA line while < −50°.
   const steepLines = useMemo(() => {
     const { up, down } = steepMaLines(c.candles as { time: number; close: number }[]);
@@ -270,7 +311,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade 
     >
       <TickChart
         candles={c.candles}
-        markers={NO_MARKERS}
+        markers={markers as never[]}
         tradeLines={tradeLines}
         style={style}
         indicators={indicators}
@@ -381,8 +422,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators }: {
   const peTrade = pickTradeForSide(rows, "PE");
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={ceTrade?.status === "OPEN"} trade={ceTrade} />
-      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={peTrade?.status === "OPEN"} trade={peTrade} />
+      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} />
+      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} />
     </div>
   );
 }
