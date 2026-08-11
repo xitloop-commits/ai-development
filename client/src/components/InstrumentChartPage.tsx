@@ -673,6 +673,39 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         .reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null),
     [tradeRows],
   );
+  // Test chart (2026-08-11): trend segments from the SMA5 angle logic —
+  // GREEN 0.05% below the SMA5 while its 5-candle angle > +30° (uptrend),
+  // RED 0.05% above while < −30° (downtrend); whitespace gaps elsewhere.
+  // Underlying scale: 0.2%/5c ≈ 45° (same yardstick as the hover readout).
+  const trendLines = useMemo(() => {
+    if (!singlePane || baseCandles.length < 10) return undefined;
+    const src = (sma5Ha ? baseCandles.map((c) => c) : baseCandles); // HA applied inside TickChart for display; compute on closes here
+    const closes = src.map((c) => c.close);
+    const p = sma5Period || 5;
+    const smaV: (number | null)[] = closes.map((_, i) => {
+      if (i < p - 1) return null;
+      let s = 0;
+      for (let k = 0; k < p; k++) s += closes[i - k];
+      return s / p;
+    });
+    const up: { time: number; value?: number }[] = [];
+    const down: { time: number; value?: number }[] = [];
+    baseCandles.forEach((c, i) => {
+      const now = smaV[i];
+      const then = i >= 5 ? smaV[i - 5] : null;
+      let deg = 0;
+      if (now != null && then != null && then > 0) {
+        deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
+      }
+      up.push(deg > 30 && now != null ? { time: c.time as number, value: now * 0.9995 } : { time: c.time as number });
+      down.push(deg < -30 && now != null ? { time: c.time as number, value: now * 1.0005 } : { time: c.time as number });
+    });
+    return [
+      { data: up as never[], color: "#1a9850" },  // green — uptrend
+      { data: down as never[], color: "#d7301f" }, // red — downtrend
+    ];
+  }, [singlePane, baseCandles, sma5Ha, sma5Period]);
+
   const underlyingEntryLine = useMemo(() => {
     if (!openTrade || baseCandles.length === 0) return [];
     const times = baseCandles.map((c) => c.time);
@@ -983,6 +1016,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
             sma5Period={sma5Period}
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
+            extraLines={trendLines}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"
             onTimeClick={onUnderlyingClick}
