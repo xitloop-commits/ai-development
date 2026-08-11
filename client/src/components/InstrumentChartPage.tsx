@@ -697,19 +697,33 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
       for (let k = 0; k < p; k++) s += mClose[i - k];
       return s / p;
     });
-    const angleOfMin = new Map<number, { deg: number; sma: number }>();
+    // Per-minute 5-minute % moves of the SMA5.
+    const pctOfMin = new Map<number, { pct: number; sma: number }>();
+    const allAbs: number[] = [];
     mins.forEach((m, i) => {
       const now = mSma[i];
       const then = i >= 5 ? mSma[i - 5] : null;
       if (now == null || then == null || !(then > 0)) return;
-      const deg = (Math.atan((((now - then) / then) * 100) / 0.2) * 180) / Math.PI;
-      angleOfMin.set(m, { deg, sma: now });
+      const pct = ((now - then) / then) * 100;
+      pctOfMin.set(m, { pct, sma: now });
+      allAbs.push(Math.abs(pct));
+    });
+    // SELF-CALIBRATING yardstick (2026-08-11): each instrument moves a
+    // different % per 5 min, so a fixed 0.2% scale left crude/banknifty
+    // almost entirely gray. Trend = the day's own top-20% steepness: the
+    // 80th percentile of |move| becomes the 45° mark, trigger stays at
+    // effectively that P80 (top quintile colours, rest gray).
+    const sortedAbs = [...allAbs].sort((a, b) => a - b);
+    const yard = Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? 0.02, 0.005);
+    const angleOfMin = new Map<number, { deg: number; sma: number }>();
+    pctOfMin.forEach((v, m) => {
+      angleOfMin.set(m, { deg: (Math.atan(v.pct / yard) * 180) / Math.PI, sma: v.sma });
     });
     // ONE continuous tri-coloured line just under the SMA5 (Partha
-    // 2026-08-11): GREEN angle > +10°, RED < −10°, GRAY in between (chop).
-    // Trigger calibrated on today's quiet 100-pt day (max angle ±24°,
-    // >10° ≈ 17% of minutes). Tune with the 0.2%/5c yardstick.
-    const TRIGGER_DEG = 10;
+    // 2026-08-11): GREEN when the 5-min move is in the day's top-20%
+    // steepness upward (reads > +45° on the adaptive scale), RED downward,
+    // GRAY otherwise. 45° = the P80 move by construction.
+    const TRIGGER_DEG = 45;
     const line: { time: number; value?: number; color?: string }[] = [];
     baseCandles.forEach((c) => {
       const a = angleOfMin.get(Math.floor((c.time as number) / 60));
