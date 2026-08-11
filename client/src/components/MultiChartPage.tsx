@@ -106,8 +106,9 @@ function steepMaLines(candles: { time: number; close: number }[]): {
     let deg = 0;
     const then = i >= 25 ? ema[i - 5] : 0;
     if (then > 0) deg = (Math.atan(((ema[i] - then) / then) * 100) * 180) / Math.PI;
-    up.push(deg > 50 ? { time: c.time, value: ema[i] * 0.997 } : { time: c.time });
-    down.push(deg < -50 ? { time: c.time, value: ema[i] * 1.003 } : { time: c.time });
+    // 1.5% offset — 0.3% visually overlapped the MA line on option premiums.
+    up.push(deg > 50 ? { time: c.time, value: ema[i] * 0.985 } : { time: c.time });
+    down.push(deg < -50 ? { time: c.time, value: ema[i] * 1.015 } : { time: c.time });
   });
   return { up, down };
 }
