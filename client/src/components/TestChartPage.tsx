@@ -127,6 +127,16 @@ export default function TestChartPage() {
   });
   const [side, setSide] = useState<SideFilter>("UND");
   const [strike, setStrike] = useState<number | null>(null);
+  // Refresh: bump remounts the active pane (fresh seed + queries).
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const utils = trpc.useUtils();
+  const doRefresh = () => {
+    utils.trading.underlyingTicks.invalidate();
+    utils.trading.optionTicksForContract.invalidate();
+    utils.trading.tradesForChart.invalidate();
+    utils.trading.signalsForChart.invalidate();
+    setRefreshNonce((n) => n + 1);
+  };
 
   const key = inst.toLowerCase().replace(/_/g, "");
   const strikesQ = trpc.trading.chainStrikes.useQuery(
@@ -176,12 +186,20 @@ export default function TestChartPage() {
         <span className="text-[0.625rem] text-muted-foreground">
           {side === "UND" ? "underlying · single pane" : strikesQ.isLoading ? "loading strikes…" : `expiry ${strikesQ.data?.expiry ?? "—"}`}
         </span>
+        <button
+          type="button"
+          onClick={doRefresh}
+          className="ml-auto rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          title="Refresh — reload the chart's history and overlays"
+        >
+          ⟳
+        </button>
       </div>
       <div className="min-h-0 flex-1">
         {side === "UND" ? (
-          <InstrumentChartPage key={inst} instOverride={inst} singlePane />
+          <InstrumentChartPage key={`${inst}:${refreshNonce}`} instOverride={inst} singlePane />
         ) : effStrike != null ? (
-          <OptionTestPane key={`${inst}:${effStrike}:${side}`} instKey={inst} strike={effStrike} side={side} />
+          <OptionTestPane key={`${inst}:${effStrike}:${side}:${refreshNonce}`} instKey={inst} strike={effStrike} side={side} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {strikesQ.isLoading ? "Loading strike ladder…" : "No strikes available."}
