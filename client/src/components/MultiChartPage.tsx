@@ -18,7 +18,7 @@
  * The old local angle math (MaAngleStrip / steepMaLines) is gone.
  * Reached via ?view=multichart&group=NSE|MCX.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -97,7 +97,7 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts, chartDate, simCutoffRef }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
@@ -113,6 +113,11 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
   trades: PaneTradeRow[];
   /** Settings ▸ Trend angle knobs (CommonConfig.trendAngle). */
   taOpts?: Partial<TrendAngleOptions>;
+  /** Today — or the REPLAYED day while a live-simulation runs (T165). */
+  chartDate: string;
+  /** Sim clock (recorded-day epoch seconds) — the seed is trimmed here so the
+   *  not-yet-replayed rest of the day never paints. null = live (no trim). */
+  simCutoffRef?: MutableRefObject<number | null>;
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -143,12 +148,24 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
   // shows the whole session, not just ticks since the window opened. Keyed by
   // securityId: an ATM roll fetches the new contract's history automatically.
   const seedQ = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: instKey, date: istDateString(), securityId: secId ?? "" },
+    { instrument: instKey, date: chartDate, securityId: secId ?? "" },
     { enabled: !!secId, staleTime: Infinity, refetchOnWindowFocus: false, retry: 1 },
   );
   const seed = useMemo(() => {
     const d = seedQ.data as { t: number[]; ltp: number[] } | undefined;
-    return d && d.t.length ? { t: d.t, ltp: d.ltp } : undefined;
+    if (!d || !d.t.length) return undefined;
+    // Simulation: trim to where the sim clock stood when the seed landed (a
+    // replayed day's file is COMPLETE — without this the whole day paints at
+    // once). Read via ref so the advancing clock doesn't rebuild the chart;
+    // everything after the trim arrives through the live WS stream.
+    const cut = simCutoffRef?.current;
+    if (cut != null) {
+      let n = d.t.length;
+      while (n > 0 && d.t[n - 1] > cut) n--;
+      return n ? { t: d.t.slice(0, n), ltp: d.ltp.slice(0, n) } : undefined;
+    }
+    return { t: d.t, ltp: d.ltp };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cutoff read once per seed arrival via ref
   }, [seedQ.data]);
 
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
@@ -265,6 +282,19 @@ export default function MultiChartPage() {
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
 
+  // T165 — live-simulation: while a replay streams, the panes chart the
+  // REPLAYED day (its locked contracts arrive via strikeLockState; the seed
+  // is trimmed at the sim clock; the replayed ticks flow over the live WS).
+  const replayQ = trpc.replay.status.useQuery(undefined, { refetchInterval: 2000, refetchOnWindowFocus: false });
+  const rp = replayQ.data;
+  const isSim = !!rp?.running;
+  const chartDate = isSim && rp?.date ? rp.date : istDateString();
+  const simCutoffRef = useRef<number | null>(null);
+  simCutoffRef.current =
+    isSim && rp?.startedAt != null && rp?.anchorRecvTs != null
+      ? rp.anchorRecvTs + ((Date.now() - rp.startedAt) / 1000) * (rp.speed || 1)
+      : null;
+
   // ⟳ refresh — reload every pane's history + overlays (remount via nonce).
   const utils = trpc.useUtils();
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -310,9 +340,15 @@ export default function MultiChartPage() {
             </button>
           ))}
         </div>
-        <span className="text-[0.625rem] text-muted-foreground">
-          live-only — panes fill from the moment the window opened; ATM roll restarts a pane on the new strike
-        </span>
+        {isSim ? (
+          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-bold text-amber-500">
+            SIMULATION {chartDate} — replayed locked contracts
+          </span>
+        ) : (
+          <span className="text-[0.625rem] text-muted-foreground">
+            live — session history + live ticks; panes follow the locked strike (open trade pins)
+          </span>
+        )}
         <button
           type="button"
           onClick={doRefresh}
@@ -325,7 +361,7 @@ export default function MultiChartPage() {
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} />
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} />
         ))}
       </div>
     </div>
@@ -334,16 +370,18 @@ export default function MultiChartPage() {
 
 /** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
  *  panes) that drives the active/dimmed state. */
-function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce }: {
+function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce, chartDate, simCutoffRef }: {
   instKey: string;
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   taOpts?: Partial<TrendAngleOptions>;
   refreshNonce: number;
+  chartDate: string;
+  simCutoffRef?: MutableRefObject<number | null>;
 }) {
   const trades = trpc.trading.tradesForChart.useQuery(
-    { channel: "paper", instrument: instKey, date: istDateString() },
+    { channel: "paper", instrument: instKey, date: chartDate },
     { refetchInterval: 10_000, refetchOnWindowFocus: false },
   );
   const rows = (trades.data ?? []) as PaneTradeRow[];
@@ -351,8 +389,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refres
   const peTrade = pickTradeForSide(rows, "PE");
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane key={`CE-${refreshNonce}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} />
-      <AtmPane key={`PE-${refreshNonce}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} />
+      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} />
+      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} />
     </div>
   );
 }

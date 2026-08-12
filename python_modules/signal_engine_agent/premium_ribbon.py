@@ -284,9 +284,12 @@ class LockedPremiumFeed:
                 continue
             prev_sid = self._sec_ids[leg]
             if prev_sid is not None and sid != prev_sid:
-                # Mid-day relock → reset the leg and re-warm from scratch on
-                # the NEXT poll (this batch was sliced against the old since).
-                self._sec_ids[leg] = sid
+                # Contract changed (mid-day relock, or the server switched
+                # to/from a live-simulation) → reset the leg and re-fetch from
+                # scratch on the NEXT poll (this batch was sliced against the
+                # old since). Leaving _sec_ids as None makes that next full
+                # fetch a WARM batch — history must never fire events.
+                self._sec_ids[leg] = None
                 self.strikes[leg] = d.get("strike")
                 self._since[leg] = 0.0
                 with self._mu:

@@ -43,14 +43,33 @@ export function registerSeaSignalRoutes(app: Express): void {
     try {
       const { getLock } = await import("./portfolio/strikeLock");
       const { readOptionContractTicks } = await import("./chartData");
-      const lock = await getLock(instrument);
+      const { getReplayStatus, replayCutoffTs } = await import("./replay/tickReplay");
+      const { getReplayLock } = await import("./replay/replayLock");
+      const { logFolderFor } = await import("./seaSignals");
+
+      // Live-simulation transparency (T165): while a replay is streaming THIS
+      // instrument, serve the REPLAYED day's lock (from the recorded chain at
+      // open) and its premium ticks capped at the sim clock — so SEA tests the
+      // ribbon signals against the simulation without knowing the difference.
+      const rp = getReplayStatus();
+      const isSim = rp.running && !!rp.date && rp.instruments.includes(logFolderFor(instrument));
+      let date: string;
+      let cutoff = Infinity;
+      let lock: { date: string; expiry: string; lockedAt: number; ce: { strike: number; securityId: string }; pe: { strike: number; securityId: string } } | null;
+      if (isSim) {
+        date = rp.date!;
+        cutoff = replayCutoffTs() ?? Infinity;
+        lock = await getReplayLock(instrument, date);
+      } else {
+        date = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+        lock = await getLock(instrument);
+      }
       if (!lock) {
         res.json({ success: true, lock: null });
         return;
       }
-      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const leg = async (l: { strike: number; securityId: string }, since: number) => {
-        const ticks = await readOptionContractTicks(instrument, today, l.securityId);
+        const ticks = await readOptionContractTicks(instrument, date, l.securityId);
         // Incremental slice — arrays are chronological, binary-search the cut.
         let lo = 0;
         if (since > 0) {
@@ -60,11 +79,16 @@ export function registerSeaSignalRoutes(app: Express): void {
             if (ticks.t[mid] <= since) lo = mid + 1; else hi = mid;
           }
         }
+        // Sim: never serve past the replay clock — the future hasn't happened.
+        let hiEnd = ticks.t.length;
+        if (cutoff !== Infinity) {
+          while (hiEnd > lo && ticks.t[hiEnd - 1] > cutoff) hiEnd--;
+        }
         return {
           strike: l.strike,
           securityId: l.securityId,
-          t: lo ? ticks.t.slice(lo) : ticks.t,
-          ltp: lo ? ticks.ltp.slice(lo) : ticks.ltp,
+          t: ticks.t.slice(lo, hiEnd),
+          ltp: ticks.ltp.slice(lo, hiEnd),
         };
       };
       const sinceCe = Number(req.query.sinceCe ?? 0) || 0;
@@ -72,6 +96,7 @@ export function registerSeaSignalRoutes(app: Express): void {
       res.json({
         success: true,
         lock: { date: lock.date, expiry: lock.expiry, lockedAt: lock.lockedAt },
+        replay: isSim || undefined,
         ce: await leg(lock.ce, sinceCe),
         pe: await leg(lock.pe, sincePe),
       });

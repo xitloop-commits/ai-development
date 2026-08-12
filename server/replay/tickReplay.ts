@@ -166,6 +166,10 @@ export interface ReplayStatus {
    *  A client computes the current replayed time as
    *  anchorRecvTs + (now − startedAt)/1000 × speed. Null when not running. */
   anchorRecvTs: number | null;
+  /** The instruments this run is actually streaming (log-folder keys). Empty
+   *  when not running. Lets replay-aware consumers (locked-premiums, charts)
+   *  serve simulation data ONLY for instruments the sim covers. */
+  instruments: string[];
 }
 
 let running = false;
@@ -176,6 +180,7 @@ let startedAt: number | null = null;
 let anchorRecvTs: number | null = null;
 let ticksEmitted = 0;
 let activeStreams = 0;
+let currentInstruments: string[] = [];
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -263,7 +268,22 @@ export function listReplayDates(): string[] {
 }
 
 export function getReplayStatus(): ReplayStatus {
-  return { running, date: currentDate, speed: currentSpeed, startedAt, ticksEmitted, anchorRecvTs };
+  return {
+    running,
+    date: currentDate,
+    speed: currentSpeed,
+    startedAt,
+    ticksEmitted,
+    anchorRecvTs,
+    instruments: running ? currentInstruments : [],
+  };
+}
+
+/** The current replayed time (recorded-day epoch SECONDS) — how far the sim
+ *  clock has advanced. Null when no replay is running. */
+export function replayCutoffTs(): number | null {
+  if (!running || startedAt == null || anchorRecvTs == null) return null;
+  return anchorRecvTs + ((Date.now() - startedAt) / 1000) * currentSpeed;
 }
 
 /** True while a replay is streaming. Wall-clock safety exits (RCA age/stale, EOD
@@ -349,6 +369,7 @@ export async function startReplay(
   startedAt = t0Wall;
   anchorRecvTs = t0RecvTs;
   ticksEmitted = 0;
+  currentInstruments = [...ran];
 
   log.important(`Replay START ${date} @ ${speed}× (${files.length} streams · ${ran.join(", ")})`);
 

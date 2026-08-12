@@ -131,6 +131,7 @@ Partha rewrite: the `sma5_signal` and `ma_signal` cohorts no longer watch the un
 - Entry is priced off the **locked premium** (ATM LTP only as fallback). Exits still close by position via `close_glide_position` (cohort-scoped for sma5).
 - Config: `ribbon: true` (default) in both `sma5_signal` and `ma_signal` blocks; `false` reverts to the legacy underlying detectors (`sma5_signal.py` price-cross / `ma_signal.py` EMA-slope, both kept). `candle_sec` live-knob applies to the ribbon legs.
 - Tests: `test_premium_ribbon.py` (5). Evidence for the switch: old-vs-new backtest 2026-08-13, 10 days @2-min — sma5 503→96 trades / −1171→−78 pts, ma −382→−128 pts (bleeds far slower; not yet a proven earner).
+- **Live-simulation coverage (T165):** the endpoint is replay-aware — during a T90 replay it serves the replayed day's lock (rebuilt from the recorded chain at 09:15, `server/replay/replayLock.ts`) and premium ticks capped at the sim clock, and the option-day index also builds for the replay date. A SEA started via launcher "Live Sim" (`--max-row-age 0`) therefore fires ribbon signals off the simulation with no SEA-side changes; the NSE CHART window follows the sim contracts (SIMULATION banner). Replay is NSE-only, so MCX ribbon testing is live-only for now.
 
 ## 4. Model loading + calibration apply
 

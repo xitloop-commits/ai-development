@@ -17,6 +17,17 @@ Old-vs-new backtest (10d, 2-min underlying): sma5 503→96 trades / −1171→�
 pts; ma −382→−128 pts — far less bleed, not yet green. 5 new tests (33 pass).
 **Engines pick it up at the 08:55 fleet start — verify first live signals +
 tray reasons ("SMA5 ribbon UP — enter CE (locked 24350 premium)").**
+**T165 add-on (same day): live-simulation tests the ribbons end-to-end.**
+/api/sea/locked-premiums is replay-aware — while a replay streams an
+instrument it serves the REPLAYED day's lock (rebuilt from the recorded
+chain at 09:15, server/replay/replayLock.ts — verified to reproduce the
+real 2026-08-12 locks exactly) + that day's premium ticks capped at the sim
+clock; the option-day index now also builds for the active replay date, so
+sim polls are instant. strikeLockState returns the replay locks too, so the
+NSE CHART window follows the sim (SIMULATION banner, seed trimmed at the
+sim clock, replayed ticks over the live WS). SEA needs zero changes — test
+flow stays the T90 one: launcher "Live Sim" (S) → Replay button, 1× speed
+for a faithful run. MCX replay still unsupported (tick replay is NSE-only).
 
 ### T164 [UI] — one chart codebase: NSE/MCX charts unified onto the shared trend engine ✅ DONE 2026-08-13
 lib/trendRibbon is now the ONLY trend math (steepLines() derives the blue/pink

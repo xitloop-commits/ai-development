@@ -58,14 +58,28 @@ export const appRouter = router({
       }),
 
     // T161 — session strike lock: today's locks + config + instrument switches.
+    // T165 — while a live-simulation replays, the REPLAYED day's locks (from
+    // the recorded chain at open) replace the live ones for the instruments
+    // being simulated, so chart panes follow the sim's contracts.
     strikeLockState: publicProcedure.query(async () => {
       const { lockSnapshot } = await import("./portfolio/strikeLock");
       const { getCommonConfig } = await import("./portfolio/aiModeConfig");
+      const { getReplayStatus } = await import("./replay/tickReplay");
+      const { getReplayLock } = await import("./replay/replayLock");
       const common = getCommonConfig();
+      const locks = lockSnapshot();
+      const rp = getReplayStatus();
+      if (rp.running && rp.date) {
+        for (const inst of rp.instruments) {
+          const rl = await getReplayLock(inst, rp.date);
+          if (rl) locks[inst] = rl;
+        }
+      }
       return {
-        locks: lockSnapshot(),
+        locks,
         config: common.strikeLock,
         instrumentEnabled: common.instrumentEnabled,
+        replay: rp.running ? { date: rp.date, instruments: rp.instruments } : null,
       };
     }),
 

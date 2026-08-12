@@ -21,6 +21,7 @@ import readline from "readline";
 import path from "path";
 import zlib from "zlib";
 import { logFolderFor } from "./seaSignals";
+import { getReplayStatus } from "./replay/tickReplay";
 
 const DATA_RAW = "data/raw";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -349,8 +350,17 @@ export function readOptionContractTicks(
   const file = path.resolve(DATA_RAW, date, `${folder}_option_ticks.ndjson.gz`);
   if (!existsSync(file)) return Promise.resolve({ t: [], ltp: [] });
 
-  // TODAY → serve from the incrementally-fed per-security index.
-  if (date === todayIST()) {
+  // TODAY → serve from the incrementally-fed per-security index. T165: an
+  // ACTIVE replay's date qualifies too — the sim polls contracts every few
+  // seconds (SEA premium feed + chart panes), and a full-file scan per poll
+  // would starve everything. A past-day file is complete, so the index just
+  // builds once and every later hit is instant.
+  let replayDate: string | null = null;
+  try {
+    const rp = getReplayStatus();
+    replayDate = rp.running ? rp.date : null;
+  } catch { /* replay state unavailable — today-only */ }
+  if (date === todayIST() || date === replayDate) {
     const key = `${folder}:${date}`;
     let idx = optionIndexCache.get(key);
     if (idx && statSync(file).size < idx.bytesFed) {
@@ -359,9 +369,12 @@ export function readOptionContractTicks(
       idx = undefined;
     }
     if (!idx) {
-      // Evict stale-date entries (yesterday's indexes after midnight roll).
+      // Evict entries for other dates (yesterday's index after midnight roll,
+      // a finished replay's day) — keep today + the active replay date.
+      const keep = new Set([todayIST(), replayDate].filter(Boolean));
       optionIndexCache.forEach((v, k) => {
-        if (!k.endsWith(date)) { v.gunzip.destroy(); optionIndexCache.delete(k); }
+        const kDate = k.slice(k.indexOf(":") + 1);
+        if (!keep.has(kDate)) { v.gunzip.destroy(); optionIndexCache.delete(k); }
       });
       idx = newOptionIndex();
       optionIndexCache.set(key, idx);
