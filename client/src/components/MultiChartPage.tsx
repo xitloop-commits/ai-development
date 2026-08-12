@@ -7,14 +7,19 @@
  *   In each row: the instrument's CURRENT ATM CALL premium chart on the
  *   left, ATM PUT on the right — "watch what we'd actually be buying".
  *
- * Each pane tracks the live ATM contract from instrumentLiveState (2s) and
- * accumulates candles from the WS tick stream; when ATM rolls to a new
- * strike the pane restarts on the new contract (strike shown in its
- * header). v1 is live-only — no disk backfill (the per-contract history
- * endpoint decompresses the full option gz, far too heavy × 4 panes).
+ * 2026-08-13 unification (Partha: "lets have one" chart codebase): the
+ * panes now run the SAME machinery as the test chart —
+ *   • tri-colour trend ribbons + steep parallels from lib/trendRibbon
+ *     (self-calibrating, tuned via Settings ▸ Trend angle),
+ *   • bottom-left MA readout + bottom-right SMA5 readout (state · angle ·
+ *     trend run age), hover-aware,
+ *   • trade markers + Entry/TSL/Target/Exit lines from lib/chartOverlays,
+ *   • a ⟳ refresh button that reloads history + overlays.
+ * The old local angle math (MaAngleStrip / steepMaLines) is gone.
  * Reached via ?view=multichart&group=NSE|MCX.
  */
 import { useMemo, useState } from "react";
+import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
   CHART_INTERVALS,
@@ -24,7 +29,6 @@ import {
   MCX_CHART_INSTRUMENTS,
   CHART_UP,
   CHART_DOWN,
-  CHART_ENTRY,
   type ChartStyle,
   type IndicatorKey,
 } from "@/lib/instrumentChart";
@@ -33,6 +37,13 @@ import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
 import { istDateString } from "@/lib/signalChart";
+import {
+  trendAnalysis,
+  trendReadoutText,
+  steepLines,
+  type TrendAngleOptions,
+} from "@/lib/trendRibbon";
+import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -45,111 +56,7 @@ function optionSegmentFor(inst: string): string {
 const NO_MARKERS: never[] = [];
 const NO_LINES: never[] = [];
 
-/**
- * MA angle over the last 5 candles (Partha 2026-08-11). Slope is measured on
- * the 20-EMA (the chart's MA line): % change across the 5 most recent candles,
- * mapped to degrees as atan(pct) — so +1% over 5 candles reads ≈ +45°, flat
- * reads 0°. Chart-pixel angles depend on zoom, so a % basis is the only
- * stable definition; the tooltip spells it out.
- */
-// Angle scale for OPTION premiums: ±2% over 5 candles reads as ±45°.
-// Calibrated on 2026-08-11 locked-CE data: 1%→45° saturated (46% of candles
-// past 50°), 4%→45° starved (0%), 2%→45° puts ~18% of candles in the steep
-// zones — selective stretches during real pushes.
-const PCT_PER_45_DEG = 2;
-
-function lineAngle(values: number[]): { deg: number; pct: number } | null {
-  if (values.length < 6) return null;
-  const now = values[values.length - 1];
-  const then = values[values.length - 1 - 5];
-  if (!(then > 0)) return null;
-  const pct = ((now - then) / then) * 100;
-  return { deg: (Math.atan(pct / PCT_PER_45_DEG) * 180) / Math.PI, pct };
-}
-
-function maAngles(candles: { close: number }[]): { ma: ReturnType<typeof lineAngle>; sma5: ReturnType<typeof lineAngle> } {
-  const closes = candles.map((c) => c.close);
-  // 20-EMA (the chart's MA line)
-  let ma: ReturnType<typeof lineAngle> = null;
-  if (closes.length >= 25) {
-    const k = 2 / 21;
-    let e = closes[0];
-    const ema: number[] = [e];
-    for (let i = 1; i < closes.length; i++) { e = closes[i] * k + e * (1 - k); ema.push(e); }
-    ma = lineAngle(ema);
-  }
-  // SMA-5 (the detector's line)
-  let sma5: ReturnType<typeof lineAngle> = null;
-  if (closes.length >= 10) {
-    const s: number[] = [];
-    for (let i = 4; i < closes.length; i++) {
-      s.push((closes[i] + closes[i - 1] + closes[i - 2] + closes[i - 3] + closes[i - 4]) / 5);
-    }
-    sma5 = lineAngle(s);
-  }
-  return { ma, sma5 };
-}
-
-/**
- * Steep-zone parallels (Partha 2026-08-11): BLUE 0.3% below the MA(20-EMA)
- * where its 5-candle angle exceeds +50°, PINK 0.3% ABOVE it where the angle
- * is below −50°. Gaps (whitespace points) everywhere else, so each line
- * literally stops when the slope leaves its zone.
- */
-function steepMaLines(candles: { time: number; close: number }[]): {
-  up: { time: number; value?: number }[];
-  down: { time: number; value?: number }[];
-} {
-  if (candles.length < 25) return { up: [], down: [] };
-  const closes = candles.map((c) => c.close);
-  const k = 2 / 21;
-  let e = closes[0];
-  const ema: number[] = [e];
-  for (let i = 1; i < closes.length; i++) { e = closes[i] * k + e * (1 - k); ema.push(e); }
-  const up: { time: number; value?: number }[] = [];
-  const down: { time: number; value?: number }[] = [];
-  candles.forEach((c, i) => {
-    let deg = 0;
-    const then = i >= 25 ? ema[i - 5] : 0;
-    if (then > 0) deg = (Math.atan((((ema[i] - then) / then) * 100) / PCT_PER_45_DEG) * 180) / Math.PI;
-    // 1.5% offset — 0.3% visually overlapped the MA line on option premiums.
-    up.push(deg > 50 ? { time: c.time, value: ema[i] * 0.985 } : { time: c.time });
-    down.push(deg < -50 ? { time: c.time, value: ema[i] * 1.015 } : { time: c.time });
-  });
-  return { up, down };
-}
-
-function AngleReading({ label, a }: { label: string; a: ReturnType<typeof lineAngle> }) {
-  if (!a) return null;
-  const tone = a.deg > 5 ? "text-bullish" : a.deg < -5 ? "text-bearish" : "text-muted-foreground";
-  return (
-    <span className="flex items-center gap-1">
-      <span className="text-muted-foreground">{label} ∠</span>
-      <span className={`font-bold tabular-nums ${tone}`}>
-        {a.deg >= 0 ? "+" : ""}{a.deg.toFixed(1)}°
-      </span>
-      <span className="text-muted-foreground tabular-nums">
-        ({a.pct >= 0 ? "+" : ""}{a.pct.toFixed(2)}%)
-      </span>
-    </span>
-  );
-}
-
-function MaAngleStrip({ candles }: { candles: { close: number }[] }) {
-  const a = useMemo(() => maAngles(candles), [candles]);
-  if (!a.ma && !a.sma5) return null;
-  return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-2 py-0.5 text-[0.625rem] bg-background/80 backdrop-blur-sm border-t border-border/40"
-      title="Line slope over the LAST 5 CANDLES: % change mapped to degrees (atan; ±2%/5c ≈ ±45° — premium scale). Zoom-independent. MA = 20-EMA (left) · SMA5 (right)."
-    >
-      <AngleReading label="MA" a={a.ma} />
-      <AngleReading label="SMA5" a={a.sma5} />
-    </div>
-  );
-}
-
-/** The slice of a tradesForChart row the panes need for their price lines. */
+/** The slice of a tradesForChart row the panes need for their overlays. */
 interface PaneTradeRow {
   side: "CE" | "PE";
   status: string;
@@ -161,25 +68,10 @@ interface PaneTradeRow {
   exitPrice: number | null;
   pnl?: number;
   tradeNo?: number | null;
+  signalSeq?: number | null;
+  cohort?: string | null;
   strike: number | null;
   contractSecurityId: string | null;
-}
-
-/** Snap a trade timestamp onto the pane's candle grid. Tries the raw epoch
- *  AND the IST-shifted epoch (chart surfaces differ); null when neither lands
- *  within 3 candles — the marker is dropped rather than drawn misplaced. */
-function snapTradeTime(times: number[], raw: number, intervalSec: number): number | null {
-  if (!times.length || !raw) return null;
-  const sec = raw > 1e11 ? raw / 1000 : raw;
-  let best: number | null = null;
-  let bestD = Infinity;
-  for (const target of [sec, sec + 19800]) {
-    for (const t of times) {
-      const d = Math.abs(t - target);
-      if (d < bestD) { bestD = d; best = t; }
-    }
-  }
-  return bestD <= intervalSec * 3 ? best : null;
 }
 
 /** The trade whose levels a pane draws: the latest OPEN one on that side, or
@@ -205,7 +97,7 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
@@ -219,6 +111,8 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
   /** ALL of today's trades on this side — entry/exit markers for every one
    *  that sits on the pane's contract (Partha 2026-08-11). */
   trades: PaneTradeRow[];
+  /** Settings ▸ Trend angle knobs (CommonConfig.trendAngle). */
+  taOpts?: Partial<TrendAngleOptions>;
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -259,46 +153,56 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
 
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
-  // Entry/exit markers for EVERY today-trade on this pane's contract.
+
+  // Entry/exit markers for EVERY today-trade on this pane's contract — the
+  // shared cohort-coloured builder (entry ▲ below, exit ● above, "#n in/out").
   const markers = useMemo(() => {
     const times = c.candles.map((cd) => cd.time as number);
-    const out: { time: never; position: "belowBar" | "aboveBar"; color: string; shape: "arrowUp" | "arrowDown"; text: string }[] = [];
-    for (const t of trades) {
-      const onThis = (t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike);
-      if (!onThis) continue;
-      const tIn = snapTradeTime(times, t.entryTime, intervalSec);
-      if (tIn != null) out.push({ time: tIn as never, position: "belowBar", color: CHART_ENTRY, shape: "arrowUp", text: t.tradeNo != null ? `#${t.tradeNo}` : "" });
-      const tOut = t.exitTime ? snapTradeTime(times, t.exitTime, intervalSec) : null;
-      if (tOut != null) {
-        const win = (t.pnl ?? 0) >= 0;
-        out.push({ time: tOut as never, position: "aboveBar", color: win ? CHART_UP : CHART_DOWN, shape: "arrowDown", text: "" });
-      }
-    }
-    return out.sort((a, b) => (a.time as unknown as number) - (b.time as unknown as number));
-  }, [c.candles, trades, secId, strike, intervalSec]);
+    if (!times.length) return NO_MARKERS as SeriesMarker<UTCTimestamp>[];
+    const onThis = trades.filter(
+      (t) => (t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike),
+    );
+    return buildTradeMarkers(onThis, times, Infinity, true);
+  }, [c.candles, trades, secId, strike]);
 
-  // Blue below-MA line while angle > +50°; pink above-MA line while < −50°.
-  const steepLines = useMemo(() => {
-    const { up, down } = steepMaLines(c.candles as { time: number; close: number }[]);
-    return [
-      { data: up as never[], color: "#3B82F6" },   // blue — steep climb
-      { data: down as never[], color: "#F472B6" }, // pink — steep fall
-    ];
-  }, [c.candles]);
+  // Shared trend engine (same as the test chart): ribbons per source when the
+  // indicator is on, plus the blue/pink steep parallels derived from the MA
+  // analysis. All tuned from Settings ▸ Trend angle.
+  const trendA = useMemo(
+    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }) : undefined),
+    [c.candles, taOpts, indicators],
+  );
+  const trendS = useMemo(
+    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }) : undefined),
+    [c.candles, taOpts, indicators],
+  );
+  const extraLines = useMemo(() => {
+    const arr = [...(trendA?.lines ?? []), ...(trendS?.lines ?? [])];
+    if (trendA) arr.push(...steepLines(trendA, c.candles as { time: number }[]));
+    return arr.length ? (arr as never) : undefined;
+  }, [trendA, trendS, c.candles]);
+  const trendReadout = useMemo(() => {
+    if (!trendA) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "ma")));
+    return m;
+  }, [trendA]);
+  const trendReadoutRight = useMemo(() => {
+    if (!trendS) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendS.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "sma5")));
+    return m;
+  }, [trendS]);
+
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
 
-  // Reference lines: Entry / TSL / Target always; Exit only once closed.
-  // Memoized on the primitive levels so an unchanged trade never rebuilds
-  // the chart (which would reset the user's zoom).
+  // Reference lines: Entry / TSL / Target / Exit from the shared builder
+  // (closed trade → dimmed). Memoized on the primitive levels so an unchanged
+  // trade never rebuilds the chart (which would reset the user's zoom).
   const tradeLines = useMemo(() => {
-    if (!trade) return NO_LINES as { price: number; color: string; title: string }[];
-    const lines: { price: number; color: string; title: string }[] = [];
-    if (trade.entryPrice > 0) lines.push({ price: trade.entryPrice, color: CHART_ENTRY, title: "Entry" });
-    if (trade.stopLossPrice != null && trade.stopLossPrice > 0) lines.push({ price: trade.stopLossPrice, color: "#FB923C", title: "TSL" });
-    if (trade.targetPrice != null && trade.targetPrice > 0) lines.push({ price: trade.targetPrice, color: CHART_UP, title: "Target" });
-    if (trade.status !== "OPEN" && trade.exitPrice != null && trade.exitPrice > 0) lines.push({ price: trade.exitPrice, color: "#94A3B8", title: "Exit" });
-    return lines;
+    if (!trade) return NO_LINES as TradePriceLine[];
+    return buildTradeLines(trade);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the primitive levels, not the row object identity
   }, [trade?.entryPrice, trade?.stopLossPrice, trade?.targetPrice, trade?.exitPrice, trade?.status]);
 
@@ -311,7 +215,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
     >
       <TickChart
         candles={c.candles}
-        markers={markers as never[]}
+        markers={markers}
         tradeLines={tradeLines}
         style={style}
         indicators={indicators}
@@ -322,7 +226,9 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
               : "Waiting for live ticks…"
         }
         loading={!!secId && seedQ.isLoading}
-        extraLines={steepLines}
+        extraLines={extraLines}
+        trendReadout={trendReadout}
+        trendReadoutRight={trendReadoutRight}
         className="h-full"
         header={<>
           <span className="font-bold">{label}</span>
@@ -334,7 +240,6 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
           </span>
         </>}
       />
-      <MaAngleStrip candles={c.candles} />
     </div>
   );
 }
@@ -345,9 +250,9 @@ export default function MultiChartPage() {
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's candles.
   const [style, setStyle] = useState<ChartStyle>("ha");
-  // SMA-5 + MA on by default (Partha, 2026-08-11).
+  // SMA-5 line + both trend ribbons on by default (test-chart parity, 2026-08-13).
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(["sma5", "ma"]),
+    () => new Set<IndicatorKey>(["sma5", "maRibbon", "sma5Ribbon"]),
   );
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
@@ -355,6 +260,20 @@ export default function MultiChartPage() {
       if (next.has(k)) next.delete(k); else next.add(k);
       return next;
     });
+
+  // Settings ▸ Trend angle knobs — shared by every pane's ribbon/readout.
+  const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+
+  // ⟳ refresh — reload every pane's history + overlays (remount via nonce).
+  const utils = trpc.useUtils();
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const doRefresh = () => {
+    utils.trading.optionTicksForContract.invalidate();
+    utils.trading.tradesForChart.invalidate();
+    utils.trading.instrumentLiveState.invalidate();
+    setRefreshNonce((n) => n + 1);
+  };
 
   if (!group) {
     return (
@@ -394,11 +313,19 @@ export default function MultiChartPage() {
         <span className="text-[0.625rem] text-muted-foreground">
           live-only — panes fill from the moment the window opened; ATM roll restarts a pane on the new strike
         </span>
+        <button
+          type="button"
+          onClick={doRefresh}
+          className="ml-auto rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          title="Refresh — reload every pane's history and overlays"
+        >
+          ⟳
+        </button>
       </div>
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} />
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} />
         ))}
       </div>
     </div>
@@ -407,11 +334,13 @@ export default function MultiChartPage() {
 
 /** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
  *  panes) that drives the active/dimmed state. */
-function InstrumentRow({ instKey, intervalSec, style, indicators }: {
+function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce }: {
   instKey: string;
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
+  taOpts?: Partial<TrendAngleOptions>;
+  refreshNonce: number;
 }) {
   const trades = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: instKey, date: istDateString() },
@@ -422,8 +351,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators }: {
   const peTrade = pickTradeForSide(rows, "PE");
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} />
-      <AtmPane instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} />
+      <AtmPane key={`CE-${refreshNonce}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} />
+      <AtmPane key={`PE-${refreshNonce}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} />
     </div>
   );
 }

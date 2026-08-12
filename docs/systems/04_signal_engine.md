@@ -121,6 +121,17 @@ A **stateful** gate that departs from the per-tick model gates above: it aggrega
 
 Config block `"legstart"` (`LegStartThresholds`, `load_thresholds_legstart`). Tests: `test_leg_start.py`. **Honest status:** noise *hygiene*, not a proven edge — ~55% raw direction over 10 days, unliftable by extension/conviction/trend-strength filters; buying still loses after fade+costs. Shipped as a discretionary overlay + forward paper test. Revert = `gate_mode:"wave2"` + `trend.enabled:true`.
 
+### 3.6 sma5 / ma cohorts — LOCKED-PREMIUM trend ribbons (T163, ACTIVE from 2026-08-13)
+
+Partha rewrite: the `sma5_signal` and `ma_signal` cohorts no longer watch the underlying at all. Each leg follows the **trend ribbon of the session-locked option contract's own premium** (`premium_ribbon.py` — the causal port of the chart's `client/src/lib/trendRibbon.ts`):
+
+- Premium ticks → `candle_sec` candles → smoothing line (SMA-5 of closes, or 20-EMA for the ma cohort) → slope % over `ribbon_lookback` candles → **noise floor = expanding P40 of today's |slopes|** (`ribbon_gray_pctile`, needs `ribbon_min_samples`).
+- **CE ribbon UP → LONG_CE, DOWN → EXIT_CE; PE likewise on the put premium; GRAY → no entry at all** (an open ride holds). Premium decay drag makes UP a natural strength filter on both sides.
+- Feed: `LockedPremiumFeed` daemon polls **GET /api/sea/locked-premiums** (server: T161 strike lock + option-day index) every ~6 s — full session on first contact (silent warm-up, no firing on the past), then incremental; a mid-day **relock resets the leg and re-warms** on the new contract.
+- Entry is priced off the **locked premium** (ATM LTP only as fallback). Exits still close by position via `close_glide_position` (cohort-scoped for sma5).
+- Config: `ribbon: true` (default) in both `sma5_signal` and `ma_signal` blocks; `false` reverts to the legacy underlying detectors (`sma5_signal.py` price-cross / `ma_signal.py` EMA-slope, both kept). `candle_sec` live-knob applies to the ribbon legs.
+- Tests: `test_premium_ribbon.py` (5). Evidence for the switch: old-vs-new backtest 2026-08-13, 10 days @2-min — sma5 503→96 trades / −1171→−78 pts, ma −382→−128 pts (bleeds far slower; not yet a proven earner).
+
 ## 4. Model loading + calibration apply
 
 `model_loader.py:load_models()` at startup:

@@ -28,6 +28,59 @@ export function registerSeaSignalRoutes(app: Express): void {
     res.json({ success: true });
   });
 
+  // Locked-contract premium feed (T163 premium-ribbon detectors, 2026-08-13).
+  // SEA polls this every few seconds per instrument: returns the session-locked
+  // CE/PE contracts (T161 lock — computed on first demand) plus each leg's
+  // premium ticks from the option-day index, incrementally (`sinceCe`/`sincePe`
+  // = epoch seconds of the last tick the caller already has; omit for the full
+  // session so a freshly-started engine warms its ribbons instantly).
+  app.get("/api/sea/locked-premiums", async (req: Request, res: Response) => {
+    const instrument = String(req.query.instrument ?? "");
+    if (!instrument) {
+      res.status(400).json({ success: false, error: "missing instrument" });
+      return;
+    }
+    try {
+      const { getLock } = await import("./portfolio/strikeLock");
+      const { readOptionContractTicks } = await import("./chartData");
+      const lock = await getLock(instrument);
+      if (!lock) {
+        res.json({ success: true, lock: null });
+        return;
+      }
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const leg = async (l: { strike: number; securityId: string }, since: number) => {
+        const ticks = await readOptionContractTicks(instrument, today, l.securityId);
+        // Incremental slice — arrays are chronological, binary-search the cut.
+        let lo = 0;
+        if (since > 0) {
+          let hi = ticks.t.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (ticks.t[mid] <= since) lo = mid + 1; else hi = mid;
+          }
+        }
+        return {
+          strike: l.strike,
+          securityId: l.securityId,
+          t: lo ? ticks.t.slice(lo) : ticks.t,
+          ltp: lo ? ticks.ltp.slice(lo) : ticks.ltp,
+        };
+      };
+      const sinceCe = Number(req.query.sinceCe ?? 0) || 0;
+      const sincePe = Number(req.query.sincePe ?? 0) || 0;
+      res.json({
+        success: true,
+        lock: { date: lock.date, expiry: lock.expiry, lockedAt: lock.lockedAt },
+        ce: await leg(lock.ce, sinceCe),
+        pe: await leg(lock.pe, sincePe),
+      });
+    } catch (err: any) {
+      log.warn(`sea/locked-premiums failed: ${err?.message ?? err}`);
+      res.status(500).json({ success: false, error: err?.message ?? String(err) });
+    }
+  });
+
   app.post("/api/sea/signal", async (req: Request, res: Response) => {
     const body = req.body;
     if (!body || typeof body !== "object" || !body.instrument) {

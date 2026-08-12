@@ -220,14 +220,20 @@ export default function TradingDesk({
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Net/Gross P&L toggle moved to the P&L column header of the table. */}
+        {/* Day P&L bar hidden per request (2026-08-13). The component is kept in
+            the codebase (TodayPnlBar.tsx) — restore <TodayPnlBar …/> below to
+            bring it (and its Exit-All button) back. The flex-1 div stays as a
+            spacer so the filter bar + config menus keep their right alignment. */}
         <div className="flex-1 min-w-0 flex">
-          <TodayPnlBar
-            pnl={capital.todayPnl}
-            tradingPool={capital.tradingPool}
-            exitAllEnabled={canManageTrades}
-            openTradeCount={openTradeCount}
-            onExitAll={handleExitAll}
-          />
+          {false && (
+            <TodayPnlBar
+              pnl={capital.todayPnl}
+              tradingPool={capital.tradingPool}
+              exitAllEnabled={canManageTrades}
+              openTradeCount={openTradeCount}
+              onExitAll={handleExitAll}
+            />
+          )}
         </div>
         <div className="shrink-0 flex items-stretch">
           <TradeFilterBar

@@ -2,6 +2,32 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T163 [SEA] — sma5/ma cohorts rewritten to LOCKED-PREMIUM trend ribbons ✅ BUILT 2026-08-13 (validate next session)
+Partha spec: each leg follows the trend ribbon of the SESSION-LOCKED option
+contract's OWN premium — CE ribbon UP → LONG_CE, DOWN → EXIT_CE; PE likewise;
+GRAY → no entry at all (open ride holds). Causal port of the chart's
+trendRibbon engine (SMA5/20-EMA line, slope over 5 candles, expanding-P40
+noise floor) in `signal_engine_agent/premium_ribbon.py`; the premium decay
+drag doubles as a natural weak-move filter. Feed: new GET
+/api/sea/locked-premiums (T161 lock + option-day index; full session first =
+silent warm-up, then incremental; mid-day relock resets + re-warms the leg).
+`ribbon: true` default in both threshold blocks (`false` = legacy detectors);
+candle_sec live-knob still applies. Entry priced off the locked premium.
+Old-vs-new backtest (10d, 2-min underlying): sma5 503→96 trades / −1171→−78
+pts; ma −382→−128 pts — far less bleed, not yet green. 5 new tests (33 pass).
+**Engines pick it up at the 08:55 fleet start — verify first live signals +
+tray reasons ("SMA5 ribbon UP — enter CE (locked 24350 premium)").**
+
+### T164 [UI] — one chart codebase: NSE/MCX charts unified onto the shared trend engine ✅ DONE 2026-08-13
+lib/trendRibbon is now the ONLY trend math (steepLines() derives the blue/pink
+±50° parallels from it); new lib/chartOverlays owns trade markers + price
+lines for every window. MultiChartPage panes gained the tri-colour ribbons,
+MA/SMA5 bottom readouts, Settings ▸ Trend-angle knobs, ⟳ refresh, and
+cohort-coloured markers; its local angle math (MaAngleStrip / steepMaLines /
+fixed 2%-per-45° scale) is deleted. Steep lines now use the self-calibrating
+scale (may sit slightly differently than before). NSE/MCX window stays
+today-only (past dates = the test chart).
+
 ### T154 [ML] — sma-model: learned SMA5 leg-riding entry/exit model — BUILT, GATE 1 FAILED 2026-08-07 🚧
 Brand-new nifty-only model (existing 84-head model untouched): 1-min Heikin-Ashi
 candles + SMA5 on **futures ticks**; model decides enter CALL/PUT and

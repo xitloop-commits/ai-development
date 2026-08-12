@@ -174,6 +174,30 @@ function finalize(
   return { lines: [{ data: line, color: GRAY }], minuteState: st };
 }
 
+/**
+ * Steep-zone parallels derived from an analysis (the old MultiChartPage
+ * steepMaLines, now on the SHARED self-calibrating engine): BLUE 1.5% below
+ * the line while the angle exceeds +50°, PINK 1.5% ABOVE it while below −50°.
+ * Whitespace points everywhere else, so each line stops when the slope leaves
+ * its zone (TickChart renders one series per contiguous run).
+ */
+export function steepLines(
+  a: TrendAnalysis,
+  candles: { time: number }[],
+): { data: RibbonPoint[]; color: string }[] {
+  const up: RibbonPoint[] = [];
+  const down: RibbonPoint[] = [];
+  for (const c of candles) {
+    const s = a.minuteState.get(Math.floor(c.time / 60));
+    up.push(s && s.deg > 50 ? { time: c.time, value: s.line * 0.985 } : { time: c.time });
+    down.push(s && s.deg < -50 ? { time: c.time, value: s.line * 1.015 } : { time: c.time });
+  }
+  return [
+    { data: up, color: "#3B82F6" },   // blue — steep climb
+    { data: down, color: "#F472B6" }, // pink — steep fall
+  ];
+}
+
 /** Bottom-readout text for one minute's state (or the latest). */
 export function trendReadoutText(s: MinuteState | undefined, source: SlopeSource): { text: string; color: string } {
   const label = source === "ma" ? "MA" : "SMA5";

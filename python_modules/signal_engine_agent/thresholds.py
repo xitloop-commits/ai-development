@@ -1107,6 +1107,17 @@ class MASignalThresholds:
     sl_pct: float = 12.0
     # Candle timeframe (seconds): 60 = 1m, 180 = 3m, 300 = 5m. Live-tunable.
     candle_sec: int = 60
+    # PREMIUM-RIBBON MODE (T163, 2026-08-13 — Partha rewrite, ON by default).
+    # The cohort follows the trend ribbon of the SESSION-LOCKED option
+    # contract's own premium (see signal_engine_agent.premium_ribbon): ribbon
+    # UP → LONG, DOWN → EXIT, GRAY → no entry at all. The EMA-slope /
+    # reversal machinery above is bypassed. Set false to fall back.
+    ribbon: bool = True
+    # Ribbon knobs (mirror the chart's Settings ▸ Trend angle defaults).
+    ribbon_lookback: int = 5        # candles the slope compares across
+    ribbon_gray_pctile: float = 40.0  # noise-floor percentile of |slope|
+    ribbon_min_samples: int = 15    # slopes needed before the floor can judge
+    ribbon_min_noise_pct: float = 0.002  # absolute floor under the percentile
 
 
 def load_thresholds_ma_signal(
@@ -1171,6 +1182,17 @@ class Sma5SignalThresholds:
     # Candle timeframe (seconds): 60 = 1m, 180 = 3m, 300 = 5m. The 5-SMA is 5
     # candles of this size (3m → a 15-min line). Live-tunable.
     candle_sec: int = 60
+    # PREMIUM-RIBBON MODE (T163, 2026-08-13 — Partha rewrite, ON by default).
+    # The cohort follows the trend ribbon of the SESSION-LOCKED option
+    # contract's own premium (see signal_engine_agent.premium_ribbon): ribbon
+    # UP → LONG, DOWN → EXIT, GRAY → no entry at all. The price-cross /
+    # confirm / entry-watch machinery above is bypassed. Set false to fall back.
+    ribbon: bool = True
+    # Ribbon knobs (mirror the chart's Settings ▸ Trend angle defaults).
+    ribbon_lookback: int = 5        # candles the slope compares across
+    ribbon_gray_pctile: float = 40.0  # noise-floor percentile of |slope|
+    ribbon_min_samples: int = 15    # slopes needed before the floor can judge
+    ribbon_min_noise_pct: float = 0.002  # absolute floor under the percentile
 
 
 def load_thresholds_sma5_signal(

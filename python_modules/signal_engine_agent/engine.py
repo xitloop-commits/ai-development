@@ -69,6 +69,7 @@ from signal_engine_agent.thresholds import (
 from signal_engine_agent.leg_start import LegStartDetector
 from signal_engine_agent.ma_signal import MASignalDetector
 from signal_engine_agent.sma5_signal import Sma5SignalDetector
+from signal_engine_agent.premium_ribbon import LockedPremiumFeed, PremiumRibbonDetector
 from signal_engine_agent.control_client import start_control_listener
 
 
@@ -781,6 +782,34 @@ def run(
     # entry only fires if the side's premium is ABOVE its own SMA5 (confirmation).
     sma5_prem_ce = _PremiumSma5()
     sma5_prem_pe = _PremiumSma5()
+    # ── T163 premium-ribbon rewrite (2026-08-13, Partha) ──────────────────
+    # When `ribbon` is on (the new default) the ma/sma5 cohorts IGNORE the
+    # underlying detectors above and follow the trend ribbon of the SESSION-
+    # LOCKED option contracts' own premiums: ribbon UP → LONG that leg, DOWN
+    # → EXIT it, GRAY → no entry at all (an open ride holds). One background
+    # feed polls the server for the locked CE/PE premium ticks (full session
+    # first = silent warm-up, then incremental).
+    def _mk_ribbon(src: str, th) -> PremiumRibbonDetector:
+        return PremiumRibbonDetector(
+            src,
+            candle_sec=th.candle_sec,
+            lookback=th.ribbon_lookback,
+            gray_pctile=th.ribbon_gray_pctile,
+            min_samples=th.ribbon_min_samples,
+            min_noise_pct=th.ribbon_min_noise_pct,
+        )
+    ma_ribbon = (
+        _mk_ribbon("ma", ma_signal_thresholds)
+        if getattr(ma_signal_thresholds, "ribbon", False) else None
+    )
+    sma5_ribbon = (
+        _mk_ribbon("sma5", sma5_signal_thresholds)
+        if getattr(sma5_signal_thresholds, "ribbon", False) else None
+    )
+    premium_feed: LockedPremiumFeed | None = None
+    if ma_ribbon is not None or sma5_ribbon is not None:
+        premium_feed = LockedPremiumFeed(instrument)
+        premium_feed.start()
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -842,6 +871,17 @@ def run(
         # The detector is still built — the cohort can be switched on live from
         # the AI menu without restarting SEA.
         print(f"  MA-Signal: OFF at startup (live-toggleable from the AI menu)")
+    # Premium-ribbon banner (T163, 2026-08-13).
+    if premium_feed is not None:
+        _rb = []
+        if sma5_ribbon is not None:
+            _rb.append(f"sma5 ({sma5_signal_thresholds.candle_sec}s candles)")
+        if ma_ribbon is not None:
+            _rb.append(f"ma ({ma_signal_thresholds.candle_sec}s candles)")
+        print(
+            f"  Premium ribbon: ON for {', '.join(_rb)} — signals follow the "
+            f"LOCKED contract premiums (UP=enter, DOWN=exit, GRAY=no entry)"
+        )
     print()
 
     raw_logger = SignalLogger(instrument)
@@ -1377,12 +1417,43 @@ def run(
                         cohort="trend", reasons=trend_sig.gate_reasons,
                     )
 
+            # ── T163: drain the locked-premium feed → ribbon events ──────
+            # The daemon poller queues locked-contract premium ticks; here
+            # (engine thread) they run through the ribbon detectors. History
+            # batches warm silently; only LIVE ticks may fire events.
+            _rb_ma_events: list[str] = []
+            _rb_s5_events: list[str] = []
+            if premium_feed is not None:
+                try:
+                    for _leg, _rst, _rb_live, _rb_ticks in premium_feed.drain():
+                        if _rst:
+                            if ma_ribbon is not None:
+                                ma_ribbon.reset_leg(_leg)
+                            if sma5_ribbon is not None:
+                                sma5_ribbon.reset_leg(_leg)
+                            print(f"  [ribbon] {instrument.upper()} {_leg} relocked — re-warming on the new contract", flush=True)
+                            continue
+                        if not _rb_live:
+                            # Session history — warm up, never fire on the past.
+                            if ma_ribbon is not None:
+                                ma_ribbon.warm(_leg, _rb_ticks)
+                            if sma5_ribbon is not None:
+                                sma5_ribbon.warm(_leg, _rb_ticks)
+                            continue
+                        for _pts, _pltp in _rb_ticks:
+                            if ma_ribbon is not None:
+                                _rb_ma_events.extend(ma_ribbon.on_leg_tick(_leg, _pts, _pltp))
+                            if sma5_ribbon is not None:
+                                _rb_s5_events.extend(sma5_ribbon.on_leg_tick(_leg, _pts, _pltp))
+                except Exception as exc:
+                    print(f"  premium-ribbon feed error: {exc}", file=sys.stderr)
+
             # ── MA-Signal cohort (2026-07-14) ──────────────────────
             # Independent of the scalp/trend gates. Pure 20-EMA slope
             # segmentation (sticky) on the underlying — fires LONG_CE /
             # LONG_PE at a trend leg START and EXIT_CE / EXIT_PE at its
-            # END. SIGNAL-ONLY: emitted + charted, never auto-traded (it
-            # loses as a standalone buy). Opt in via `ma_signal.enabled`.
+            # END. T163: in ribbon mode the events instead come from the
+            # LOCKED PUT/CALL premium ribbons (see drain above).
             if ma_signal_detector is not None:
                 try:
                     # Apply the live reversal size from the control panel (0 =
@@ -1399,10 +1470,20 @@ def run(
                             pass
                     _ma_ts = _finite(row.get("timestamp"))
                     _ma_spot = _finite(row.get("spot_price"))
-                    ma_events = (
-                        ma_signal_detector.on_tick(_ma_ts, _ma_spot)
-                        if _ma_ts is not None and _ma_spot is not None else []
-                    )
+                    if ma_ribbon is not None:
+                        # T163: events come from the locked-premium ribbons;
+                        # the live candle_sec knob applies to the legs too.
+                        if _macs is not None:
+                            try:
+                                ma_ribbon.set_candle_sec(int(_macs))
+                            except (TypeError, ValueError):
+                                pass
+                        ma_events = _rb_ma_events
+                    else:
+                        ma_events = (
+                            ma_signal_detector.on_tick(_ma_ts, _ma_spot)
+                            if _ma_ts is not None and _ma_spot is not None else []
+                        )
                     # Keep the detector FED even when the cohort is toggled off so
                     # its candles stay current; just suppress the emit while off.
                     if not _live_cohorts["ma"]:
@@ -1410,8 +1491,14 @@ def run(
                     for _ev in ma_events:
                         _ma_call = "CE" in _ev
                         _ma_exit = _ev.startswith("EXIT")
-                        _ma_ltp = _finite(ce_ltp if _ma_call else pe_ltp)
                         _ma_side = "CE" if _ma_call else "PE"
+                        # Ribbon mode prices off the LOCKED contract's premium
+                        # (that IS what the signal watched); ATM is the fallback.
+                        _ma_ltp = None
+                        if ma_ribbon is not None and premium_feed is not None:
+                            _ma_ltp = _finite(premium_feed.last_ltp.get(_ma_side))
+                        if _ma_ltp is None:
+                            _ma_ltp = _finite(ce_ltp if _ma_call else pe_ltp)
                         ma_signal_out = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
@@ -1420,9 +1507,16 @@ def run(
                             "action": _ev,
                             "cohort": "ma_signal",
                             "reason": (
-                                f"MA-Signal · {'exit' if _ma_exit else 'enter'} "
-                                f"{'CE up-leg' if _ma_call else 'PE down-leg'} "
-                                f"· 20-EMA slope (sticky)"
+                                (
+                                    f"MA ribbon {'DOWN — exit' if _ma_exit else 'UP — enter'} "
+                                    f"{_ma_side} (locked {premium_feed.strikes.get(_ma_side) or '?'} premium)"
+                                )
+                                if ma_ribbon is not None and premium_feed is not None
+                                else (
+                                    f"MA-Signal · {'exit' if _ma_exit else 'enter'} "
+                                    f"{'CE up-leg' if _ma_call else 'PE down-leg'} "
+                                    f"· 20-EMA slope (sticky)"
+                                )
                             ),
                             "regime": regime,
                             "entry": round(_ma_ltp, 2) if _ma_ltp else None,
@@ -1508,6 +1602,8 @@ def run(
                             sma5_signal_detector.set_candle_sec(_s5cs)
                             sma5_prem_ce.set_candle_sec(_s5cs)
                             sma5_prem_pe.set_candle_sec(_s5cs)
+                            if sma5_ribbon is not None:
+                                sma5_ribbon.set_candle_sec(_s5cs)
                         except (TypeError, ValueError):
                             pass
                     _s5_ts = _finite(row.get("timestamp"))
@@ -1521,10 +1617,17 @@ def run(
                             sma5_prem_ce.on_tick(_s5_ts, _pce)
                         if _ppe is not None:
                             sma5_prem_pe.on_tick(_s5_ts, _ppe)
-                    sma5_events = (
-                        sma5_signal_detector.on_tick(_s5_ts, _s5_spot)
-                        if _s5_ts is not None and _s5_spot is not None else []
-                    )
+                    if sma5_ribbon is not None:
+                        # T163: events come from the locked-premium ribbons; the
+                        # legacy premium-confirm entry gate is redundant there
+                        # (the ribbon IS the premium's own judgment).
+                        _sma5_gate_on = False
+                        sma5_events = _rb_s5_events
+                    else:
+                        sma5_events = (
+                            sma5_signal_detector.on_tick(_s5_ts, _s5_spot)
+                            if _s5_ts is not None and _s5_spot is not None else []
+                        )
                     # Entry-watch audit: print the detector's one-line transition
                     # note (armed / confirming N/M / entered / cancelled) so the
                     # deferred entry is visible in the SEA output. Only when the
@@ -1540,8 +1643,14 @@ def run(
                     for _ev in sma5_events:
                         _s5_call = "CE" in _ev
                         _s5_exit = _ev.startswith("EXIT")
-                        _s5_ltp = _finite(ce_ltp if _s5_call else pe_ltp)
                         _s5_side = "CE" if _s5_call else "PE"
+                        # Ribbon mode prices off the LOCKED contract's premium
+                        # (that IS what the signal watched); ATM is the fallback.
+                        _s5_ltp = None
+                        if sma5_ribbon is not None and premium_feed is not None:
+                            _s5_ltp = _finite(premium_feed.last_ltp.get(_s5_side))
+                        if _s5_ltp is None:
+                            _s5_ltp = _finite(ce_ltp if _s5_call else pe_ltp)
                         # ENTRY GATE (option A) — skip a CE/PE entry whose premium is
                         # not above its OWN SMA5 (the premium doesn't confirm). Exits
                         # are never gated. Warmup returns confirmed, so it can't block
@@ -1560,8 +1669,15 @@ def run(
                             "action": _ev,
                             "cohort": "sma5_signal",
                             "reason": (
-                                f"SMA5 · {'exit' if _s5_exit else 'enter'} "
-                                f"{'CE (close above line)' if _s5_call else 'PE (close below line)'}"
+                                (
+                                    f"SMA5 ribbon {'DOWN — exit' if _s5_exit else 'UP — enter'} "
+                                    f"{_s5_side} (locked {premium_feed.strikes.get(_s5_side) or '?'} premium)"
+                                )
+                                if sma5_ribbon is not None and premium_feed is not None
+                                else (
+                                    f"SMA5 · {'exit' if _s5_exit else 'enter'} "
+                                    f"{'CE (close above line)' if _s5_call else 'PE (close below line)'}"
+                                )
                             ),
                             "regime": regime,
                             "entry": round(_s5_ltp, 2) if _s5_ltp else None,
