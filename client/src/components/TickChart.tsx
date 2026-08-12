@@ -131,6 +131,8 @@ export interface TickChartProps {
    *  provided it REPLACES the hover-angle computation: the bottom strip shows
    *  the hovered (else latest) minute's trend state, angle and run age. */
   trendReadout?: Map<number, { text: string; color: string }>;
+  /** Second readout, rendered bottom-RIGHT (the SMA5 twin of the MA readout). */
+  trendReadoutRight?: Map<number, { text: string; color: string }>;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -158,6 +160,7 @@ export function TickChart({
   extraLines,
   hoverAngleStrip,
   trendReadout,
+  trendReadoutRight,
   header,
   loading,
   emptyText,
@@ -182,6 +185,7 @@ export function TickChart({
   const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number }>({ logical: null, count: 0 });
   const legendRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<HTMLDivElement>(null);
+  const angleRightRef = useRef<HTMLDivElement>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
   const { theme } = useTheme(); // re-theme the chart when the operator toggles
@@ -496,11 +500,16 @@ export function TickChart({
       // T162 trend readout takes precedence: hovered minute's state/age.
       if (trendReadout) {
         const idx = i == null ? candles.length - 1 : i;
-        const s = idx >= 0 && idx < candles.length
-          ? trendReadout.get(Math.floor((candles[idx].time as number) / 60))
-          : undefined;
+        const minute = idx >= 0 && idx < candles.length ? Math.floor((candles[idx].time as number) / 60) : null;
+        const s = minute != null ? trendReadout.get(minute) : undefined;
         el.textContent = s?.text ?? "—";
         el.style.color = s?.color ?? "";
+        const er = angleRightRef.current;
+        if (er && trendReadoutRight) {
+          const s2 = minute != null ? trendReadoutRight.get(minute) : undefined;
+          er.textContent = s2?.text ?? "—";
+          er.style.color = s2?.color ?? "";
+        }
         return;
       }
       if (!sma5Vals) return;
@@ -574,7 +583,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip, trendReadout, trendReadoutRight]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
@@ -661,6 +670,13 @@ export function TickChart({
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
         {/* SMA5 hover-angle readout (test chart) — filled from the crosshair. */}
+        {trendReadoutRight && (
+          <div
+            ref={angleRightRef}
+            className="absolute bottom-1 right-1 z-10 pointer-events-none rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
+            title="SMA5 trend state at the hovered candle"
+          />
+        )}
         {(hoverAngleStrip || trendReadout) && (
           <div
             ref={angleRef}

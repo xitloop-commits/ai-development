@@ -708,17 +708,31 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   // Test chart: trend ribbon + readout, tuned from Settings ▸ Trend angle.
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  // BOTH witnesses (Partha 2026-08-12): MA ribbon+readout AND SMA5 twin.
   const trendA = useMemo(() => {
     if (!singlePane) return undefined;
-    return trendAnalysis(baseCandles as { time: number; close: number }[], taOpts);
+    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "ma" });
   }, [singlePane, baseCandles, taOpts]);
-  const trendLines = trendA?.lines as never;
+  const trendS = useMemo(() => {
+    if (!singlePane) return undefined;
+    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "sma5" });
+  }, [singlePane, baseCandles, taOpts]);
+  const trendLines = useMemo(
+    () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
+    [trendA, trendS],
+  );
   const trendReadout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();
-    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, taOpts?.source ?? "ma")));
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "ma")));
     return m;
-  }, [trendA, taOpts?.source]);
+  }, [trendA]);
+  const trendReadoutRight = useMemo(() => {
+    if (!trendS) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendS.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "sma5")));
+    return m;
+  }, [trendS]);
 
   const underlyingEntryLine = useMemo(() => {
     if (!openTrade || baseCandles.length === 0) return [];
@@ -1039,6 +1053,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
             trendReadout={trendReadout}
+            trendReadoutRight={trendReadoutRight}
             extraLines={trendLines}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"

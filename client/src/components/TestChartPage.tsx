@@ -59,16 +59,29 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
   const trendA = useMemo(
-    () => trendAnalysis(c.candles as { time: number; close: number }[], taOpts),
+    () => trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }),
     [c.candles, taOpts],
   );
-  const ribbon = trendA?.lines as never;
+  const trendS = useMemo(
+    () => trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }),
+    [c.candles, taOpts],
+  );
+  const ribbon = useMemo(
+    () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
+    [trendA, trendS],
+  );
   const readout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();
-    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, taOpts?.source ?? "ma")));
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "ma")));
     return m;
-  }, [trendA, taOpts?.source]);
+  }, [trendA]);
+  const readoutRight = useMemo(() => {
+    if (!trendS) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendS.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "sma5")));
+    return m;
+  }, [trendS]);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
 
   const btn = (active: boolean) =>
@@ -102,6 +115,7 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
           extraLines={ribbon}
           hoverAngleStrip
           trendReadout={readout}
+          trendReadoutRight={readoutRight}
           loading={!!secId && seedQ.isLoading}
           emptyText={
             !secId ? (idQ.isLoading ? "Resolving the contract…" : "Contract not found in today's chain.")
