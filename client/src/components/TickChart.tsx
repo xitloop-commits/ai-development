@@ -547,6 +547,10 @@ export function TickChart({
     // append, so a stashed LOGICAL range keeps the same zoom on the same bars. If
     // the previous view was the default full-fit (from≈0 & to at the edge), we
     // re-fit instead so the chart keeps following new candles live.
+    // `disposed` guard (declared before restore — the rAF re-asserts use it):
+    // chart.remove() can emit a final range-change after cleanup stashed the
+    // good window; the guard stops that from clobbering viewRef.
+    let disposed = false;
     {
       const bars = candles.length;
       const saved = viewRef.current;
@@ -554,21 +558,24 @@ export function TickChart({
         !saved.logical || (saved.logical.from <= 0.5 && saved.logical.to >= saved.count - 1);
       const fit = () => chart.timeScale().setVisibleLogicalRange({ from: 0, to: bars - 1 + RIGHT_MARGIN_BARS });
       if (!isDefault && saved.logical) {
-        try { chart.timeScale().setVisibleLogicalRange(saved.logical); } catch { fit(); }
+        const want = { from: saved.logical.from, to: saved.logical.to };
+        const assert = () => {
+          if (disposed) return;
+          try { chart.timeScale().setVisibleLogicalRange(want); } catch { /* chart gone */ }
+        };
+        try { chart.timeScale().setVisibleLogicalRange(want); } catch { fit(); }
+        // autoSize measures the container ASYNCHRONOUSLY; its first layout
+        // pass can reset the range AFTER the synchronous restore above —
+        // that was the "zoom keeps resetting" bug. Re-assert once the next
+        // frame and once after the ResizeObserver settles.
+        requestAnimationFrame(assert);
+        setTimeout(assert, 80);
       } else {
         fit();
       }
     }
-    // Track the window CONTINUOUSLY (not only at teardown). The MCX charts
-    // rebuild on 30s seed re-polls, and a cleanup-time-only stash proved racy
-    // there — zoom kept snapping back to full-fit. Live tracking makes the
-    // restore above deterministic for every rebuild trigger.
-    //
-    // `disposed` guard: chart.remove() (and the resize that precedes it) can
-    // emit one final range-change AFTER cleanup stashed the good window —
-    // without the guard that late event clobbers viewRef with a reset range
-    // and the next rebuild (every ~1s on live panes) "forgets" the zoom.
-    let disposed = false;
+    // Track the window CONTINUOUSLY (not only at teardown), so any rebuild
+    // trigger restores exactly what the user last saw.
     chart.timeScale().subscribeVisibleLogicalRangeChange((lr) => {
       if (!disposed && lr) viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length };
     });
