@@ -18,7 +18,8 @@
     "sl_pct": 12,
     "confirm_candles": 1,
     "entry_watch": 0,
-    "entry_gate": true
+    "entry_gate": true,
+    "candle_sec": 120
   },
   "ma_signal": {
     "enabled": true,
@@ -27,6 +28,7 @@
     "thr_hi": 0.015,
     "thr_lo": 0.006,
     "rev_pct": 0,
-    "sl_pct": 12
+    "sl_pct": 12,
+    "candle_sec": 120
   }
 }

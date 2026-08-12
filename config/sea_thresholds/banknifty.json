@@ -17,12 +17,12 @@
     "buildup_min_premium_mom": 0
   },
   "legstart": {
-    "enabled": true,
+    "enabled": false,
     "ng_ce": 2,
-    "dir_ce": 0.52,
+    "dir_ce": 0.6,
     "ng_pe": 2,
     "pe_look": 5,
-    "dir_pe": 0.48,
+    "dir_pe": 0.4,
     "pe_mirror": true,
     "ema_period": 21,
     "trend_slope": 5,
@@ -37,7 +37,8 @@
     "thr_hi": 0.015,
     "thr_lo": 0.006,
     "rev_pct": 0,
-    "sl_pct": 12
+    "sl_pct": 12,
+    "candle_sec": 120
   },
   "trend": {
     "enabled": false,
@@ -47,5 +48,16 @@
     "magnitude_scale": 0.5,
     "min_seconds_between_signals": 600,
     "calls_only": false
+  },
+  "sma5_signal": {
+    "enabled": true,
+    "period": 5,
+    "buffer_pct": 0,
+    "use_ha": true,
+    "sl_pct": 12,
+    "confirm_candles": 1,
+    "entry_watch": 0,
+    "entry_gate": true,
+    "candle_sec": 120
   }
 }
