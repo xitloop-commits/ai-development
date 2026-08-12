@@ -51,10 +51,10 @@ const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: st
 ];
 const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
 
-// Candle-timeframe seconds ↔ label (detector candle size: 1m/3m/5m).
-type TfLabel = "1m" | "3m" | "5m";
-const TF_LABEL = (sec: number): TfLabel => (sec === 180 ? "3m" : sec === 300 ? "5m" : "1m");
-const TF_SEC = (tf: TfLabel): number => (tf === "3m" ? 180 : tf === "5m" ? 300 : 60);
+// Candle-timeframe seconds ↔ label (detector candle size: 1m/2m/3m/5m).
+type TfLabel = "1m" | "2m" | "3m" | "5m";
+const TF_LABEL = (sec: number): TfLabel => (sec === 120 ? "2m" : sec === 180 ? "3m" : sec === 300 ? "5m" : "1m");
+const TF_SEC = (tf: TfLabel): number => (tf === "2m" ? 120 : tf === "3m" ? 180 : tf === "5m" ? 300 : 60);
 
 /** A 1m / 3m / 5m segmented selector for a detector's candle timeframe. */
 function TfRow({ label, sec, onChange, help }: {
@@ -65,7 +65,7 @@ function TfRow({ label, sec, onChange, help }: {
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">{label}{help && <InfoDot text={help} />}</span>
       <div className="flex rounded border border-border overflow-hidden">
-        {(["1m", "3m", "5m"] as const).map((tf) => (
+        {(["1m", "2m", "3m", "5m"] as const).map((tf) => (
           <button key={tf} type="button" onClick={() => onChange(TF_SEC(tf))}
             className={`px-2 py-0.5 text-[0.625rem] font-bold transition-colors ${
               cur === tf ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"

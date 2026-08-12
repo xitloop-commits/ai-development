@@ -39,6 +39,55 @@ import { chartColors } from "@/lib/chartColors";
 /** Empty bars of margin kept to the right of the last candle. */
 const RIGHT_MARGIN_BARS = 10;
 
+/**
+ * Higher-timeframe SMA line: aggregate the display candles into `tfSec`-second
+ * signal candles, compute the (HA-or-raw) `period`-SMA on THOSE, then map each
+ * signal candle's SMA + close back onto the display candles it contains — a step
+ * line that updates at each signal-candle close, so the drawn line matches the
+ * detector's SMA even when the chart is viewed at a finer interval.
+ *
+ * Returns per-DISPLAY-candle arrays: `sma` (the line value) and `close` (the
+ * signal candle's close, for the ABOVE/BELOW colouring). When `tfSec` matches the
+ * display interval this reduces to the plain per-candle SMA.
+ */
+export function higherTfSma(
+  candles: Candle[],
+  tfSec: number,
+  period: number,
+  useHa: boolean,
+): { sma: (number | null)[]; close: (number | null)[] } {
+  const n = candles.length;
+  if (n === 0) return { sma: [], close: [] };
+  const sig: Candle[] = [];
+  const dispToSig = new Array<number>(n);
+  const sec = Math.max(1, tfSec);
+  let curKey: number | null = null;
+  for (let i = 0; i < n; i++) {
+    const c = candles[i];
+    const key = Math.floor((c.time as number) / sec);
+    if (key !== curKey) {
+      sig.push({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
+      curKey = key;
+    } else {
+      const s = sig[sig.length - 1];
+      if (c.high > s.high) s.high = c.high;
+      if (c.low < s.low) s.low = c.low;
+      s.close = c.close;
+    }
+    dispToSig[i] = sig.length - 1;
+  }
+  const srcClose = useHa ? heikinAshi(sig).map((k) => k.close) : sig.map((k) => k.close);
+  const sigSma = sma(srcClose, period);
+  const smaOut = new Array<number | null>(n);
+  const closeOut = new Array<number | null>(n);
+  for (let i = 0; i < n; i++) {
+    const j = dispToSig[i];
+    smaOut[i] = sigSma[j] ?? null;
+    closeOut[i] = srcClose[j] ?? null;
+  }
+  return { sma: smaOut, close: closeOut };
+}
+
 /** One MA-Signal leg from SEA (authoritative). When passed, the MA line is
  *  coloured by these legs instead of a browser-side slope recompute — so the
  *  colour transitions land exactly on the entry/exit markers. `end === null`
@@ -71,6 +120,10 @@ export interface TickChartProps {
    *  candle mode) + its period. Defaults to HA/5 = the detector default. */
   sma5Ha?: boolean;
   sma5Period?: number;
+  /** Signal candle timeframe (seconds) the SMA5 line is computed on — 60/120/180/
+   *  300. When it differs from the chart's display interval, the line is a
+   *  higher-timeframe step line so it matches the signals that fire. */
+  sma5CandleSec?: number;
   /** Test-chart (2026-08-11): show the SMA5 line's angle at the HOVERED candle
    *  in a bottom strip — degrees + %/5c (0.2%/5c ≈ 45°, underlying scale). */
   hoverAngleStrip?: boolean;
@@ -93,6 +146,7 @@ export function TickChart({
   intervalSec,
   sma5Ha = true,
   sma5Period = 5,
+  sma5CandleSec = 60,
   extraLines,
   hoverAngleStrip,
   header,
@@ -326,8 +380,11 @@ export function TickChart({
     // so the flips line up with the signals that actually fire — independent of
     // the chart's own candle style.
     if (indicators.has("sma5")) {
-      const src = sma5Ha ? heikinAshi(rawCandles).map((k) => k.close) : rawCandles.map((k) => k.close);
-      const sv = sma(src, sma5Period);
+      // Compute on the SIGNAL's timeframe (sma5CandleSec), not the display
+      // interval, so the line matches the fires even on a finer/coarser chart.
+      const htf = higherTfSma(rawCandles, sma5CandleSec, sma5Period, sma5Ha);
+      const sv = htf.sma;
+      const src = htf.close;
       // Thin + BRIGHT (Partha, 2026-08-05): width 1 so candles stay readable
       // underneath, neon green/red so the state still pops at a glance.
       const SMA5_UP = "#00e676", SMA5_DOWN = "#ff1744";
@@ -341,8 +398,8 @@ export function TickChart({
       const data: { time: UTCTimestamp; value: number; color: string }[] = [];
       for (let i = 0; i < candles.length; i++) {
         const v = sv[i];
-        if (v == null) continue;
         const c = src[i];
+        if (v == null || c == null) continue;
         const color = c > v ? SMA5_UP : c < v ? SMA5_DOWN : (data.length ? data[data.length - 1].color : SMA5_UP);
         data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
       }
@@ -496,7 +553,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, extraLines, hoverAngleStrip]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

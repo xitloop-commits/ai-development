@@ -88,15 +88,19 @@ let wss: WebSocketServer | null = null;
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
  *  candle mode (Heikin-Ashi vs raw) + period from the per-instrument config so
  *  the line's green/red flips line up with the signals that actually fire. */
-export function getSma5LineConfig(instrument: string): { useHa: boolean; period: number } {
+export function getSma5LineConfig(instrument: string): { useHa: boolean; period: number; candleSec: number } {
   try {
     const inst = (instrument || "").toLowerCase().replace(/[^a-z0-9]/g, ""); // "NIFTY_50" → "nifty50"
     const p = cfgPath(inst);
-    if (!existsSync(p)) return { useHa: true, period: 5 };
-    const b = (JSON.parse(readFileSync(p, "utf8")).sma5_signal ?? {}) as { use_ha?: boolean; period?: number };
-    return { useHa: b.use_ha !== false, period: typeof b.period === "number" ? b.period : 5 };
+    if (!existsSync(p)) return { useHa: true, period: 5, candleSec: 60 };
+    const b = (JSON.parse(readFileSync(p, "utf8")).sma5_signal ?? {}) as { use_ha?: boolean; period?: number; candle_sec?: number };
+    return {
+      useHa: b.use_ha !== false,
+      period: typeof b.period === "number" ? b.period : 5,
+      candleSec: typeof b.candle_sec === "number" ? b.candle_sec : 60,
+    };
   } catch {
-    return { useHa: true, period: 5 };
+    return { useHa: true, period: 5, candleSec: 60 };
   }
 }
 
@@ -398,9 +402,9 @@ export function setSma5EntryGate(value: boolean): CohortState {
   return { ...state };
 }
 
-/** Candle timeframe (seconds) is clamped to the supported set {60,180,300}. */
+/** Candle timeframe (seconds) is clamped to the supported set {60,120,180,300}. */
 const clampCandleSec = (v: number): number =>
-  [60, 180, 300].includes(Math.round(v)) ? Math.round(v) : 60;
+  [60, 120, 180, 300].includes(Math.round(v)) ? Math.round(v) : 60;
 
 /** Set the SMA5 candle timeframe (s). Persisted + pushed; the detector resets its
  *  candle aggregation on the change and the SMA re-warms. */

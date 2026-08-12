@@ -600,8 +600,8 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.sma5Buffer = clampNum(c.sma5Buffer, 0, 5, 0);
   c.sma5EntryWatch = Math.round(clampNum(c.sma5EntryWatch, 0, 10, 0));
   c.sma5EntryGate = c.sma5EntryGate === true;
-  c.sma5CandleSec = [60, 180, 300].includes(Math.round(c.sma5CandleSec)) ? Math.round(c.sma5CandleSec) : 60;
-  c.maCandleSec = [60, 180, 300].includes(Math.round(c.maCandleSec)) ? Math.round(c.maCandleSec) : 60;
+  c.sma5CandleSec = [60, 120, 180, 300].includes(Math.round(c.sma5CandleSec)) ? Math.round(c.sma5CandleSec) : 60;
+  c.maCandleSec = [60, 120, 180, 300].includes(Math.round(c.maCandleSec)) ? Math.round(c.maCandleSec) : 60;
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

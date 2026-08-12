@@ -319,7 +319,7 @@ function FloatingPane({ storageKey, title, defaultBox, children, onClose }: {
  *  candles (its own hooks, so any number of panes is React-safe) and draws it
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
-  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, alsoMark,
+  trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, sma5CandleSec, alsoMark,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -331,6 +331,7 @@ function TradePane({
   optionsEnabled: boolean;
   sma5Ha: boolean;
   sma5Period: number;
+  sma5CandleSec: number;
   /** Extra trades on the SAME contract to also mark (e.g. the previous trade when
    *  it shares the strike — Focus layout draws its markers here instead of a
    *  separate thumbnail). */
@@ -386,6 +387,7 @@ function TradePane({
         intervalSec={intervalSec}
         sma5Ha={sma5Ha}
         sma5Period={sma5Period}
+        sma5CandleSec={sma5CandleSec}
         emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
         className="min-h-0 flex-1"
         header={<>
@@ -522,6 +524,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   );
   const sma5Ha = sma5CfgQuery.data?.useHa ?? true;
   const sma5Period = sma5CfgQuery.data?.period ?? 5;
+  const sma5CandleSec = sma5CfgQuery.data?.candleSec ?? 60;
 
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
@@ -889,6 +892,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
                       optionsEnabled={optionsEnabled}
                       sma5Ha={sma5Ha}
                       sma5Period={sma5Period}
+                      sma5CandleSec={sma5CandleSec}
                       alsoMark={marks}
                     />
                   ) : (
@@ -925,6 +929,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
                 optionsEnabled={optionsEnabled}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
+                sma5CandleSec={sma5CandleSec}
                 alsoMark={mainAlsoMark}
               />
             </div>
@@ -950,6 +955,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
                 optionsEnabled={optionsEnabled}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
+                sma5CandleSec={sma5CandleSec}
               />
             </FloatingPane>
           )}
@@ -970,6 +976,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
               intervalSec={intervalSec}
               sma5Ha={sma5Ha}
               sma5Period={sma5Period}
+              sma5CandleSec={sma5CandleSec}
               loading={ticksLoading}
               className="h-full"
             />
@@ -995,6 +1002,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
             intervalSec={intervalSec}
             sma5Ha={sma5Ha}
             sma5Period={sma5Period}
+            sma5CandleSec={sma5CandleSec}
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
             extraLines={trendLines}
@@ -1073,6 +1081,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
                 optionsEnabled={optionsEnabled}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
+                sma5CandleSec={sma5CandleSec}
               />
               <PaneFullscreenBtn active={fullscreenPane === paneId} onToggle={() => setFullscreenPane((p) => (p === paneId ? null : paneId))} />
             </div>
