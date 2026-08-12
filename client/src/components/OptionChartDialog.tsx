@@ -218,12 +218,16 @@ function OptionChart({
     return { t, ltp };
   }, [tickSeed, replayCutoffTs]);
 
+  // Live WS ticks. In tick mode (sub-minute) they ARE the chart. At 1m+ on a live
+  // day we also subscribe (no seed — broker candles carry history) so the live
+  // ticks can drive the FORMING candle in realtime instead of the 5s broker poll.
+  const wantLiveTicks = useTicks || (isToday && !isReplay);
   const live = useLiveCandles(
-    useTicks ? target.securityId : null,
+    wantLiveTicks ? target.securityId : null,
     target.exchangeSegment,
     intervalSec,
-    useTicks,
-    seedForChart, // history to the replay's now; the live seam extends it forward
+    wantLiveTicks,
+    useTicks ? seedForChart : undefined, // seed only in tick mode; 1m+ uses broker history
   );
   const brokerCandles = useMemo<Candle[]>(() => {
     const raw = candleQuery.data as RawCandles | undefined;
@@ -231,7 +235,29 @@ function OptionChart({
     return aggregateCandles(toCandles(raw), intervalSec);
   }, [candleQuery.data, intervalSec]);
 
-  const candles = useTicks ? live.candles : brokerCandles;
+  const candles = useMemo<Candle[]>(() => {
+    if (useTicks) return live.candles; // sub-minute: pure live ticks
+    // 1m+ HYBRID: broker minute candles for history (instant load), the live WS
+    // tick stream drives the forming candle so the chart is realtime — no waiting
+    // on the 5s broker poll, no scanning the giant tick file.
+    if (!isToday || isReplay || brokerCandles.length === 0) return brokerCandles;
+    const liveLast = live.candles.length ? live.candles[live.candles.length - 1] : null;
+    if (!liveLast) return brokerCandles;
+    const out = brokerCandles.slice();
+    const bLast = out[out.length - 1];
+    if ((liveLast.time as number) > (bLast.time as number)) {
+      out.push(liveLast); // a new bucket the broker poll hasn't caught up to yet
+    } else {
+      // Same bucket: keep the broker candle's true open, take the realtime close/H/L.
+      out[out.length - 1] = {
+        ...bLast,
+        close: liveLast.close,
+        high: Math.max(bLast.high, liveLast.high),
+        low: Math.min(bLast.low, liveLast.low),
+      };
+    }
+    return out;
+  }, [useTicks, isToday, isReplay, brokerCandles, live.candles]);
 
   // ── Trades on this strike ──────────────────────────────────────────
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
