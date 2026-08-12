@@ -184,14 +184,18 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
 
   // Shared trend engine (same as the test chart): ribbons per source when the
   // indicator is on, plus the blue/pink steep parallels derived from the MA
-  // analysis. All tuned from Settings ▸ Trend angle.
+  // analysis. Tuned from Settings ▸ Trend angle; each ribbon computes on its
+  // DETECTOR's candle timeframe so colours flip when signals fire.
+  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
+  const sma5CandleSec = cohortQ.data?.sma5CandleSec ?? 60;
   const trendA = useMemo(
-    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }) : undefined),
-    [c.candles, taOpts, indicators],
+    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec }) : undefined),
+    [c.candles, taOpts, indicators, maCandleSec],
   );
   const trendS = useMemo(
-    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }) : undefined),
-    [c.candles, taOpts, indicators],
+    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec }) : undefined),
+    [c.candles, taOpts, indicators, sma5CandleSec],
   );
   const extraLines = useMemo(() => {
     const arr = [...(trendA?.lines ?? []), ...(trendS?.lines ?? [])];

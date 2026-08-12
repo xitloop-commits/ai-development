@@ -68,13 +68,17 @@ function OptionTestPane({ instKey, strike, side, date }: { instKey: string; stri
   const c = useLiveCandles(isToday ? secId : null, optionSegmentFor(instKey), intervalSec, true, seed);
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  // Ribbons on the DETECTORS' candle timeframes — colours flip with signals.
+  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
+  const sma5CandleSec = cohortQ.data?.sma5CandleSec ?? 60;
   const trendA = useMemo(
-    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }) : undefined),
-    [c.candles, taOpts, indicators],
+    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec }) : undefined),
+    [c.candles, taOpts, indicators, maCandleSec],
   );
   const trendS = useMemo(
-    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }) : undefined),
-    [c.candles, taOpts, indicators],
+    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec }) : undefined),
+    [c.candles, taOpts, indicators, sma5CandleSec],
   );
   const ribbon = useMemo(
     () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),

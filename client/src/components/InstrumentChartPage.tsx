@@ -645,16 +645,21 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   // Test chart: trend ribbon + readout, tuned from Settings ▸ Trend angle.
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  // Ribbons compute on the DETECTORS' candle timeframes (Partha 2026-08-13:
+  // "chart colours flip when signals fire") — MA on maCandleSec, SMA5 on the
+  // sma5 candleSec already fetched above.
+  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
   // BOTH witnesses (Partha 2026-08-12): MA ribbon+readout AND SMA5 twin —
   // each toggleable from the indicator menu (2026-08-13).
   const trendA = useMemo(() => {
     if (!singlePane || !indicators.has("maRibbon")) return undefined;
-    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "ma" });
-  }, [singlePane, baseCandles, taOpts, indicators]);
+    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec });
+  }, [singlePane, baseCandles, taOpts, indicators, maCandleSec]);
   const trendS = useMemo(() => {
     if (!singlePane || !indicators.has("sma5Ribbon")) return undefined;
-    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "sma5" });
-  }, [singlePane, baseCandles, taOpts, indicators]);
+    return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec });
+  }, [singlePane, baseCandles, taOpts, indicators, sma5CandleSec]);
   const trendLines = useMemo(
     () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
     [trendA, trendS],

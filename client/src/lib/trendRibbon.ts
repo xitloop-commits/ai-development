@@ -34,11 +34,15 @@ export type SlopeSource = "ma" | "sma5";
 /** Tunables — mirrored in CommonConfig.trendAngle (Settings ▸ Trend angle). */
 export interface TrendAngleOptions {
   source: SlopeSource;          // which line's lean we trust
-  lookbackMin: number;          // minutes back the slope compares (3–10)
+  lookbackMin: number;          // slope lookback in CANDLES (1–10)
   scaleMode: "auto" | "fixed";  // what counts as steep
   fixedPctPer45: number;        // fixed mode: % per lookback that reads 45°
   grayPctile: number;           // noise floor percentile (20–60)
   smooth: boolean;              // history-polish passes on/off
+  /** Candle SECONDS the line + slope compute on — pass the SEA detector's
+   *  candle_sec so the chart's colours flip exactly when signals fire
+   *  (2026-08-13). Not a Settings knob; callers supply it. Default 60. */
+  bucketSec?: number;
 }
 
 export const DEFAULT_TREND_ANGLE: TrendAngleOptions = {
@@ -61,9 +65,13 @@ export function trendAnalysis(
   const o = { ...DEFAULT_TREND_ANGLE, ...opts };
   const source = o.source;
   const LOOK = Math.max(1, Math.round(o.lookbackMin));
+  // Detector-timeframe buckets (60s default). Every state applies to all the
+  // minutes its bucket covers, so the per-minute readout/lookup stays intact.
+  const BUCKET = Math.max(60, Math.round(o.bucketSec ?? 60));
+  const perBucket = Math.max(1, Math.round(BUCKET / 60));
   if (candles.length < 10) return undefined;
   const minuteClose = new Map<number, number>();
-  for (const c of candles) minuteClose.set(Math.floor(c.time / 60), c.close);
+  for (const c of candles) minuteClose.set(Math.floor(c.time / BUCKET), c.close);
   const mins = Array.from(minuteClose.keys()).sort((a, b) => a - b);
   const mClose = mins.map((m) => minuteClose.get(m)!);
 
@@ -106,12 +114,18 @@ export function trendAnalysis(
 
   const st = new Map<number, MinuteState>();
   pctOfMin.forEach((v, m) => {
-    st.set(m, {
-      deg: (Math.atan(v.pct / p80) * 180) / Math.PI,
-      line: v.line,
-      trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
-      runMin: 1,
-    });
+    // `m` is a BUCKET id — expand its state to every minute it covers (each
+    // minute gets its OWN object; the polish passes + run-age stamping mutate
+    // entries individually).
+    const m0 = Math.floor((m * BUCKET) / 60);
+    for (let j = 0; j < perBucket; j++) {
+      st.set(m0 + j, {
+        deg: (Math.atan(v.pct / p80) * 180) / Math.PI,
+        line: v.line,
+        trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
+        runMin: 1,
+      });
+    }
   });
 
   // History-polish passes (Partha rules): gray→red prefill any length, short
