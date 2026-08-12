@@ -315,7 +315,7 @@ export function SettingsMenu() {
                       ))}
                     </div>
                   </div>
-                  <NumRow label="Lookback" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={3} max={10} unit="min"
+                  <NumRow label="Lookback" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="min"
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Scale</span>

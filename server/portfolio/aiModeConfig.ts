@@ -679,7 +679,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   }
   const ta = c.trendAngle;
   ta.source = ta.source === "sma5" ? "sma5" : "ma";
-  ta.lookbackMin = Math.round(clampNum(ta.lookbackMin, 3, 10, 5));
+  ta.lookbackMin = Math.round(clampNum(ta.lookbackMin, 1, 10, 5));
   ta.scaleMode = ta.scaleMode === "fixed" ? "fixed" : "auto";
   ta.fixedPctPer45 = clampNum(ta.fixedPctPer45, 0.01, 10, 0.2);
   ta.grayPctile = Math.round(clampNum(ta.grayPctile, 20, 60, 40));

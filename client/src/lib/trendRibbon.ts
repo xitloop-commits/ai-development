@@ -60,7 +60,7 @@ export function trendAnalysis(
 ): TrendAnalysis | undefined {
   const o = { ...DEFAULT_TREND_ANGLE, ...opts };
   const source = o.source;
-  const LOOK = Math.max(2, Math.round(o.lookbackMin));
+  const LOOK = Math.max(1, Math.round(o.lookbackMin));
   if (candles.length < 10) return undefined;
   const minuteClose = new Map<number, number>();
   for (const c of candles) minuteClose.set(Math.floor(c.time / 60), c.close);
