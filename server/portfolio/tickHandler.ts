@@ -920,11 +920,15 @@ class TickHandler extends EventEmitter {
           // a faint TSL line climbing toward entry before it becomes the live stop.
           trade.dynTslLevel = dyn?.level ?? null;
           // Candle-close TSL exit: fire when a completed 1-min candle CLOSED beyond
-          // the level. The candle stop is active FROM ENTRY (above or below), so it
-          // cuts a loss as well as protecting a gain — no locked-profit gate.
-          // Intra-candle touches never exit; ladderDecide suppresses the trail's
-          // tick-breach so this candle-close check owns it.
-          const candleTslExit = !!dyn?.closedBelow;
+          // the level. In PROFIT-ONLY mode (default) it fires only once the level
+          // has locked profit (above entry) — the downside is left to the tick SL,
+          // which cuts immediately at its % instead of the candle stop waiting for
+          // a 1-min close and filling at the crash bottom. In FROM-ENTRY mode it
+          // fires above OR below entry (cuts losses too). Intra-candle touches never
+          // exit; ladderDecide suppresses the trail's tick-breach so this owns it.
+          const dynLevelLocked = dyn?.level != null
+            && (isBuy ? dyn.level > trade.entryPrice : dyn.level < trade.entryPrice);
+          const candleTslExit = !!dyn?.closedBelow && (lcfg.esTslFromEntry || dynLevelLocked);
           const out = ladderDecide(
             {
               entry: trade.entryPrice,

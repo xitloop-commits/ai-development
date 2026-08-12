@@ -577,6 +577,7 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   l.esTslCandles = Math.round(clampNum(l.esTslCandles, 1, 20, 2));
   l.esTslCandleSrc = l.esTslCandleSrc === "open" ? "open" : "close";
   l.esTslCandleHa = l.esTslCandleHa === true; // default raw (matches the raw chart)
+  l.esTslFromEntry = l.esTslFromEntry === true; // default profit-only (tick SL cuts losses)
   return e;
 }
 

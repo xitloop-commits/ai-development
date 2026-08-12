@@ -58,7 +58,7 @@ interface LadderCfg {
   esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
   esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
   esTslEnabled: boolean; esTslMode: "percent" | "rupees" | "candles"; esTslPct: number; esTslValue: number;
-  esTslCandles: number; esTslCandleSrc: "open" | "close"; esTslCandleHa: boolean;
+  esTslCandles: number; esTslCandleSrc: "open" | "close"; esTslCandleHa: boolean; esTslFromEntry: boolean;
 }
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
 /** Per-mode (per-book) config. */
@@ -934,6 +934,15 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                                   className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
                                 >
                                   {ed.ladder.esTslCandleHa ? "HA" : "RAW"}
+                                </button>
+                                {/* Profit-only (safety SL cuts losses) vs From-entry (candle stop cuts losses too). */}
+                                <button
+                                  type="button" disabled={!ed.ladder.esTslEnabled}
+                                  onClick={() => editExits((x) => { x.ladder.esTslFromEntry = !x.ladder.esTslFromEntry; })}
+                                  title="PROFIT: candle stop protects gains only; the tick-based safety SL cuts losses (immediate). ENTRY: candle stop is active from entry and cuts losses too (waits for a candle close — can fill deep on a crash)."
+                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
+                                >
+                                  {ed.ladder.esTslFromEntry ? "ENTRY" : "PROFIT"}
                                 </button>
                               </>
                             ) : (

@@ -288,6 +288,12 @@ export interface LadderConfig {
   esTslCandleSrc: "open" | "close"; // candles-mode: which value of that candle
   esTslCandleHa: boolean; // candles-mode: Heikin-Ashi candles (true) or RAW candles
                           // (false — matches a raw candlestick chart)
+  // candles-mode: when true the candle stop is active FROM ENTRY (above OR below
+  // entry) so it cuts losses too; when false (default) it's PROFIT-ONLY — it
+  // binds only once above entry, leaving the downside to the tick-based safety SL
+  // (which fires immediately at its %, instead of the candle stop waiting for a
+  // 1-min close and filling at the crash bottom).
+  esTslFromEntry: boolean;
 }
 
 export const DEFAULT_LADDER_CFG: LadderConfig = {
@@ -325,6 +331,7 @@ export const DEFAULT_LADDER_CFG: LadderConfig = {
   esTslCandles: 2,
   esTslCandleSrc: "close",
   esTslCandleHa: false, // raw candles by default — matches the raw candlestick chart
+  esTslFromEntry: false, // profit-only by default — the tick SL cuts losses, not the candle stop
 };
 
 export interface LadderState {
@@ -447,13 +454,15 @@ export function ladderDecide(i: ExitInput, c: LadderConfig, s: LadderState): Exi
             : i.peak * (c.esTslPct / 100);
         trail = i.peak - d * giveback;
       }
-      // Candles mode is a STOP FROM ENTRY — it binds above OR below entry, so a
-      // candle closing through the level cuts a loss just as it protects a gain.
-      // The %/₹ giveback modes only bind once LOCKED in profit (a giveback below
-      // entry is meaningless; the safety SL governs the downside there).
+      // When may the trail bind? The candle stop binds below entry ONLY in
+      // "from-entry" mode (it then cuts losses). Otherwise every trail — candles,
+      // %, ₹ — binds only once LOCKED in profit (above entry), leaving the downside
+      // to the tick-based safety SL (immediate, instead of the candle stop waiting
+      // for a 1-min close and filling at the crash bottom).
+      const candlesFromEntry = c.esTslMode === "candles" && c.esTslFromEntry;
       if (
         trail != null &&
-        (c.esTslMode === "candles" || favour(i, trail) > 0) &&
+        (candlesFromEntry || favour(i, trail) > 0) &&
         (effStop == null || favour(i, trail) > favour(i, effStop))
       ) {
         effStop = trail;
