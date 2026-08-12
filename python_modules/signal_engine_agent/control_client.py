@@ -92,6 +92,17 @@ def start_control_listener(live: dict, instrument: str | None = None) -> threadi
                         # SMA5 premium-confirm entry gate (on/off) — live-tunable.
                         if "sma5EntryGate" in st:
                             live["sma5_entry_gate"] = bool(st["sma5EntryGate"])
+                        # SMA5 / MA candle timeframe (seconds) — live-tunable.
+                        if "sma5CandleSec" in st:
+                            try:
+                                live["sma5_candle_sec"] = max(1, int(st["sma5CandleSec"]))
+                            except (TypeError, ValueError):
+                                pass
+                        if "maCandleSec" in st:
+                            try:
+                                live["ma_candle_sec"] = max(1, int(st["maCandleSec"]))
+                            except (TypeError, ValueError):
+                                pass
                         # Requested model version for THIS instrument. Recorded
                         # only — the engine thread does the actual load.
                         if instrument and isinstance(st.get("models"), dict):

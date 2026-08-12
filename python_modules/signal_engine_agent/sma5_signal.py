@@ -73,6 +73,25 @@ class Sma5SignalDetector:
         # Deadband (% of the line) the close must clear to flip; 0 = exact cross.
         self.buffer_pct = max(0.0, float(getattr(cfg, "buffer_pct", 0.0) or 0.0))
         self.entry_watch = max(0, int(getattr(cfg, "entry_watch", 0) or 0))
+        # Candle timeframe in SECONDS (60 = 1m, 180 = 3m, 300 = 5m). The 5-SMA is
+        # 5 candles of THIS size, so a 3m timeframe = a 15-min line. Live-tunable.
+        self.candle_sec = max(1, int(getattr(cfg, "candle_sec", 60) or 60))
+
+    def set_candle_sec(self, sec: int) -> None:
+        """Live timeframe change. Resets the candle aggregation so the new-size
+        candles rebuild cleanly (the SMA re-warms over `period` candles); the
+        ABOVE/BELOW state is kept so an open side still tracks. No-op if unchanged."""
+        sec = max(1, int(sec))
+        if sec == self.candle_sec:
+            return
+        self.candle_sec = sec
+        self._cur_minute = None
+        self._o = self._h = self._l = self._c = 0.0
+        self._closes.clear()
+        self._ha_open_prev = None
+        self._ha_close_prev = None
+        self._pending = None
+        self._pending_streak = 0
 
     def _start_candle(self, spot: float) -> None:
         self._o = self._h = self._l = self._c = spot
@@ -81,7 +100,7 @@ class Sma5SignalDetector:
         self.last_watch_note = None        # only a candle-close transition sets it
         if not (math.isfinite(ts) and math.isfinite(spot)):
             return []
-        minute = int(ts // 60)
+        minute = int(ts // self.candle_sec)
         if self._cur_minute is None:
             self._cur_minute = minute
             self._start_candle(spot)

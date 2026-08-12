@@ -54,11 +54,25 @@ class MASignalDetector:
         # Live-tunable reversal size (%). Seeded from the (frozen) cfg; the engine
         # overwrites it from the control panel so a change applies with no restart.
         self.rev_pct: float = cfg.rev_pct
+        # Candle timeframe in SECONDS (60 = 1m, 180 = 3m, 300 = 5m). Live-tunable.
+        self.candle_sec = max(1, int(getattr(cfg, "candle_sec", 60) or 60))
+
+    def set_candle_sec(self, sec: int) -> None:
+        """Live timeframe change. Resets the candle aggregation + EMA history so the
+        new-size candles rebuild cleanly (the slope re-warms). No-op if unchanged."""
+        sec = max(1, int(sec))
+        if sec == self.candle_sec:
+            return
+        self.candle_sec = sec
+        self._cur_minute = None
+        self._c = 0.0
+        self._emas.clear()
+        self._ema_prev = None
 
     def on_tick(self, ts: float, spot: float) -> list[str]:
         if not (math.isfinite(ts) and math.isfinite(spot)):
             return []
-        minute = int(ts // 60)
+        minute = int(ts // self.candle_sec)
         if self._cur_minute is None:
             self._cur_minute = minute
             self._c = spot

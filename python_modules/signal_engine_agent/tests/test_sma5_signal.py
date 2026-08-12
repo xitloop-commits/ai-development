@@ -152,3 +152,39 @@ def test_entry_watch_audit_note_traces_cancellation():
 def test_entry_watch_0_sets_no_audit_note():
     """When disabled, the immediate entry leaves no watch note (no log noise)."""
     assert _run_notes(_det(use_ha=False, period=3, entry_watch=0), [1000, 1010, 1020, 1030]) == []
+
+
+# ── candle_sec: the timeframe the detector buckets on ─────────────────────────
+
+def test_candle_sec_3m_buckets_at_180s():
+    """With candle_sec=180 a candle closes every 3 min; the cross still fires."""
+    det = _det(use_ha=False, period=3, candle_sec=180)
+    fires = []
+    closes = [1000, 1010, 1020, 1030]
+    for m, c in enumerate(closes):
+        fires.extend(det.on_tick(m * 180 + 0.0, c))
+        det.on_tick(m * 180 + 100.0, c)
+    fires.extend(det.on_tick(len(closes) * 180 + 0.0, closes[-1]))
+    assert fires == ["LONG_CE"]
+
+
+def test_same_ticks_do_not_close_a_3m_candle_early():
+    """Ticks within a 3-min window must NOT complete a candle (bucketing works)."""
+    det = _det(use_ha=False, period=3, candle_sec=180)
+    fires = []
+    # 3 ticks all inside the FIRST 180s bucket → no candle close, no event.
+    for t in (0.0, 60.0, 120.0):
+        fires.extend(det.on_tick(t, 1000 + t))
+    assert fires == []
+
+
+def test_set_candle_sec_resets_state_and_is_noop_when_unchanged():
+    det = _det(use_ha=False, period=3, candle_sec=60)
+    det.on_tick(0.0, 1000.0)
+    det.on_tick(30.0, 1005.0)
+    det.set_candle_sec(60)          # unchanged → no reset
+    assert det.candle_sec == 60
+    det.set_candle_sec(180)         # changed → aggregation resets, SMA re-warms
+    assert det.candle_sec == 180
+    assert det._cur_minute is None
+    assert len(det._closes) == 0

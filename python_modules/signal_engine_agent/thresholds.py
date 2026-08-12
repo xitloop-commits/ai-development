@@ -1105,6 +1105,8 @@ class MASignalThresholds:
     # % stop-loss stamped on the ENTRY when MA-Signal auto-trades; the exit is
     # otherwise the executor's time/momentum exits (same as leg-start's ride).
     sl_pct: float = 12.0
+    # Candle timeframe (seconds): 60 = 1m, 180 = 3m, 300 = 5m. Live-tunable.
+    candle_sec: int = 60
 
 
 def load_thresholds_ma_signal(
@@ -1166,6 +1168,9 @@ class Sma5SignalThresholds:
     # otherwise the entry is skipped. False = original (fire on the underlying
     # cross regardless). Exits are never gated. Live-tunable.
     entry_gate: bool = False
+    # Candle timeframe (seconds): 60 = 1m, 180 = 3m, 300 = 5m. The 5-SMA is 5
+    # candles of this size (3m → a 15-min line). Live-tunable.
+    candle_sec: int = 60
 
 
 def load_thresholds_sma5_signal(

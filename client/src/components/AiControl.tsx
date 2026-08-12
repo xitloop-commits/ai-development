@@ -79,6 +79,8 @@ interface CommonCfg {
   sma5Buffer: number;
   sma5EntryWatch: number;
   sma5EntryGate: boolean;
+  sma5CandleSec: number;
+  maCandleSec: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;

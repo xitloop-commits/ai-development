@@ -49,6 +49,10 @@ export interface CohortState {
    *  option's premium is above its own SMA5 at the cross (else skipped). false =
    *  fire on the underlying cross regardless. Live-tunable. */
   sma5EntryGate: boolean;
+  /** SMA5 candle timeframe in seconds (60=1m, 180=3m, 300=5m). Live-tunable. */
+  sma5CandleSec: number;
+  /** MA-Signal candle timeframe in seconds (60=1m, 180=3m, 300=5m). Live-tunable. */
+  maCandleSec: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -78,7 +82,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -271,6 +275,35 @@ function persistSma5EntryGate(value: boolean): void {
   }
 }
 
+/** Read a candle_sec (timeframe seconds) from the first instrument's cfg block. */
+function readCandleSec(block: "sma5_signal" | "ma_signal"): number | null {
+  try {
+    const p = cfgPath(INSTRUMENTS[0]);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    const v = j[block]?.candle_sec;
+    return typeof v === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write candle_sec into every instrument's given block (that key only). */
+function persistCandleSec(block: "sma5_signal" | "ma_signal", value: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      if (!j[block] || j[block].candle_sec === value) continue;
+      j[block].candle_sec = value;
+      writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -360,6 +393,34 @@ export function setSma5EntryGate(value: boolean): CohortState {
   if (state.sma5EntryGate === v) return { ...state };
   state.sma5EntryGate = v;
   persistSma5EntryGate(v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/** Candle timeframe (seconds) is clamped to the supported set {60,180,300}. */
+const clampCandleSec = (v: number): number =>
+  [60, 180, 300].includes(Math.round(v)) ? Math.round(v) : 60;
+
+/** Set the SMA5 candle timeframe (s). Persisted + pushed; the detector resets its
+ *  candle aggregation on the change and the SMA re-warms. */
+export function setSma5CandleSec(value: number): CohortState {
+  const v = clampCandleSec(value);
+  if (state.sma5CandleSec === v) return { ...state };
+  state.sma5CandleSec = v;
+  persistCandleSec("sma5_signal", v);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
+/** Set the MA-Signal candle timeframe (s). Persisted + pushed; the detector resets
+ *  its candle aggregation on the change and the slope re-warms. */
+export function setMaCandleSec(value: number): CohortState {
+  const v = clampCandleSec(value);
+  if (state.maCandleSec === v) return { ...state };
+  state.maCandleSec = v;
+  persistCandleSec("ma_signal", v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
@@ -457,6 +518,9 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setSma5EntryWatch(getCommonConfig().sma5EntryWatch);
   // SMA5 premium-confirm entry gate (on/off) — same.
   setSma5EntryGate(getCommonConfig().sma5EntryGate);
+  // Candle timeframes (seconds) for the SMA5 + MA detectors — same.
+  setSma5CandleSec(getCommonConfig().sma5CandleSec);
+  setMaCandleSec(getCommonConfig().maCandleSec);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
@@ -476,6 +540,10 @@ export function initSeaControl(server: Server): void {
   if (sw !== null) state.sma5EntryWatch = sw;
   const sg = readSma5EntryGate();
   if (sg !== null) state.sma5EntryGate = sg;
+  const s5cs = readCandleSec("sma5_signal");
+  if (s5cs !== null) state.sma5CandleSec = s5cs;
+  const macs = readCandleSec("ma_signal");
+  if (macs !== null) state.maCandleSec = macs;
 
   // T97 — hydrate the model map from each instrument's LATEST pointer, which is
   // what SEA actually loads at startup. Without this `state.models` stays {}

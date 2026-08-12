@@ -123,7 +123,7 @@ class _PremiumSma5:
     the SMA5 entry gate to check the premium confirms (is ABOVE its own SMA5).
     Pure state, never raises."""
 
-    def __init__(self, period: int = 5) -> None:
+    def __init__(self, period: int = 5, candle_sec: int = 60) -> None:
         self._closes: deque[float] = deque(maxlen=max(1, period))
         self._period = max(1, period)
         self._minute: int | None = None
@@ -131,11 +131,25 @@ class _PremiumSma5:
         self._ha_open_prev: float | None = None
         self._ha_close_prev: float | None = None
         self._sma: float | None = None  # last 5-SMA of HA closes (None until warm)
+        self.candle_sec = max(1, int(candle_sec))
+
+    def set_candle_sec(self, sec: int) -> None:
+        """Match the SMA5 detector's timeframe live. Resets the aggregation (re-warms)."""
+        sec = max(1, int(sec))
+        if sec == self.candle_sec:
+            return
+        self.candle_sec = sec
+        self._minute = None
+        self._o = self._h = self._l = self._c = 0.0
+        self._ha_open_prev = None
+        self._ha_close_prev = None
+        self._sma = None
+        self._closes.clear()
 
     def on_tick(self, ts: float, price: float) -> None:
         if not (math.isfinite(ts) and math.isfinite(price)):
             return
-        minute = int(ts // 60)
+        minute = int(ts // self.candle_sec)
         if self._minute is None:
             self._minute = minute
             self._o = self._h = self._l = self._c = price
@@ -919,11 +933,13 @@ def run(
         "trend": trend_thresholds.enabled,
         "ma": ma_signal_thresholds.enabled,
         "rev_pct": ma_signal_thresholds.rev_pct,  # MA reversal size, live-tunable
+        "ma_candle_sec": ma_signal_thresholds.candle_sec,  # MA candle timeframe (s), live-tunable
         "sma5": sma5_signal_thresholds.enabled,
         "sma5_confirm": sma5_signal_thresholds.confirm_candles,  # SMA5 exit confirm, live-tunable
         "sma5_buffer": sma5_signal_thresholds.buffer_pct,  # SMA5 deadband %, live-tunable
         "sma5_entry_watch": sma5_signal_thresholds.entry_watch,  # SMA5 entry-watch candles, live-tunable
         "sma5_entry_gate": sma5_signal_thresholds.entry_gate,  # SMA5 premium-confirm entry gate, live-tunable
+        "sma5_candle_sec": sma5_signal_thresholds.candle_sec,  # SMA5 candle timeframe (s), live-tunable
     }
     # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
     # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
@@ -1374,6 +1390,13 @@ def run(
                     _rp = _live_cohorts.get("rev_pct")
                     if _rp is not None:
                         ma_signal_detector.rev_pct = _rp
+                    # Live candle timeframe (seconds) from the panel.
+                    _macs = _live_cohorts.get("ma_candle_sec")
+                    if _macs is not None:
+                        try:
+                            ma_signal_detector.set_candle_sec(int(_macs))
+                        except (TypeError, ValueError):
+                            pass
                     _ma_ts = _finite(row.get("timestamp"))
                     _ma_spot = _finite(row.get("spot_price"))
                     ma_events = (
@@ -1477,6 +1500,16 @@ def run(
                             pass
                     # Live-tunable premium-confirm entry gate (on/off) from the panel.
                     _sma5_gate_on = bool(_live_cohorts.get("sma5_entry_gate"))
+                    # Live candle timeframe (seconds) — detector + both premium SMA5s.
+                    _s5cs = _live_cohorts.get("sma5_candle_sec")
+                    if _s5cs is not None:
+                        try:
+                            _s5cs = int(_s5cs)
+                            sma5_signal_detector.set_candle_sec(_s5cs)
+                            sma5_prem_ce.set_candle_sec(_s5cs)
+                            sma5_prem_pe.set_candle_sec(_s5cs)
+                        except (TypeError, ValueError):
+                            pass
                     _s5_ts = _finite(row.get("timestamp"))
                     _s5_spot = _finite(row.get("spot_price"))
                     # Keep the per-side premium SMA5s warm every row (continuous), so

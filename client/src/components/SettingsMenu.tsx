@@ -29,6 +29,8 @@ interface CommonCfg {
   sma5Buffer: number;
   sma5EntryWatch: number;
   sma5EntryGate: boolean;
+  sma5CandleSec: number;
+  maCandleSec: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -48,6 +50,33 @@ const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: st
   { key: "swing", label: "Swing" },
 ];
 const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
+
+// Candle-timeframe seconds ↔ label (detector candle size: 1m/3m/5m).
+type TfLabel = "1m" | "3m" | "5m";
+const TF_LABEL = (sec: number): TfLabel => (sec === 180 ? "3m" : sec === 300 ? "5m" : "1m");
+const TF_SEC = (tf: TfLabel): number => (tf === "3m" ? 180 : tf === "5m" ? 300 : 60);
+
+/** A 1m / 3m / 5m segmented selector for a detector's candle timeframe. */
+function TfRow({ label, sec, onChange, help }: {
+  label: string; sec: number; onChange: (sec: number) => void; help?: string;
+}) {
+  const cur = TF_LABEL(sec);
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">{label}{help && <InfoDot text={help} />}</span>
+      <div className="flex rounded border border-border overflow-hidden">
+        {(["1m", "3m", "5m"] as const).map((tf) => (
+          <button key={tf} type="button" onClick={() => onChange(TF_SEC(tf))}
+            className={`px-2 py-0.5 text-[0.625rem] font-bold transition-colors ${
+              cur === tf ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+            }`}>
+            {tf}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** A compact checkbox. `indeterminate` renders the mixed (dash) state. */
 function Check2({ checked, indeterminate, onChange, title }: {
@@ -261,6 +290,9 @@ export function SettingsMenu() {
                 </Group>
 
                 <Group title="SMA5 detector" info="Entry gate (premium confirm): when ON, a CE/PE entry only fires if THAT option's premium is above its own SMA5 at the cross (the premium confirms the underlying move); otherwise the entry is skipped. OFF = fire on the underlying cross regardless (original). Exits are never gated. Entry watch (candles): after a cross, entry waits this many 1-min candles that each close FURTHER in the trade's direction (above the prior candle for CE, below for PE) before entering; 0 = enter on the cross (original). Avoids buying a spike that reverts. Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. All live — the running SEA applies them on the next candle.">
+                  <TfRow label="Timeframe" sec={d.sma5CandleSec}
+                    onChange={(s) => edit((x) => { x.sma5CandleSec = s; })}
+                    help="Candle size the SMA5 runs on. The 5-SMA is 5 candles of this size (3m → a 15-min line). Changing it live re-warms the SMA over ~5 candles." />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
                     <Check2 checked={d.sma5EntryGate} onChange={() => edit((x) => { x.sma5EntryGate = !x.sma5EntryGate; })}
@@ -274,7 +306,9 @@ export function SettingsMenu() {
                     onChange={(v) => edit((x) => { x.sma5Buffer = v; })} />
                 </Group>
 
-                <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %.">
+                <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">
+                  <TfRow label="Timeframe" sec={d.maCandleSec}
+                    onChange={(s) => edit((x) => { x.maCandleSec = s; })} />
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
                 </Group>
