@@ -162,6 +162,22 @@ function loadGridLayout(inst: string | null): string {
   }
 }
 
+// Chart interval persists per instrument (localStorage → survives HMR + reload).
+// null when the operator has never picked one, so we can auto-match the signal
+// timeframe on first open.
+const intervalKey = (inst: string | null) => `chartInterval:${inst ?? "?"}`;
+function loadInterval(inst: string | null): number | null {
+  try {
+    const v = Number(localStorage.getItem(intervalKey(inst)));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+function saveInterval(inst: string | null, sec: number): void {
+  try { localStorage.setItem(intervalKey(inst), String(sec)); } catch { /* ignore */ }
+}
+
 /** A tiny cols×rows grid glyph for the layout menu. */
 function GridIcon({ cols, rows, size = 16 }: { cols: number; rows: number; size?: number }) {
   const pad = 1;
@@ -417,7 +433,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   const { theme } = useTheme();
 
   const [date, setDate] = useState<string>("");
-  const [intervalSec, setIntervalSec] = useState<number>(DEFAULT_INTERVAL_SECONDS);
+  const [intervalSec, setIntervalSec] = useState<number>(() => loadInterval(inst) ?? DEFAULT_INTERVAL_SECONDS);
+  // A saved interval means the operator already chose one → don't auto-match the
+  // signal timeframe over it. (Persisted per instrument, so it survives reloads.)
+  const intervalTouchedRef = useRef(loadInterval(inst) != null);
   const [style, setStyle] = useState<ChartStyle>("ha"); // Heikin-Ashi by default (matches the SMA5 detector)
   // SEA signals still power the MA-line colouring + the trade-reason panel, but
   // are no longer drawn as chart markers (trades only).
@@ -525,6 +544,11 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   const sma5Ha = sma5CfgQuery.data?.useHa ?? true;
   const sma5Period = sma5CfgQuery.data?.period ?? 5;
   const sma5CandleSec = sma5CfgQuery.data?.candleSec ?? 60;
+  // First open (no saved interval): open the chart AT the signal's timeframe so
+  // the candles match the fires. Once the operator picks an interval, we stop.
+  useEffect(() => {
+    if (!intervalTouchedRef.current && sma5CfgQuery.data) setIntervalSec(sma5CandleSec);
+  }, [sma5CandleSec, sma5CfgQuery.data]);
 
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
@@ -777,7 +801,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         <span className="font-bold tracking-wide">{meta.displayName}</span>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
-            <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => setIntervalSec(iv.seconds)}>{iv.label}</button>
+            <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { intervalTouchedRef.current = true; saveInterval(inst, iv.seconds); setIntervalSec(iv.seconds); }}>{iv.label}</button>
           ))}
         </div>
         <div className="flex items-center gap-0.5">
