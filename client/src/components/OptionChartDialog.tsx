@@ -401,6 +401,18 @@ function OptionChart({
       (candleQuery.isLoading && candleQuery.fetchStatus !== "idle")
     : candleQuery.isLoading && candleQuery.fetchStatus !== "idle";
 
+  // Background-status line for the bottom of the chart, so the operator can see
+  // where the data is coming from (recorded disk ticks vs broker) and whether the
+  // forming candle is live.
+  const statusText = useMemo(() => {
+    if (isReplay) return loading ? "Replay — loading recorded ticks…" : "▶ Replay (recorded ticks)";
+    if (!isToday) return loading ? "Loading recorded candles…" : "Recorded (past date)";
+    if (useTicks) return loading ? "Indexing today's recorded ticks…" : "● Live ticks (realtime, from recording)";
+    // 1m+ live: broker 1m candles for history, live WS ticks drive the forming candle.
+    if (loading) return "Loading history (broker 1m)…";
+    return live.candles.length > 0 ? "Broker 1m history · ● live ticks" : "Broker 1m (5s poll)";
+  }, [isReplay, isToday, useTicks, loading, live.candles.length]);
+
   const btn = (active: boolean, disabled = false) =>
     `px-1 py-0.5 rounded text-[0.5625rem] font-semibold border transition-colors ${
       disabled
@@ -569,6 +581,7 @@ function OptionChart({
         indicators={indicators}
         intervalSec={intervalSec}
         loading={loading}
+        statusText={statusText}
         emptyText={
           useTicks
             ? "Waiting for ticks on this contract…"
