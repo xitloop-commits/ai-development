@@ -40,7 +40,15 @@ const NO_LINES: never[] = [];
 function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: number; side: "CE" | "PE" }) {
   const [intervalSec, setIntervalSec] = useState(60);
   const [style, setStyle] = useState<ChartStyle>("ha");
-  const [indicators] = useState<Set<IndicatorKey>>(() => new Set<IndicatorKey>(["sma5"]));
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
+    () => new Set<IndicatorKey>(["sma5", "maRibbon", "sma5Ribbon"]),
+  );
+  const toggleIndicator = (k: IndicatorKey) =>
+    setIndicators((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
 
   const idQ = trpc.trading.optionContractId.useQuery(
     { instrument: instKey, strike, isCall: side === "CE" },
@@ -59,12 +67,12 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
   const trendA = useMemo(
-    () => trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }),
-    [c.candles, taOpts],
+    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma" }) : undefined),
+    [c.candles, taOpts, indicators],
   );
   const trendS = useMemo(
-    () => trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }),
-    [c.candles, taOpts],
+    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5" }) : undefined),
+    [c.candles, taOpts, indicators],
   );
   const ribbon = useMemo(
     () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
@@ -99,6 +107,11 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
           <button className={btn(style === "candle")} onClick={() => setStyle("candle")}>Candle</button>
           <button className={btn(style === "ha")} onClick={() => setStyle("ha")}>HA</button>
           <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
+        </div>
+        <div className="flex items-center gap-0.5">
+          {([["sma5", "SMA5"], ["maRibbon", "MA Ribbon"], ["sma5Ribbon", "SMA5 Ribbon"]] as [IndicatorKey, string][]).map(([k, label]) => (
+            <button key={k} className={btn(indicators.has(k))} onClick={() => toggleIndicator(k)}>{label}</button>
+          ))}
         </div>
         <span className="text-[0.625rem] text-muted-foreground">
           {idQ.isLoading ? "resolving contract…" : secId ? `contract ${secId}` : "contract not found"}

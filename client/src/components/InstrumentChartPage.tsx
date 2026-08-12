@@ -444,7 +444,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   // tri-colour angle line carry the story (Partha 2026-08-11).
   const [showTrades, setShowTrades] = useState(!singlePane);
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(singlePane ? ["sma5"] : ["ma", "sma5"]),
+    () => new Set<IndicatorKey>(singlePane ? ["sma5", "maRibbon", "sma5Ribbon"] : ["ma", "sma5"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [replayCount, setReplayCount] = useState<number | null>(null);
@@ -708,15 +708,16 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   // Test chart: trend ribbon + readout, tuned from Settings ▸ Trend angle.
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
-  // BOTH witnesses (Partha 2026-08-12): MA ribbon+readout AND SMA5 twin.
+  // BOTH witnesses (Partha 2026-08-12): MA ribbon+readout AND SMA5 twin —
+  // each toggleable from the indicator menu (2026-08-13).
   const trendA = useMemo(() => {
-    if (!singlePane) return undefined;
+    if (!singlePane || !indicators.has("maRibbon")) return undefined;
     return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "ma" });
-  }, [singlePane, baseCandles, taOpts]);
+  }, [singlePane, baseCandles, taOpts, indicators]);
   const trendS = useMemo(() => {
-    if (!singlePane) return undefined;
+    if (!singlePane || !indicators.has("sma5Ribbon")) return undefined;
     return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "sma5" });
-  }, [singlePane, baseCandles, taOpts]);
+  }, [singlePane, baseCandles, taOpts, indicators]);
   const trendLines = useMemo(
     () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
     [trendA, trendS],
