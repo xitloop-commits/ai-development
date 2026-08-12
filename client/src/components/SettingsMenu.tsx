@@ -40,6 +40,15 @@ interface CommonCfg {
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
   masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterLevel };
+  // T162 — trend-angle ribbon/readout tunables (display/measurement only).
+  trendAngle: {
+    source: "ma" | "sma5";
+    lookbackMin: number;
+    scaleMode: "auto" | "fixed";
+    fixedPctPer45: number;
+    grayPctile: number;
+    smooth: boolean;
+  };
 }
 
 const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: string }[] = [
@@ -286,6 +295,51 @@ export function SettingsMenu() {
                       onChange={(v) => edit((x) => { x.reentryOnTrend.windowSec = v; })} />
                     <NumRow label="Max re-entries" value={d.reentryOnTrend?.maxReentries ?? 3} step={1} min={0} max={20}
                       onChange={(v) => edit((x) => { x.reentryOnTrend.maxReentries = v; })} />
+                  </div>
+                </Group>
+
+                <Group
+                  title="Trend angle"
+                  info="The tri-colour trend ribbon + bottom readout on the test chart. Source: which line's lean we trust — MA (20-EMA, the MA-Signal cohort's own line: calm, late) or SMA5 (fast, flickery). Lookback: minutes back the slope compares — short reacts fast, long stays calm. Scale: Auto grades steepness on each day's own curve; Fixed uses a permanent yardstick (% per lookback = 45°). Gray zone: percentile of the day's moves that reads as no-trend — wider = only convincing trends colour. Smooth: repaint history so colours start at the visible turn (live edge always sees the raw lag). Display/measurement only — no trading rule reads these yet."
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[0.625rem] text-muted-foreground">Slope source</span>
+                    <div className="flex rounded border border-border overflow-hidden">
+                      {(["ma", "sma5"] as const).map((s) => (
+                        <button key={s} type="button" onClick={() => edit((x) => { x.trendAngle.source = s; })}
+                          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                            (d.trendAngle?.source ?? "ma") === s ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+                          }`}>
+                          {s === "ma" ? "MA" : "SMA5"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <NumRow label="Lookback" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={3} max={10} unit="min"
+                    onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[0.625rem] text-muted-foreground">Scale</span>
+                    <div className="flex rounded border border-border overflow-hidden">
+                      {(["auto", "fixed"] as const).map((s) => (
+                        <button key={s} type="button" onClick={() => edit((x) => { x.trendAngle.scaleMode = s; })}
+                          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                            (d.trendAngle?.scaleMode ?? "auto") === s ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+                          }`}>
+                          {s === "auto" ? "Auto" : "Fixed"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(d.trendAngle?.scaleMode ?? "auto") === "fixed" && (
+                    <NumRow label="45° yardstick" value={d.trendAngle?.fixedPctPer45 ?? 0.2} step={0.05} min={0.01} max={10} unit="%"
+                      onChange={(v) => edit((x) => { x.trendAngle.fixedPctPer45 = v; })} />
+                  )}
+                  <NumRow label="Gray zone" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                    onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[0.625rem] text-muted-foreground">Smooth transitions</span>
+                    <Check2 checked={d.trendAngle?.smooth ?? true} onChange={() => edit((x) => { x.trendAngle.smooth = !x.trendAngle.smooth; })}
+                      title={(d.trendAngle?.smooth ?? true) ? "Show the raw (live-realistic) ribbon" : "Repaint history to the visible turns"} />
                   </div>
                 </Group>
 

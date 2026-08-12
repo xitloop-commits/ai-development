@@ -127,9 +127,17 @@ export interface TickChartProps {
   /** Test-chart (2026-08-11): show the SMA5 line's angle at the HOVERED candle
    *  in a bottom strip — degrees + %/5c (0.2%/5c ≈ 45°, underlying scale). */
   hoverAngleStrip?: boolean;
+  /** T162 trend readout: per-MINUTE {text,color} from lib/trendRibbon. When
+   *  provided it REPLACES the hover-angle computation: the bottom strip shows
+   *  the hovered (else latest) minute's trend state, angle and run age. */
+  trendReadout?: Map<number, { text: string; color: string }>;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
+  /** Background-status line shown in the bottom pill so the user can see what the
+   *  chart is doing (loading source, indexing, live). With `loading` it gets a
+   *  spinner; without, it's a quiet persistent label. */
+  statusText?: string;
   className?: string;
   /** Fired with the clicked time (IST-shifted epoch seconds) — used to pick the
    *  nearest trade for the reason panel. */
@@ -149,9 +157,11 @@ export function TickChart({
   sma5CandleSec = 60,
   extraLines,
   hoverAngleStrip,
+  trendReadout,
   header,
   loading,
   emptyText,
+  statusText,
   className,
   onTimeClick,
   onLineDrag,
@@ -482,7 +492,18 @@ export function TickChart({
     }
     const renderAngle = (i: number | null) => {
       const el = angleRef.current;
-      if (!el || !sma5Vals) return;
+      if (!el) return;
+      // T162 trend readout takes precedence: hovered minute's state/age.
+      if (trendReadout) {
+        const idx = i == null ? candles.length - 1 : i;
+        const s = idx >= 0 && idx < candles.length
+          ? trendReadout.get(Math.floor((candles[idx].time as number) / 60))
+          : undefined;
+        el.textContent = s?.text ?? "—";
+        el.style.color = s?.color ?? "";
+        return;
+      }
+      if (!sma5Vals) return;
       if (i == null || i < 5 || sma5Vals[i] == null || sma5Vals[i - 5] == null) {
         el.textContent = "SMA5 ∠ —";
         return;
@@ -498,18 +519,18 @@ export function TickChart({
         `${String(hh.getUTCHours()).padStart(2, "0")}:${String(hh.getUTCMinutes()).padStart(2, "0")}`;
       el.style.color = deg > 5 ? "#4ADE80" : deg < -5 ? "#F87171" : "";
     };
-    if (hoverAngleStrip) renderAngle(candles.length - 1);
+    if (hoverAngleStrip || trendReadout) renderAngle(candles.length - 1);
 
     chart.subscribeCrosshairMove((param) => {
       if (param.time == null) {
         if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
-        if (hoverAngleStrip) renderAngle(candles.length - 1);
+        if (hoverAngleStrip || trendReadout) renderAngle(candles.length - 1);
         return;
       }
       const i = timeIndex.get(param.time as number);
       if (i != null) {
         renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
-        if (hoverAngleStrip) renderAngle(i);
+        if (hoverAngleStrip || trendReadout) renderAngle(i);
       }
     });
 
@@ -616,13 +637,16 @@ export function TickChart({
     <div className={`flex flex-col min-h-0 ${className ?? ""}`}>
       {header && <div className="flex items-center gap-2 pb-1 text-[0.6875rem]">{header}</div>}
       <div className="relative flex-1 min-h-0 w-full">
-        {loading && (
-          // History load → a small non-blocking pill at the BOTTOM of the chart,
-          // so any candles already drawn stay visible while more history streams.
+        {(loading || statusText) && (
+          // A small non-blocking pill at the BOTTOM of the chart telling the user
+          // what's happening in the background (loading / source / live) — any
+          // candles already drawn stay visible. Spinner only while `loading`.
           <div className="absolute inset-x-0 bottom-2 z-20 flex justify-center pointer-events-none">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/85 px-2.5 py-0.5 text-[0.625rem] text-muted-foreground shadow-sm backdrop-blur-sm">
-              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted-foreground/40 border-t-transparent" />
-              Loading history…
+              {loading && (
+                <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted-foreground/40 border-t-transparent" />
+              )}
+              {statusText ?? "Loading history…"}
             </span>
           </div>
         )}
@@ -637,7 +661,7 @@ export function TickChart({
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
         {/* SMA5 hover-angle readout (test chart) — filled from the crosshair. */}
-        {hoverAngleStrip && (
+        {(hoverAngleStrip || trendReadout) && (
           <div
             ref={angleRef}
             className="absolute bottom-1 left-1 z-10 pointer-events-none rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"

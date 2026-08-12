@@ -97,6 +97,16 @@ interface CommonCfg {
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };
     tsl: { enabled: boolean; mode: ExitLevelMode; value: number };
   };
+  // T162 — trend-angle ribbon/readout tunables (display/measurement only); mirrors
+  // the server CommonConfig so the AI menu's config round-trip stays type-safe.
+  trendAngle: {
+    source: "ma" | "sma5";
+    lookbackMin: number;
+    scaleMode: "auto" | "fixed";
+    fixedPctPer45: number;
+    grayPctile: number;
+    smooth: boolean;
+  };
 }
 /** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
 type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };

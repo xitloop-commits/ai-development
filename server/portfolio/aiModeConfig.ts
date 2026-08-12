@@ -280,6 +280,16 @@ export interface CommonConfig {
    *  instrument's signal ingest AND its AI placements on both books; manual
    *  row buys stay allowed. */
   instrumentEnabled: Record<string, boolean>;
+  /** T162 — trend-angle ribbon/readout tunables (Settings ▸ Trend angle).
+   *  Display/measurement only — no trading behaviour reads these yet. */
+  trendAngle: {
+    source: "ma" | "sma5";
+    lookbackMin: number;          // 3–10 minutes
+    scaleMode: "auto" | "fixed";
+    fixedPctPer45: number;        // fixed mode: % per lookback = 45°
+    grayPctile: number;           // 20–60 (percentile of |moves| that reads gray)
+    smooth: boolean;              // history-polish passes
+  };
 }
 
 /** One book's config: its own strategy-exit tunables (T134 — PER BOOK now, so
@@ -360,6 +370,7 @@ function baseCommon(): CommonConfig {
       perInstrument: { nifty50: 2, banknifty: 2, crudeoil: 2, naturalgas: 2 },
     },
     instrumentEnabled: { nifty50: true, banknifty: true, crudeoil: true, naturalgas: true },
+    trendAngle: { source: "ma", lookbackMin: 5, scaleMode: "auto", fixedPctPer45: 0.2, grayPctile: 40, smooth: true },
     // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
     masterExits: {
       tp: { enabled: false, mode: "percent", value: 10 },
@@ -662,6 +673,17 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   for (const k of ["nifty50", "banknifty", "crudeoil", "naturalgas"]) {
     c.instrumentEnabled[k] = c.instrumentEnabled[k] !== false;
   }
+  // T162 — trend-angle tunables. Back-fill + clamp.
+  if (!c.trendAngle) {
+    (c as CommonConfig).trendAngle = { source: "ma", lookbackMin: 5, scaleMode: "auto", fixedPctPer45: 0.2, grayPctile: 40, smooth: true };
+  }
+  const ta = c.trendAngle;
+  ta.source = ta.source === "sma5" ? "sma5" : "ma";
+  ta.lookbackMin = Math.round(clampNum(ta.lookbackMin, 3, 10, 5));
+  ta.scaleMode = ta.scaleMode === "fixed" ? "fixed" : "auto";
+  ta.fixedPctPer45 = clampNum(ta.fixedPctPer45, 0.01, 10, 0.2);
+  ta.grayPctile = Math.round(clampNum(ta.grayPctile, 20, 60, 40));
+  ta.smooth = ta.smooth !== false;
   return c;
 }
 

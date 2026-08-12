@@ -40,7 +40,7 @@ import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
-import { trendRibbon } from "@/lib/trendRibbon";
+import { trendAnalysis, trendReadoutText, type TrendAngleOptions } from "@/lib/trendRibbon";
 
 const REPLAY_STEP_MS = 250;
 
@@ -705,11 +705,20 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
         .reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null),
     [tradeRows],
   );
-  // Test chart: SMA5-angle trend ribbon (logic shared in lib/trendRibbon).
-  const trendLines = useMemo(() => {
+  // Test chart: trend ribbon + readout, tuned from Settings ▸ Trend angle.
+  const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  const trendA = useMemo(() => {
     if (!singlePane) return undefined;
-    return trendRibbon(baseCandles as { time: number; close: number }[], sma5Period) as never;
-  }, [singlePane, baseCandles, sma5Period]);
+    return trendAnalysis(baseCandles as { time: number; close: number }[], taOpts);
+  }, [singlePane, baseCandles, taOpts]);
+  const trendLines = trendA?.lines as never;
+  const trendReadout = useMemo(() => {
+    if (!trendA) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, taOpts?.source ?? "ma")));
+    return m;
+  }, [trendA, taOpts?.source]);
 
   const underlyingEntryLine = useMemo(() => {
     if (!openTrade || baseCandles.length === 0) return [];
@@ -1029,6 +1038,7 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
             sma5CandleSec={sma5CandleSec}
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
+            trendReadout={trendReadout}
             extraLines={trendLines}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"

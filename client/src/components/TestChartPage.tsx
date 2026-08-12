@@ -24,7 +24,7 @@ import {
 } from "@/lib/instrumentChart";
 import { istDateString } from "@/lib/signalChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
-import { trendRibbon } from "@/lib/trendRibbon";
+import { trendAnalysis, trendReadoutText, type TrendAngleOptions } from "@/lib/trendRibbon";
 
 const INSTRUMENTS = ["NIFTY_50", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"];
 type SideFilter = "UND" | "CE" | "PE";
@@ -56,10 +56,19 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
     return d && d.t.length ? { t: d.t, ltp: d.ltp } : undefined;
   }, [seedQ.data]);
   const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
-  const ribbon = useMemo(
-    () => trendRibbon(c.candles as { time: number; close: number }[]) as never,
-    [c.candles],
+  const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  const trendA = useMemo(
+    () => trendAnalysis(c.candles as { time: number; close: number }[], taOpts),
+    [c.candles, taOpts],
   );
+  const ribbon = trendA?.lines as never;
+  const readout = useMemo(() => {
+    if (!trendA) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, taOpts?.source ?? "ma")));
+    return m;
+  }, [trendA, taOpts?.source]);
   const last = c.candles.length ? c.candles[c.candles.length - 1].close : null;
 
   const btn = (active: boolean) =>
@@ -92,6 +101,7 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
           intervalSec={intervalSec}
           extraLines={ribbon}
           hoverAngleStrip
+          trendReadout={readout}
           loading={!!secId && seedQ.isLoading}
           emptyText={
             !secId ? (idQ.isLoading ? "Resolving the contract…" : "Contract not found in today's chain.")
