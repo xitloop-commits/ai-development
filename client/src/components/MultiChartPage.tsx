@@ -18,7 +18,7 @@
  * The old local angle math (MaAngleStrip / steepMaLines) is gone.
  * Reached via ?view=multichart&group=NSE|MCX.
  */
-import { useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -44,6 +44,7 @@ import {
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
+import { PaneFullscreenBtn } from "./PaneFullscreenBtn";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -97,7 +98,7 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts, chartDate, simCutoffRef }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
@@ -118,6 +119,9 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
   /** Sim clock (recorded-day epoch seconds) — the seed is trimmed here so the
    *  not-yet-replayed rest of the day never paints. null = live (no trim). */
   simCutoffRef?: MutableRefObject<number | null>;
+  /** Fullscreen: this pane fills the window (Esc / second click restores). */
+  fs: boolean;
+  onToggleFs: () => void;
 }) {
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -229,10 +233,14 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
 
   return (
     <div
-      className={`min-h-0 relative rounded border border-border/60 transition-opacity duration-300 ${
-        active ? "opacity-100" : "opacity-40 hover:opacity-80"
-      }`}
-      style={active ? { borderColor: sideColor } : undefined}
+      className={
+        fs
+          ? "fixed inset-0 z-40 bg-background p-2"
+          : `min-h-0 relative rounded border border-border/60 transition-opacity duration-300 ${
+              active ? "opacity-100" : "opacity-40 hover:opacity-80"
+            }`
+      }
+      style={!fs && active ? { borderColor: sideColor } : undefined}
     >
       <TickChart
         candles={c.candles}
@@ -261,6 +269,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
           </span>
         </>}
       />
+      <PaneFullscreenBtn active={fs} onToggle={onToggleFs} />
     </div>
   );
 }
@@ -308,6 +317,15 @@ export default function MultiChartPage() {
     utils.trading.instrumentLiveState.invalidate();
     setRefreshNonce((n) => n + 1);
   };
+
+  // Fullscreen pane ("<inst>:<side>") — Esc restores the 2×2 grid.
+  const [fullscreenPane, setFullscreenPane] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fullscreenPane) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreenPane(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreenPane]);
 
   if (!group) {
     return (
@@ -365,7 +383,7 @@ export default function MultiChartPage() {
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} />
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} fullscreenPane={fullscreenPane} setFullscreenPane={setFullscreenPane} />
         ))}
       </div>
     </div>
@@ -374,7 +392,7 @@ export default function MultiChartPage() {
 
 /** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
  *  panes) that drives the active/dimmed state. */
-function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce, chartDate, simCutoffRef }: {
+function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce, chartDate, simCutoffRef, fullscreenPane, setFullscreenPane }: {
   instKey: string;
   intervalSec: number;
   style: ChartStyle;
@@ -383,6 +401,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refres
   refreshNonce: number;
   chartDate: string;
   simCutoffRef?: MutableRefObject<number | null>;
+  fullscreenPane: string | null;
+  setFullscreenPane: (p: string | null) => void;
 }) {
   const trades = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: instKey, date: chartDate },
@@ -391,10 +411,13 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refres
   const rows = (trades.data ?? []) as PaneTradeRow[];
   const ceTrade = pickTradeForSide(rows, "CE");
   const peTrade = pickTradeForSide(rows, "PE");
+  const paneId = (side: "CE" | "PE") => `${instKey}:${side}`;
+  const toggle = (side: "CE" | "PE") => () =>
+    setFullscreenPane(fullscreenPane === paneId(side) ? null : paneId(side));
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} />
-      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} />
+      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
+      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
     </div>
   );
 }
