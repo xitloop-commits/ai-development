@@ -422,11 +422,13 @@ function TradePane({
   );
 }
 
-export default function InstrumentChartPage({ instOverride, singlePane }: {
+export default function InstrumentChartPage({ instOverride, singlePane, dateOverride }: {
   /** Test-chart embed (2026-08-11): instrument from the host page's dropdown
    *  instead of the URL, and the layout pinned to the single underlying pane. */
   instOverride?: string;
   singlePane?: boolean;
+  /** Test-chart date dropdown drives the embedded page's date (2026-08-13). */
+  dateOverride?: string;
 } = {}) {
   const inst = useMemo(() => instOverride ?? chartInstrumentFromUrl(), [instOverride]);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -493,9 +495,10 @@ export default function InstrumentChartPage({ instOverride, singlePane }: {
   );
   const recordedDates = useMemo(() => (datesQuery.data as string[] | undefined) ?? [], [datesQuery.data]);
   useEffect(() => {
+    if (dateOverride) { if (date !== dateOverride) setDate(dateOverride); return; }
     if (date || !datesQuery.isSuccess) return;
     setDate(defaultChartDate(recordedDates));
-  }, [date, datesQuery.isSuccess, recordedDates]);
+  }, [date, datesQuery.isSuccess, recordedDates, dateOverride]);
 
   // MCX has no spot index to stream live (the underlying IS the near-month
   // future), so those charts advance by re-polling the recorded disk ticks

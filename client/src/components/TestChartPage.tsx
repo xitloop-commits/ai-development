@@ -37,7 +37,7 @@ function optionSegmentFor(inst: string): string {
 const NO_MARKERS: never[] = [];
 const NO_LINES: never[] = [];
 
-function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: number; side: "CE" | "PE" }) {
+function OptionTestPane({ instKey, strike, side, date }: { instKey: string; strike: number; side: "CE" | "PE"; date: string }) {
   const [intervalSec, setIntervalSec] = useState(60);
   const [style, setStyle] = useState<ChartStyle>("ha");
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
@@ -55,15 +55,17 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
     { staleTime: 300_000, refetchOnWindowFocus: false },
   );
   const secId = idQ.data?.securityId ?? null;
+  const isToday = date === istDateString();
   const seedQ = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: instKey, date: istDateString(), securityId: secId ?? "" },
+    { instrument: instKey, date, securityId: secId ?? "" },
     { enabled: !!secId, staleTime: Infinity, refetchOnWindowFocus: false, retry: 1 },
   );
   const seed = useMemo(() => {
     const d = seedQ.data as { t: number[]; ltp: number[] } | undefined;
     return d && d.t.length ? { t: d.t, ltp: d.ltp } : undefined;
   }, [seedQ.data]);
-  const c = useLiveCandles(secId, optionSegmentFor(instKey), intervalSec, true, seed);
+  // Live WS ticks only make sense for TODAY; a past date is pure history.
+  const c = useLiveCandles(isToday ? secId : null, optionSegmentFor(instKey), intervalSec, true, seed);
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
   const trendA = useMemo(
@@ -131,9 +133,9 @@ function OptionTestPane({ instKey, strike, side }: { instKey: string; strike: nu
           trendReadoutRight={readoutRight}
           loading={!!secId && seedQ.isLoading}
           emptyText={
-            !secId ? (idQ.isLoading ? "Resolving the contract…" : "Contract not found in today's chain.")
-              : seedQ.isLoading ? "Loading session history…"
-                : "Waiting for live ticks…"
+            !secId ? (idQ.isLoading ? "Resolving the contract…" : "Contract not found in the chain.")
+              : seedQ.isLoading ? (isToday ? "Loading session history…" : "Loading recorded day… (historical scan can take ~15–30s)")
+                : isToday ? "Waiting for live ticks…" : `No recorded ticks for this contract on ${date}.`
           }
           className="h-full"
           header={<>
@@ -154,6 +156,16 @@ export default function TestChartPage() {
   });
   const [side, setSide] = useState<SideFilter>("UND");
   const [strike, setStrike] = useState<number | null>(null);
+  // Date — defaults to the most recent recorded day (after the session closes
+  // and the calendar rolls, "today" is empty; the last session is what you
+  // want to study). Dropdown lists every recorded date.
+  const [date, setDate] = useState<string>("");
+  const datesQ = trpc.trading.recordedChartDates.useQuery(
+    { instrument: inst },
+    { staleTime: 300_000, refetchOnWindowFocus: false },
+  );
+  const recorded = (datesQ.data as string[] | undefined) ?? [];
+  const effDate = date || recorded[recorded.length - 1] || istDateString();
   // Refresh: bump remounts the active pane (fresh seed + queries).
   const [refreshNonce, setRefreshNonce] = useState(0);
   const utils = trpc.useUtils();
@@ -186,6 +198,13 @@ export default function TestChartPage() {
           className="rounded border border-border bg-secondary px-2 py-0.5 text-xs font-bold">
           {INSTRUMENTS.map((k) => (
             <option key={k} value={k}>{INSTRUMENT_CHART_META[k]?.displayName ?? k}</option>
+          ))}
+        </select>
+        {/* Date — every recorded day, newest last (defaults to the latest) */}
+        <select value={effDate} onChange={(e) => setDate(e.target.value)}
+          className="rounded border border-border bg-secondary px-2 py-0.5 text-xs font-bold tabular-nums">
+          {(recorded.length ? recorded : [effDate]).map((d2) => (
+            <option key={d2} value={d2}>{d2}</option>
           ))}
         </select>
         {/* Side filter — Underlying | CE | PE */}
@@ -224,9 +243,9 @@ export default function TestChartPage() {
       </div>
       <div className="min-h-0 flex-1">
         {side === "UND" ? (
-          <InstrumentChartPage key={`${inst}:${refreshNonce}`} instOverride={inst} singlePane />
+          <InstrumentChartPage key={`${inst}:${effDate}:${refreshNonce}`} instOverride={inst} singlePane dateOverride={effDate} />
         ) : effStrike != null ? (
-          <OptionTestPane key={`${inst}:${effStrike}:${side}:${refreshNonce}`} instKey={inst} strike={effStrike} side={side} />
+          <OptionTestPane key={`${inst}:${effStrike}:${side}:${effDate}:${refreshNonce}`} instKey={inst} strike={effStrike} side={side} date={effDate} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {strikesQ.isLoading ? "Loading strike ladder…" : "No strikes available."}
