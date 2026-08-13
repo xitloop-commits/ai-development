@@ -1570,8 +1570,12 @@ def run(
                                 from signal_engine_agent.risk_control_client import close_glide_position
                                 # Same instrument string the entry stored (both
                                 # go through `instrument.upper()`), so the server
-                                # position-match is exact.
-                                close_glide_position(ma_signal_out["instrument"], _ma_side)
+                                # position-match is exact. Cohort-scoped
+                                # (2026-08-13): the glide-only match left a
+                                # ladder-strategy MA ride open past its ribbon
+                                # exit (crude #19) — match by cohort like sma5,
+                                # whatever strategy the ride runs.
+                                close_glide_position(ma_signal_out["instrument"], _ma_side, cohort="ma_signal")
                             except Exception as exc:
                                 print(f"  MA-Signal close error: {exc}", file=sys.stderr)
                             _ma_open.pop(_ma_side, None)  # tidy the (now unused) map
