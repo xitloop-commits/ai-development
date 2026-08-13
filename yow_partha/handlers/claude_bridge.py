@@ -37,11 +37,14 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if msg is None or not msg.text:
         return
     text = msg.text.strip()
-    if not text.lower().startswith("claude"):
-        return  # not for the bridge — keep the buttons-first bot silent
-    ask = text[len("claude"):].lstrip(" :,-–")
+    # EVERY plain text message goes to Claude (Partha 2026-08-13: no keyword).
+    # Buttons + /commands are separate handlers, so nothing else competes for
+    # text. A leading "claude" is still tolerated (old habit) and stripped.
+    ask = text
+    if ask.lower().startswith("claude"):
+        ask = ask[len("claude"):].lstrip(" :,-–")
     if not ask:
-        await msg.reply_text("Say it like: claude check why natgas has no signal")
+        await msg.reply_text("Tell me what you need, e.g.: check why natgas has no signal")
         return
     try:
         INBOX_DIR.mkdir(parents=True, exist_ok=True)
