@@ -11,7 +11,7 @@
  * WS ticks, SMA5 line, the tri-colour trend ribbon (shared lib) and the
  * hover-angle readout. Reached via ?view=testchart&inst=<KEY>.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import InstrumentChartPage from "./InstrumentChartPage";
 import { TickChart } from "./TickChart";
 import { trpc } from "@/lib/trpc";
@@ -154,6 +154,8 @@ function OptionTestPane({ instKey, strike, side, date }: { instKey: string; stri
 }
 
 export default function TestChartPage() {
+  // Own window title — see MultiChartPage (2026-08-13).
+  useEffect(() => { document.title = "TEST CHART — Lucky Basker"; }, []);
   const [inst, setInst] = useState<string>(() => {
     const fromUrl = chartInstrumentFromUrl();
     return fromUrl && INSTRUMENTS.includes(fromUrl) ? fromUrl : "NIFTY_50";

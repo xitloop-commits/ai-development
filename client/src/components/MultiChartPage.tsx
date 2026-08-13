@@ -279,6 +279,11 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, t
 export default function MultiChartPage() {
   const group = multiChartGroupFromUrl();
   const { theme } = useTheme();
+  // Own window title (2026-08-13) — the pop-out shared the app's title, which
+  // made "close the chart window" ambiguous for humans and automation alike.
+  useEffect(() => {
+    if (group) document.title = `${group} CHART — Lucky Basker`;
+  }, [group]);
   const [intervalSec, setIntervalSec] = useState(60);
   // Heikin-Ashi by default — matches the SMA5 detector's candles.
   const [style, setStyle] = useState<ChartStyle>("ha");
