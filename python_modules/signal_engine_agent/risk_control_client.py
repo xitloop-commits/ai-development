@@ -250,17 +250,22 @@ def send_signal(signal: dict[str, Any], timeout: float = 5.0) -> bool:
 # ─── /api/sea/heartbeat ─────────────────────────────────────────
 
 
-def send_heartbeat(instrument: str, timeout: float = 3.0) -> bool:
+def send_heartbeat(instrument: str, timeout: float = 3.0, ribbon: dict | None = None) -> bool:
     """
     Tell the server this SEA engine is alive. Posted on a fixed cadence by a
     background thread — independent of tick flow — so the UI can show SEA as
-    running even when the feed is starved (no ticks to process). Fire-and-forget;
-    failures are swallowed. Returns True on HTTP 2xx.
+    running even when the feed is starved (no ticks to process). `ribbon`
+    (T163) carries the premium-ribbon warm-up state ({state, samples, need})
+    so the UI can show "signal engine warming up" instead of dead silence.
+    Fire-and-forget; failures are swallowed. Returns True on HTTP 2xx.
     """
     url = f"{_broker_url()}/api/sea/heartbeat"
+    payload: dict[str, Any] = {"instrument": instrument}
+    if ribbon:
+        payload["ribbon"] = _json_safe(ribbon)
     try:
         resp = requests.post(
-            url, headers=_headers(), data=json.dumps({"instrument": instrument}), timeout=timeout
+            url, headers=_headers(), data=json.dumps(payload), timeout=timeout
         )
     except requests.RequestException:
         return False

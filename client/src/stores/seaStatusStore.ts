@@ -10,10 +10,18 @@
  */
 import { useSyncExternalStore } from "react";
 
+export interface SeaRibbonState {
+  state: "ready" | "warming" | "no-feed";
+  samples: number;
+  need: number;
+}
+
 export interface SeaInstrumentStatus {
   instrument: string;
   ageSec: number;
   alive: boolean;
+  /** T163 premium-ribbon warm-up (null on engines that predate it). */
+  ribbon?: SeaRibbonState | null;
 }
 
 export interface SeaStatus {

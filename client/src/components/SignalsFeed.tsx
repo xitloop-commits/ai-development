@@ -18,6 +18,7 @@ import { setSelectedSignalSeq, useSelectedSignalSeq } from '@/lib/selectionStore
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { manualTradeSize } from '@/lib/manualTradeConfig';
+import { useSeaStatus } from '@/stores/seaStatusStore';
 
 // ─── Instrument name mapping for trade placement ───────────
 const SIG_TO_UI_NAME: Record<string, string> = {
@@ -187,8 +188,30 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
     if (nearBottom) onLoadOlder();
   };
 
+  // T163 — "signal engine warming up" strip: each SEA engine reports its
+  // ribbon warm-up in the heartbeat; any not-ready instrument shows here so
+  // silence is explained (warming X/N samples, or feed not flowing yet).
+  const seaStatus = useSeaStatus();
+  const warming = seaStatus.instruments.filter(
+    (i) => i.alive && i.ribbon && i.ribbon.state !== "ready",
+  );
+
   return (
     <div className="bg-card overflow-hidden h-full flex flex-col">
+      {warming.length > 0 && (
+        <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[0.625rem] text-amber-500">
+          ⏳ Signal engine warming up —{" "}
+          {warming
+            .map((i) => {
+              const label = (SIG_TO_UI_NAME[i.instrument.toUpperCase()] ?? i.instrument).replace("_", " ");
+              const r = i.ribbon!;
+              return r.state === "no-feed"
+                ? `${label}: waiting for premium feed`
+                : `${label}: ${r.samples}/${r.need} samples`;
+            })
+            .join(" · ")}
+        </div>
+      )}
 
       {/* ── Signal list (scrollable with TradingDesk-style scrollbar) ── */}
       <div

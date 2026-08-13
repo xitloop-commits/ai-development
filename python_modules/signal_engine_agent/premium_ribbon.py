@@ -215,6 +215,14 @@ class PremiumRibbonDetector:
         """Contract changed (mid-day relock) — re-warm on the new one."""
         self._legs[leg].reset()
 
+    def warmup(self) -> dict:
+        """Warm-up progress for the liveness heartbeat: the slowest leg's
+        noise-floor sample count vs the requirement. ready=True → this
+        detector can judge (signals possible)."""
+        samples = min(len(l._abs_hist) for l in self._legs.values())
+        need = max(l.min_samples for l in self._legs.values())
+        return {"ready": samples >= need, "samples": samples, "need": need}
+
     def on_leg_tick(self, leg: str, ts: float, price: float) -> list[RibbonEvent]:
         leg_state = self._legs[leg]
         prev = leg_state.state

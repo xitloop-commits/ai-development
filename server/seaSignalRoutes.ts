@@ -24,7 +24,7 @@ export function registerSeaSignalRoutes(app: Express): void {
       res.status(400).json({ success: false, error: "missing instrument" });
       return;
     }
-    recordSeaHeartbeat(inst);
+    recordSeaHeartbeat(inst, req.body?.ribbon);
     res.json({ success: true });
   });
 

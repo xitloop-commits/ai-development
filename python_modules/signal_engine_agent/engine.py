@@ -949,12 +949,30 @@ def run(
     # feed is starved (the tail loop below blocks when there are no ticks).
     _hb_stop = threading.Event()
 
+    def _ribbon_hb() -> dict | None:
+        """T163 — warm-up state for the heartbeat, so the UI can show
+        'signal engine warming up' instead of silence. Reads detector state
+        cross-thread (plain int reads — GIL-safe)."""
+        det = sma5_ribbon or ma_ribbon
+        if det is None or premium_feed is None:
+            return None
+        try:
+            w = det.warmup()
+            fed = (
+                premium_feed.last_ltp.get("CE") is not None
+                or premium_feed.last_ltp.get("PE") is not None
+            )
+            state = "ready" if w["ready"] else ("warming" if fed else "no-feed")
+            return {"state": state, "samples": w["samples"], "need": w["need"]}
+        except Exception:
+            return None
+
     def _heartbeat_loop() -> None:
         from signal_engine_agent.risk_control_client import send_heartbeat
 
         while True:
             try:
-                send_heartbeat(instrument)
+                send_heartbeat(instrument, ribbon=_ribbon_hb())
             except Exception:  # pragma: no cover - never crash on heartbeat
                 pass
             if _hb_stop.wait(5.0):

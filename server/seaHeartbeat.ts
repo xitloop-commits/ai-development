@@ -15,7 +15,15 @@ import { tickBus } from "./broker/tickBus";
 /** A SEA engine counts as alive if its last heartbeat is within this window. */
 const FRESH_MS = 30_000;
 
-const lastSeen = new Map<string, number>();
+/** T163 — premium-ribbon warm-up state reported inside the heartbeat, so the
+ *  UI can show "signal engine warming up" instead of unexplained silence. */
+export interface SeaRibbonState {
+  state: "ready" | "warming" | "no-feed";
+  samples: number;
+  need: number;
+}
+
+const lastSeen = new Map<string, { ts: number; ribbon: SeaRibbonState | null }>();
 
 function norm(instrument: string): string {
   return (instrument || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -23,9 +31,18 @@ function norm(instrument: string): string {
 
 /** Record a heartbeat from one SEA engine, then push the fresh liveness
  *  snapshot to browser clients over /ws/ticks (no UI polling). */
-export function recordSeaHeartbeat(instrument: string): void {
+export function recordSeaHeartbeat(instrument: string, ribbon?: unknown): void {
   if (!instrument) return;
-  lastSeen.set(norm(instrument), Date.now());
+  const r = ribbon as SeaRibbonState | null | undefined;
+  const clean: SeaRibbonState | null =
+    r && typeof r === "object" && typeof r.state === "string"
+      ? {
+          state: r.state === "ready" ? "ready" : r.state === "warming" ? "warming" : "no-feed",
+          samples: Number(r.samples) || 0,
+          need: Number(r.need) || 0,
+        }
+      : null;
+  lastSeen.set(norm(instrument), { ts: Date.now(), ribbon: clean });
   tickBus.emitSeaStatus(getSeaStatus());
 }
 
@@ -33,6 +50,8 @@ export interface SeaInstrumentStatus {
   instrument: string;
   ageSec: number;
   alive: boolean;
+  /** Premium-ribbon warm-up (null on engines that predate T163). */
+  ribbon: SeaRibbonState | null;
 }
 
 export interface SeaStatus {
@@ -48,10 +67,11 @@ export interface SeaStatus {
 export function getSeaStatus(): SeaStatus {
   const now = Date.now();
   const instruments: SeaInstrumentStatus[] = Array.from(lastSeen.entries()).map(
-    ([inst, ts]) => ({
+    ([inst, v]) => ({
       instrument: inst,
-      ageSec: Math.round((now - ts) / 1000),
-      alive: now - ts <= FRESH_MS,
+      ageSec: Math.round((now - v.ts) / 1000),
+      alive: now - v.ts <= FRESH_MS,
+      ribbon: v.ribbon,
     }),
   );
   instruments.sort((a, b) => a.instrument.localeCompare(b.instrument));
