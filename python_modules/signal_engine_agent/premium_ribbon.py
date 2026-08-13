@@ -87,6 +87,22 @@ class RibbonLeg:
         self.candle_sec = sec
         self.reset()
 
+    def set_gray_pctile(self, pctile: float) -> None:
+        """Live noise-floor percentile change — applies at the next candle
+        close (the |slope| history stays valid, only the cut moves)."""
+        self.gray_pctile = min(90.0, max(10.0, float(pctile)))
+
+    def set_lookback(self, lookback: int) -> bool:
+        """Live slope-lookback change. The line window AND the |slope| history
+        are lookback-scaled, so the leg resets — the caller re-warms it from
+        the feed's history. Returns True when it actually changed."""
+        lookback = max(1, int(lookback))
+        if lookback == self.lookback:
+            return False
+        self.lookback = lookback
+        self.reset()
+        return True
+
     def on_tick(self, ts: float, price: float) -> int | None:
         if not (math.isfinite(ts) and math.isfinite(price) and price > 0):
             return None
@@ -178,6 +194,18 @@ class PremiumRibbonDetector:
         for leg_state in self._legs.values():
             leg_state.set_candle_sec(sec)
 
+    def set_gray_pctile(self, pctile: float) -> None:
+        for leg_state in self._legs.values():
+            leg_state.set_gray_pctile(pctile)
+
+    def set_lookback(self, lookback: int) -> bool:
+        """Returns True when the lookback changed (legs were reset — re-warm)."""
+        changed = False
+        for leg_state in self._legs.values():
+            if leg_state.set_lookback(lookback):
+                changed = True
+        return changed
+
     def reset_leg(self, leg: str) -> None:
         """Contract changed (mid-day relock) — re-warm on the new one."""
         self._legs[leg].reset()
@@ -247,6 +275,16 @@ class LockedPremiumFeed:
             out = list(self._q)
             self._q.clear()
         return out
+
+    def rewarm(self) -> None:
+        """Force a full re-fetch of both legs' history as WARM batches (used
+        after a detector-knob change resets the ribbon legs). The next poll
+        returns the whole session; events fire only on ticks after that."""
+        with self._mu:
+            for leg in ("CE", "PE"):
+                self._sec_ids[leg] = None
+                self._since[leg] = 0.0
+            self._q.clear()
 
     # ── poller thread ────────────────────────────────────────────────
     def _loop(self) -> None:

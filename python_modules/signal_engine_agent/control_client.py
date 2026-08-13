@@ -103,6 +103,19 @@ def start_control_listener(live: dict, instrument: str | None = None) -> threadi
                                 live["ma_candle_sec"] = max(1, int(st["maCandleSec"]))
                             except (TypeError, ValueError):
                                 pass
+                        # T163 premium-ribbon knobs (Settings ▸ Trend angle) —
+                        # lookback resets + re-warms the legs; pctile applies
+                        # at the next candle close.
+                        if "ribbonLookback" in st:
+                            try:
+                                live["ribbon_lookback"] = max(1, min(10, int(st["ribbonLookback"])))
+                            except (TypeError, ValueError):
+                                pass
+                        if "ribbonGrayPctile" in st:
+                            try:
+                                live["ribbon_gray_pctile"] = max(10.0, min(90.0, float(st["ribbonGrayPctile"])))
+                            except (TypeError, ValueError):
+                                pass
                         # Requested model version for THIS instrument. Recorded
                         # only — the engine thread does the actual load.
                         if instrument and isinstance(st.get("models"), dict):

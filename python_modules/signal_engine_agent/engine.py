@@ -980,6 +980,9 @@ def run(
         "sma5_entry_watch": sma5_signal_thresholds.entry_watch,  # SMA5 entry-watch candles, live-tunable
         "sma5_entry_gate": sma5_signal_thresholds.entry_gate,  # SMA5 premium-confirm entry gate, live-tunable
         "sma5_candle_sec": sma5_signal_thresholds.candle_sec,  # SMA5 candle timeframe (s), live-tunable
+        # T163 premium-ribbon knobs — follow Settings ▸ Trend angle live.
+        "ribbon_lookback": sma5_signal_thresholds.ribbon_lookback,
+        "ribbon_gray_pctile": sma5_signal_thresholds.ribbon_gray_pctile,
     }
     # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
     # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
@@ -1425,6 +1428,23 @@ def run(
             _rb_s5_events: list[str] = []
             if premium_feed is not None:
                 try:
+                    # Live ribbon knobs (Settings ▸ Trend angle → control ws).
+                    # Pctile applies at the next candle; a lookback change
+                    # resets the legs and re-warms them from the feed history.
+                    _rgp = _live_cohorts.get("ribbon_gray_pctile")
+                    if _rgp is not None:
+                        for _det in (ma_ribbon, sma5_ribbon):
+                            if _det is not None:
+                                _det.set_gray_pctile(float(_rgp))
+                    _rlb = _live_cohorts.get("ribbon_lookback")
+                    if _rlb is not None:
+                        _rlb_changed = False
+                        for _det in (ma_ribbon, sma5_ribbon):
+                            if _det is not None and _det.set_lookback(int(_rlb)):
+                                _rlb_changed = True
+                        if _rlb_changed:
+                            premium_feed.rewarm()
+                            print(f"  [ribbon] {instrument.upper()} lookback -> {_rlb} — re-warming legs", flush=True)
                     for _leg, _rst, _rb_live, _rb_ticks in premium_feed.drain():
                         if _rst:
                             if ma_ribbon is not None:

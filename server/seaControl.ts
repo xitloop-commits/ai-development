@@ -53,6 +53,13 @@ export interface CohortState {
   sma5CandleSec: number;
   /** MA-Signal candle timeframe in seconds (60=1m, 180=3m, 300=5m). Live-tunable. */
   maCandleSec: number;
+  /** T163 premium-ribbon slope lookback (candles). Follows Settings ▸ Trend
+   *  angle ▸ lookback (Partha 2026-08-13: chart + engine share the knobs).
+   *  A change makes SEA reset + re-warm its ribbon legs. Live-tunable. */
+  ribbonLookback: number;
+  /** T163 premium-ribbon noise-floor percentile (20–60). Follows Settings ▸
+   *  Trend angle ▸ gray percentile; applied at the next candle. Live-tunable. */
+  ribbonGrayPctile: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -82,7 +89,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -308,6 +315,43 @@ function persistCandleSec(block: "sma5_signal" | "ma_signal", value: number): vo
   }
 }
 
+/** Write the ribbon knobs into BOTH cohort blocks of every instrument (those
+ *  keys only) so an engine restart keeps the same values. */
+function persistRibbonKnobs(lookback: number, pctile: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      let changed = false;
+      for (const block of ["sma5_signal", "ma_signal"]) {
+        const b = j[block];
+        if (!b) continue;
+        if (b.ribbon_lookback !== lookback) { b.ribbon_lookback = lookback; changed = true; }
+        if (b.ribbon_gray_pctile !== pctile) { b.ribbon_gray_pctile = pctile; changed = true; }
+      }
+      if (changed) writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
+/** T163 — push the premium-ribbon knobs (Settings ▸ Trend angle) to running
+ *  SEA engines. Lookback change makes them reset + re-warm the ribbon legs
+ *  from the locked-premium history (seconds); pctile applies next candle. */
+export function setRibbonKnobs(lookback: number, grayPctile: number): CohortState {
+  const lb = Math.round(Math.min(10, Math.max(1, lookback || 5)));
+  const gp = Math.round(Math.min(60, Math.max(20, grayPctile || 40)));
+  if (state.ribbonLookback === lb && state.ribbonGrayPctile === gp) return { ...state };
+  state.ribbonLookback = lb;
+  state.ribbonGrayPctile = gp;
+  persistRibbonKnobs(lb, gp);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -525,6 +569,10 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   // Candle timeframes (seconds) for the SMA5 + MA detectors — same.
   setSma5CandleSec(getCommonConfig().sma5CandleSec);
   setMaCandleSec(getCommonConfig().maCandleSec);
+  // T163 — premium-ribbon knobs follow Settings ▸ Trend angle (one source of
+  // truth for chart AND engine, Partha 2026-08-13).
+  const ta = getCommonConfig().trendAngle;
+  setRibbonKnobs(ta.lookbackMin, ta.grayPctile);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
