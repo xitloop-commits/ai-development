@@ -342,7 +342,7 @@ function persistRibbonKnobs(lookback: number, pctile: number): void {
  *  from the locked-premium history (seconds); pctile applies next candle. */
 export function setRibbonKnobs(lookback: number, grayPctile: number): CohortState {
   const lb = Math.round(Math.min(10, Math.max(1, lookback || 5)));
-  const gp = Math.round(Math.min(60, Math.max(20, grayPctile || 40)));
+  const gp = Math.round(Math.min(60, Math.max(10, grayPctile || 40)));
   if (state.ribbonLookback === lb && state.ribbonGrayPctile === gp) return { ...state };
   state.ribbonLookback = lb;
   state.ribbonGrayPctile = gp;

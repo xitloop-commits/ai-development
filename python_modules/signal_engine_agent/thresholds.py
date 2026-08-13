@@ -1118,6 +1118,9 @@ class MASignalThresholds:
     ribbon_gray_pctile: float = 40.0  # noise-floor percentile of |slope|
     ribbon_min_samples: int = 15    # slopes needed before the floor can judge
     ribbon_min_noise_pct: float = 0.002  # absolute floor under the percentile
+    # Exit when the ribbon LEAVES UP (gray counts, Partha 2026-08-13); false =
+    # legacy hold-through-gray (only a DOWN turn exits).
+    ribbon_exit_on_gray: bool = True
 
 
 def load_thresholds_ma_signal(
@@ -1193,6 +1196,9 @@ class Sma5SignalThresholds:
     ribbon_gray_pctile: float = 40.0  # noise-floor percentile of |slope|
     ribbon_min_samples: int = 15    # slopes needed before the floor can judge
     ribbon_min_noise_pct: float = 0.002  # absolute floor under the percentile
+    # Exit when the ribbon LEAVES UP (gray counts, Partha 2026-08-13); false =
+    # legacy hold-through-gray (only a DOWN turn exits).
+    ribbon_exit_on_gray: bool = True
 
 
 def load_thresholds_sma5_signal(

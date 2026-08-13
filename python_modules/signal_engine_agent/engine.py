@@ -797,6 +797,7 @@ def run(
             gray_pctile=th.ribbon_gray_pctile,
             min_samples=th.ribbon_min_samples,
             min_noise_pct=th.ribbon_min_noise_pct,
+            exit_on_gray=getattr(th, "ribbon_exit_on_gray", True),
         )
     ma_ribbon = (
         _mk_ribbon("ma", ma_signal_thresholds)

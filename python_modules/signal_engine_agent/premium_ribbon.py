@@ -167,9 +167,12 @@ class PremiumRibbonDetector:
 
     ``on_leg_tick(leg, ts, price)`` feeds one premium tick and returns the
     events fired by the candle it may have closed (usually []). Transitions:
-    into UP → LONG_<leg>; into DOWN → EXIT_<leg>; into GRAY → nothing (no
-    entry on gray, an open ride holds). ``warm(leg, ticks)`` replays history
-    WITHOUT emitting, so a freshly-started engine doesn't fire on the past.
+    into UP → LONG_<leg>; LEAVING UP (gray or down at a candle close) →
+    EXIT_<leg> (Partha 2026-08-13: "sideways gray formed → fire the exit";
+    set ``exit_on_gray=False`` for the original hold-through-gray rule, where
+    only a DOWN turn exits). Gray never ENTERS either way. ``warm(leg,
+    ticks)`` replays history WITHOUT emitting, so a freshly-started engine
+    doesn't fire on the past.
     """
 
     def __init__(
@@ -180,8 +183,10 @@ class PremiumRibbonDetector:
         gray_pctile: float = 40.0,
         min_samples: int = 15,
         min_noise_pct: float = 0.002,
+        exit_on_gray: bool = True,
     ) -> None:
         self.source = source
+        self.exit_on_gray = bool(exit_on_gray)
         mk: Callable[[], RibbonLeg] = lambda: RibbonLeg(
             source, candle_sec, lookback, gray_pctile, min_samples, min_noise_pct,
         )
@@ -218,9 +223,14 @@ class PremiumRibbonDetector:
             return []
         if st == 1:
             return [f"LONG_{leg}"]
+        if self.exit_on_gray:
+            # Exit the moment the ribbon LEAVES UP — a gray candle close ends
+            # the ride, it doesn't hold it. (No exit on gray↔down shuffles
+            # while already out.)
+            return [f"EXIT_{leg}"] if prev == 1 else []
         if st == -1:
             return [f"EXIT_{leg}"]
-        return []  # gray — hold, never enter
+        return []  # gray — hold, never enter (legacy rule)
 
     def warm(self, leg: str, ticks: list[tuple[float, float]]) -> None:
         """Replay history silently: state ends where the past leaves it, so

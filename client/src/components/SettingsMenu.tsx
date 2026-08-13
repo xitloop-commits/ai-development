@@ -334,7 +334,7 @@ export function SettingsMenu() {
                     <NumRow label="45° yardstick" value={d.trendAngle?.fixedPctPer45 ?? 0.2} step={0.05} min={0.01} max={10} unit="%"
                       onChange={(v) => edit((x) => { x.trendAngle.fixedPctPer45 = v; })} />
                   )}
-                  <NumRow label="Gray zone" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                  <NumRow label="Gray zone" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Smooth transitions</span>
@@ -352,7 +352,7 @@ export function SettingsMenu() {
                       live to SEA; a lookback change re-warms in seconds. */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
-                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
@@ -373,7 +373,7 @@ export function SettingsMenu() {
                   {/* T163 ribbon-mode knobs — same shared fields as the SMA5 group. */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
-                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />

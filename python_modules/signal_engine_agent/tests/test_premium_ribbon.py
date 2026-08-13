@@ -90,6 +90,30 @@ def test_warm_is_silent_and_state_carries() -> None:
     assert "EXIT_CE" in events and "LONG_CE" not in events
 
 
+def test_gray_exit_fires_on_plateau() -> None:
+    """Partha 2026-08-13: a ride ends the moment the ribbon LEAVES UP — a flat
+    plateau (gray) after a rise must fire the EXIT without any DOWN turn."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    prices, _, fall_start = _series()
+    up = prices[:fall_start]               # quiet + strong rise (ends UP)
+    plateau = [up[-1]] * 15                # dead flat — slope decays into gray
+    events = _run(det, "CE", up + plateau)
+    names = [e for _, e in events]
+    assert "LONG_CE" in names
+    assert "EXIT_CE" in names, f"no EXIT on the gray plateau: {events}"
+
+
+def test_hold_through_gray_when_disabled() -> None:
+    """exit_on_gray=False restores the legacy rule: the plateau holds, only a
+    DOWN turn exits."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60, exit_on_gray=False)
+    prices, _, fall_start = _series()
+    up = prices[:fall_start]
+    plateau = [up[-1]] * 15
+    names = [e for _, e in _run(det, "CE", up + plateau)]
+    assert "LONG_CE" in names and "EXIT_CE" not in names
+
+
 def test_relock_reset_rewarms() -> None:
     det = PremiumRibbonDetector("sma5", candle_sec=60)
     prices, _, _ = _series()

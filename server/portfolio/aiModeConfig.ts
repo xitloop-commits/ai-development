@@ -682,7 +682,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   ta.lookbackMin = Math.round(clampNum(ta.lookbackMin, 1, 10, 5));
   ta.scaleMode = ta.scaleMode === "fixed" ? "fixed" : "auto";
   ta.fixedPctPer45 = clampNum(ta.fixedPctPer45, 0.01, 10, 0.2);
-  ta.grayPctile = Math.round(clampNum(ta.grayPctile, 20, 60, 40));
+  ta.grayPctile = Math.round(clampNum(ta.grayPctile, 10, 60, 40)); // floor 10 (Partha 2026-08-13)
   ta.smooth = ta.smooth !== false;
   return c;
 }
