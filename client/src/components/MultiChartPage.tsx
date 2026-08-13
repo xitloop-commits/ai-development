@@ -98,15 +98,17 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
-  /** An OPEN paper trade exists on this instrument+side. Panes without one
-   *  are dimmed so the eye lands on where money is actually working. */
+  /** An OPEN paper trade exists on this instrument+side. */
   active: boolean;
+  /** Dim this pane — only while the SIBLING side holds the open trade
+   *  (Partha 2026-08-13: with no active trade anywhere, dim nothing). */
+  dim: boolean;
   /** The trade whose levels to draw (active one, else the previous). */
   trade: PaneTradeRow | null;
   /** ALL of today's trades on this side — entry/exit markers for every one
@@ -237,7 +239,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, trade,
         fs
           ? "fixed inset-0 z-40 bg-background p-2"
           : `min-h-0 relative rounded border border-border/60 transition-opacity duration-300 ${
-              active ? "opacity-100" : "opacity-40 hover:opacity-80"
+              dim ? "opacity-40 hover:opacity-80" : "opacity-100"
             }`
       }
       style={!fs && active ? { borderColor: sideColor } : undefined}
@@ -414,10 +416,12 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refres
   const paneId = (side: "CE" | "PE") => `${instKey}:${side}`;
   const toggle = (side: "CE" | "PE") => () =>
     setFullscreenPane(fullscreenPane === paneId(side) ? null : paneId(side));
+  const ceOpen = ceTrade?.status === "OPEN";
+  const peOpen = peTrade?.status === "OPEN";
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceTrade?.status === "OPEN"} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
-      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peTrade?.status === "OPEN"} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
+      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceOpen} dim={!ceOpen && peOpen} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
+      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peOpen} dim={!peOpen && ceOpen} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
     </div>
   );
 }
