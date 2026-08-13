@@ -24,9 +24,10 @@ load_dotenv(ROOT / ".env")
 
 from telegram import BotCommand
 from telegram.error import NetworkError, TelegramError
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from .handlers.callbacks import on_callback
+from .handlers.claude_bridge import on_text
 from .handlers.start import cmd_start
 
 logging.basicConfig(
@@ -68,6 +69,9 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
+    # Claude bridge (2026-08-13): "claude …" texts queue into data/claude_inbox
+    # for the active Claude Code session; Claude replies via sendMessage.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     async def _post_init(application: Application) -> None:
         # Register /start in the bot's command menu so Telegram surfaces it
