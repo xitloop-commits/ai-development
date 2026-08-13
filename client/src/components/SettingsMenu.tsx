@@ -347,6 +347,13 @@ export function SettingsMenu() {
                   <TfRow label="Timeframe" sec={d.sma5CandleSec}
                     onChange={(s) => edit((x) => { x.sma5CandleSec = s; })}
                     help="Candle size the SMA5 runs on. The 5-SMA is 5 candles of this size (3m → a 15-min line). Changing it live re-warms the SMA over ~5 candles." />
+                  {/* T163 ribbon-mode knobs — SHARED with the MA detector and the
+                      chart ribbons (same trendAngle fields, one truth). Pushed
+                      live to SEA; a lookback change re-warms in seconds. */}
+                  <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
+                    onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
+                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                    onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
                     <Check2 checked={d.sma5EntryGate} onChange={() => edit((x) => { x.sma5EntryGate = !x.sma5EntryGate; })}
@@ -363,6 +370,11 @@ export function SettingsMenu() {
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">
                   <TfRow label="Timeframe" sec={d.maCandleSec}
                     onChange={(s) => edit((x) => { x.maCandleSec = s; })} />
+                  {/* T163 ribbon-mode knobs — same shared fields as the SMA5 group. */}
+                  <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
+                    onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
+                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={20} max={60} unit="pctl"
+                    onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
                 </Group>
