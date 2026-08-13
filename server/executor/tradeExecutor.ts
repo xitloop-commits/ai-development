@@ -1242,9 +1242,12 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
   };
 }
 
-/** Dhan correlationId: alphanumeric + hyphen only. */
+/** Dhan correlationId: alphanumeric + hyphen only, MAX 25 chars (Dhan spec).
+ *  The Go-Live tag ("TEA-GOLIVE-T…", 32 chars) drew a DH-905 on 2026-08-13 —
+ *  keep the START of the tag (the path prefix) and let the id tail truncate;
+ *  tags are diagnostic only, never used for lookups. */
 function dhanSafeTag(tag: string): string {
-  return tag.replace(/[^A-Za-z0-9-]/g, "-");
+  return tag.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 25);
 }
 
 /**

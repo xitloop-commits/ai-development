@@ -407,12 +407,13 @@ export class DhanAdapter implements BrokerAdapter {
       // Dhan's rejection message is generic ("Missing required fields, bad
       // values"), so log the exact payload we sent to pinpoint the bad field.
       // dhanClientId is shown as present/absent only (never the value).
+      // Full body (clientId redacted) — DH-905 hides WHICH field it dislikes,
+      // so the complete request must be visible in the log (2026-08-13: the
+      // summary line omitted correlationId and the Go-Live reject was blind).
+      const sent = JSON.stringify({ ...body, dhanClientId: this.clientId ? "<set>" : "<MISSING>" });
       this.log.warn(
         `placeOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
-          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${endpoint} ` +
-          `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} ` +
-          `segment=${body.exchangeSegment} txn=${body.transactionType} product=${body.productType} ` +
-          `orderType=${body.orderType} validity=${body.validity} qty=${body.quantity} price=${body.price}`,
+          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${endpoint} body=${sent}`,
       );
       throw new Error(
         result.error?.errorMessage ?? `Order placement failed (HTTP ${result.status})`
