@@ -300,6 +300,23 @@ async function startServer() {
   const host = process.env.HTTP_HOST ?? "127.0.0.1";
   server.listen(port, host, () => {
     bootLog.important(`Server running on http://${host}:${port}/`);
+    // Scrip master at BOOT (2026-08-13). It was loaded only lazily (search /
+    // chain flows), so a mid-session server restart came up with an EMPTY
+    // master and TEA's scrip validation rejected every AI trade ("securityId
+    // … is not in the scrip master") until something happened to trigger a
+    // download. Load it up-front, best-effort — a failure just leaves the old
+    // lazy paths to retry.
+    void (async () => {
+      try {
+        const { needsRefresh, downloadScripMaster } = await import("../broker/adapters/dhan/scripMaster");
+        if (needsRefresh(24)) {
+          const count = await downloadScripMaster();
+          bootLog.important(`Scrip master loaded at boot: ${count} records`);
+        }
+      } catch (err: any) {
+        bootLog.error(`Scrip master boot load failed: ${err?.message ?? err}`);
+      }
+    })();
     // Dhan Data API subscription auto-pay reminders (console + yow-partha bot).
     startSubscriptionAlertScheduler();
     // MCX commodity lot sizes (not in Dhan's scrip master) — scraped + daily refresh.
