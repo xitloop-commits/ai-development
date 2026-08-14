@@ -182,6 +182,12 @@ interface DynTslCandleState {
   haClosePrev: number | null;     // prior HA close (recursive)
   completed: Array<{ open: number; close: number }>; // completed HA candles (rolling)
   stop: number | null;            // ratcheted trailing level (never loosens)
+  /** History-seed status (2026-08-14, Partha: "the candles already exist").
+   *  A fresh state kicks a one-shot async seed from the option-day index so
+   *  the x-back trail exists from the trade's FIRST tick instead of waiting
+   *  xBack live minutes. "pending" while the fetch runs; "done"/"failed"
+   *  after. Failure = today's behaviour (warm from entry). */
+  seed?: "pending" | "done" | "failed";
 }
 
 class TickHandler extends EventEmitter {
@@ -245,6 +251,8 @@ class TickHandler extends EventEmitter {
     xBack: number,
     src: "open" | "close",
     useHa: boolean,
+    instrument?: string,
+    securityId?: string | null,
   ): { level: number | null; closedBelow: boolean } {
     const cur = this.dynTslState.get(tradeId);
     if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
@@ -252,6 +260,12 @@ class TickHandler extends EventEmitter {
     if (!st) {
       st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null };
       this.dynTslState.set(tradeId, st);
+      // History seed (2026-08-14): the chart's candles exist before entry —
+      // use them, so the x-back trail is live from the first tick.
+      if (instrument && securityId) {
+        st.seed = "pending";
+        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / 60), isBuy, xBack, src, useHa);
+      }
     }
     const minute = Math.floor(lttSec / 60);
     if (st.minute === null) {
@@ -299,6 +313,91 @@ class TickHandler extends EventEmitter {
     st.minute = minute;
     st.o = st.h = st.l = st.c = ltp;
     return { level: st.stop, closedBelow };
+  }
+
+  /** One-shot history seed for a fresh candle-TSL state (2026-08-14, Partha:
+   *  "TSL looks backward — the candles already exist"). Reads the contract's
+   *  session ticks from the option-day index (instant), builds the 1-min
+   *  candles STRICTLY BEFORE the trade's first live minute with the HA
+   *  recursion run from the session start (matches the chart), then merges:
+   *  seeded candles are prepended, the HA hand-off is applied only if no live
+   *  candle completed meanwhile, and the stop is the ratcheted x-back value
+   *  over the merged history (never loosening an existing level). Best-effort:
+   *  any failure leaves the legacy warm-from-entry behaviour. */
+  private async seedDynTsl(
+    tradeId: string,
+    st: DynTslCandleState,
+    instrument: string,
+    securityId: string,
+    firstLiveMinute: number,
+    isBuy: boolean,
+    xBack: number,
+    src: "open" | "close",
+    useHa: boolean,
+  ): Promise<void> {
+    try {
+      const { readOptionContractTicks } = await import("../chartData");
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const ticks = await readOptionContractTicks(instrument, today, securityId);
+      // The trade may have closed (state dropped) while we fetched.
+      if (this.dynTslState.get(tradeId) !== st) return;
+      const n = Math.min(ticks.t.length, ticks.ltp.length);
+      if (n === 0) { st.seed = "failed"; return; }
+      // 1-min raw candles for minutes BEFORE the first live minute.
+      type C = { minute: number; o: number; h: number; l: number; c: number };
+      const raw: C[] = [];
+      for (let i = 0; i < n; i++) {
+        const m = Math.floor(ticks.t[i] / 60);
+        if (m >= firstLiveMinute) break; // arrays are chronological
+        const p = ticks.ltp[i];
+        if (!(p > 0)) continue;
+        const last = raw[raw.length - 1];
+        if (!last || last.minute !== m) raw.push({ minute: m, o: p, h: p, l: p, c: p });
+        else { last.c = p; if (p > last.h) last.h = p; if (p < last.l) last.l = p; }
+      }
+      if (raw.length === 0) { st.seed = "failed"; return; }
+      // HA recursion from the session start — same maths as the live path.
+      const seeded: Array<{ open: number; close: number }> = [];
+      let haOpenPrev: number | null = null;
+      let haClosePrev: number | null = null;
+      for (const k of raw) {
+        let open: number;
+        let close: number;
+        if (useHa) {
+          close = (k.o + k.h + k.l + k.c) / 4;
+          open = haOpenPrev === null ? (k.o + k.c) / 2 : (haOpenPrev + (haClosePrev as number)) / 2;
+          haOpenPrev = open;
+          haClosePrev = close;
+        } else {
+          open = k.o;
+          close = k.c;
+        }
+        seeded.push({ open, close });
+      }
+      // Merge: seeded history strictly precedes anything the live path built.
+      const noLiveCandleYet = st.completed.length === 0;
+      st.completed = [...seeded, ...st.completed];
+      if (useHa && noLiveCandleYet && st.haOpenPrev === null) {
+        st.haOpenPrev = haOpenPrev;   // continue the chart-accurate recursion
+        st.haClosePrev = haClosePrev;
+      }
+      // Ratcheted x-back stop over the merged history: every candle close k
+      // produced candidate completed[k − xBack + 1 − 1] → all indices up to
+      // length − xBack. Never loosen a level the live path already set.
+      const back = Math.max(1, xBack);
+      let stop = st.stop;
+      for (let i = 0; i + back <= st.completed.length; i++) {
+        const cand = src === "open" ? st.completed[i].open : st.completed[i].close;
+        stop = stop === null ? cand : isBuy ? Math.max(stop, cand) : Math.min(stop, cand);
+      }
+      st.stop = stop;
+      // Trim to the rolling window the live path maintains.
+      const keep = back + 2;
+      if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
+      st.seed = "done";
+    } catch {
+      st.seed = "failed"; // legacy warm-from-entry behaviour
+    }
   }
 
   /** Drop the per-channel state cache. Pass a channel to drop just that one — used
@@ -913,7 +1012,8 @@ class TickHandler extends EventEmitter {
           const dyn =
             lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
               && !trade.entryPending && trade.entryPrice > 0
-              ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc, lcfg.esTslCandleHa)
+              ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc, lcfg.esTslCandleHa,
+                  trade.instrument, trade.contractSecurityId)
               : null;
           const dynTsl = dyn?.level ?? undefined;
           // Surface the raw candle level to the UI so the TradeBar can draw it as
