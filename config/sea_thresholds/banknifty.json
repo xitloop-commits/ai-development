@@ -38,7 +38,9 @@
     "thr_lo": 0.006,
     "rev_pct": 0,
     "sl_pct": 12,
-    "candle_sec": 120
+    "candle_sec": 120,
+    "ribbon_lookback": 4,
+    "ribbon_gray_pctile": 10
   },
   "trend": {
     "enabled": false,
@@ -57,7 +59,9 @@
     "sl_pct": 12,
     "confirm_candles": 1,
     "entry_watch": 0,
-    "entry_gate": true,
-    "candle_sec": 120
+    "entry_gate": false,
+    "candle_sec": 120,
+    "ribbon_lookback": 4,
+    "ribbon_gray_pctile": 0
   }
 }

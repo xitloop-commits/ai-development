@@ -352,8 +352,8 @@ export function SettingsMenu() {
                       live to SEA; a lookback change re-warms in seconds. */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
-                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
-                    onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
+                  {/* No gray knob here — the SMA5 ribbon is BINARY (green/red
+                      only, Partha 2026-08-14). Gray floor lives on the MA group. */}
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
                     <Check2 checked={d.sma5EntryGate} onChange={() => edit((x) => { x.sma5EntryGate = !x.sma5EntryGate; })}
@@ -370,10 +370,11 @@ export function SettingsMenu() {
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">
                   <TfRow label="Timeframe" sec={d.maCandleSec}
                     onChange={(s) => edit((x) => { x.maCandleSec = s; })} />
-                  {/* T163 ribbon-mode knobs — same shared fields as the SMA5 group. */}
+                  {/* T163 ribbon-mode knobs. Gray floor is MA-only — the SMA5
+                      ribbon is binary (green/red, no gray, 2026-08-14). */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
-                  <NumRow label="Ribbon gray floor (shared)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
+                  <NumRow label="Ribbon gray floor (MA only)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.revPct = v; })} />

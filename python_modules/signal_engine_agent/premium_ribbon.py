@@ -89,8 +89,10 @@ class RibbonLeg:
 
     def set_gray_pctile(self, pctile: float) -> None:
         """Live noise-floor percentile change — applies at the next candle
-        close (the |slope| history stays valid, only the cut moves)."""
-        self.gray_pctile = min(90.0, max(10.0, float(pctile)))
+        close (the |slope| history stays valid, only the cut moves).
+        0 (or below) = BINARY mode: no gray, sign-of-slope only."""
+        p = float(pctile)
+        self.gray_pctile = 0.0 if p <= 0 else min(90.0, max(10.0, p))
 
     def set_lookback(self, lookback: int) -> bool:
         """Live slope-lookback change. The line window AND the |slope| history
@@ -151,6 +153,12 @@ class RibbonLeg:
             return 0
         pct = (line - self._line[0]) / self._line[0] * 100.0
         self.last_pct = pct
+        # BINARY mode (gray_pctile <= 0, Partha 2026-08-14: SMA5 line has no
+        # gray — only green and red): state is the SIGN of the slope, no noise
+        # floor, no sample warm-up. An exactly-flat line keeps the prior state.
+        if self.gray_pctile <= 0:
+            self.state = 1 if pct > 0 else -1 if pct < 0 else self.state
+            return self.state
         self._abs_hist.append(abs(pct))
         if len(self._abs_hist) < self.min_samples:
             self.state = 0
@@ -218,9 +226,14 @@ class PremiumRibbonDetector:
     def warmup(self) -> dict:
         """Warm-up progress for the liveness heartbeat: the slowest leg's
         noise-floor sample count vs the requirement. ready=True → this
-        detector can judge (signals possible)."""
-        samples = min(len(l._abs_hist) for l in self._legs.values())
-        need = max(l.min_samples for l in self._legs.values())
+        detector can judge (signals possible). Binary legs (gray<=0) need no
+        noise samples — only the line+slope build-up (last_pct exists)."""
+        legs = self._legs.values()
+        if all(l.gray_pctile <= 0 for l in legs):
+            ready = all(l.last_pct is not None for l in legs)
+            return {"ready": ready, "samples": 0, "need": 0}
+        samples = min(len(l._abs_hist) for l in legs)
+        need = max(l.min_samples for l in legs)
         return {"ready": samples >= need, "samples": samples, "need": need}
 
     def on_leg_tick(self, leg: str, ts: float, price: float) -> list[RibbonEvent]:

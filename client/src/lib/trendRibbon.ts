@@ -112,8 +112,16 @@ export function trendAnalysis(
     ? Math.max(o.fixedPctPer45, 0.005)
     : Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? noise * 2, noise);
 
+  // SMA5 ribbon is BINARY (Partha 2026-08-14: no gray — green and red only):
+  // the state is the sign of the slope, no noise floor. MA keeps its gray zone.
+  const noGray = source === "sma5";
   const st = new Map<number, MinuteState>();
+  let prevTrend: -1 | 0 | 1 = 0;
   pctOfMin.forEach((v, m) => {
+    const trend: -1 | 0 | 1 = noGray
+      ? (v.pct > 0 ? 1 : v.pct < 0 ? -1 : prevTrend)
+      : v.pct > noise ? 1 : v.pct < -noise ? -1 : 0;
+    prevTrend = trend;
     // `m` is a BUCKET id — expand its state to every minute it covers (each
     // minute gets its OWN object; the polish passes + run-age stamping mutate
     // entries individually).
@@ -122,7 +130,7 @@ export function trendAnalysis(
       st.set(m0 + j, {
         deg: (Math.atan(v.pct / p80) * 180) / Math.PI,
         line: v.line,
-        trend: v.pct > noise ? 1 : v.pct < -noise ? -1 : 0,
+        trend,
         runMin: 1,
       });
     }

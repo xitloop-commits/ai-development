@@ -807,6 +807,11 @@ def run(
         _mk_ribbon("sma5", sma5_signal_thresholds)
         if getattr(sma5_signal_thresholds, "ribbon", False) else None
     )
+    # SMA5 ribbon is BINARY (Partha 2026-08-14: no gray — green and red only):
+    # force the floor to 0 whatever the config says. Also removes the noise
+    # warm-up, so sma5 judges ~12 min after open. MA keeps its gray knob.
+    if sma5_ribbon is not None:
+        sma5_ribbon.set_gray_pctile(0.0)
     premium_feed: LockedPremiumFeed | None = None
     if ma_ribbon is not None or sma5_ribbon is not None:
         premium_feed = LockedPremiumFeed(instrument)
@@ -1450,11 +1455,11 @@ def run(
                     # Live ribbon knobs (Settings ▸ Trend angle → control ws).
                     # Pctile applies at the next candle; a lookback change
                     # resets the legs and re-warms them from the feed history.
+                    # Gray knob drives the MA ribbon ONLY — sma5 is pinned
+                    # binary (gray 0, Partha 2026-08-14).
                     _rgp = _live_cohorts.get("ribbon_gray_pctile")
-                    if _rgp is not None:
-                        for _det in (ma_ribbon, sma5_ribbon):
-                            if _det is not None:
-                                _det.set_gray_pctile(float(_rgp))
+                    if _rgp is not None and ma_ribbon is not None:
+                        ma_ribbon.set_gray_pctile(float(_rgp))
                     _rlb = _live_cohorts.get("ribbon_lookback")
                     if _rlb is not None:
                         _rlb_changed = False

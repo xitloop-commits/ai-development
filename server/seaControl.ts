@@ -315,8 +315,10 @@ function persistCandleSec(block: "sma5_signal" | "ma_signal", value: number): vo
   }
 }
 
-/** Write the ribbon knobs into BOTH cohort blocks of every instrument (those
- *  keys only) so an engine restart keeps the same values. */
+/** Write the ribbon knobs into every instrument's config (those keys only) so
+ *  an engine restart keeps the same values. Lookback goes to BOTH blocks; the
+ *  gray percentile goes to ma_signal ONLY — the sma5 ribbon is pinned BINARY
+ *  (gray 0, Partha 2026-08-14: green and red only, no gray). */
 function persistRibbonKnobs(lookback: number, pctile: number): void {
   for (const inst of INSTRUMENTS) {
     try {
@@ -328,7 +330,8 @@ function persistRibbonKnobs(lookback: number, pctile: number): void {
         const b = j[block];
         if (!b) continue;
         if (b.ribbon_lookback !== lookback) { b.ribbon_lookback = lookback; changed = true; }
-        if (b.ribbon_gray_pctile !== pctile) { b.ribbon_gray_pctile = pctile; changed = true; }
+        const wantGray = block === "sma5_signal" ? 0 : pctile;
+        if (b.ribbon_gray_pctile !== wantGray) { b.ribbon_gray_pctile = wantGray; changed = true; }
       }
       if (changed) writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
     } catch {

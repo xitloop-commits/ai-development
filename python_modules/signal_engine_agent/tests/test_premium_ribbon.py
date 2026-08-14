@@ -114,6 +114,23 @@ def test_hold_through_gray_when_disabled() -> None:
     assert "LONG_CE" in names and "EXIT_CE" not in names
 
 
+def test_binary_mode_sign_only() -> None:
+    """gray_pctile=0 (Partha 2026-08-14: SMA5 has no gray): the state is the
+    sign of the slope — no noise floor, no sample warm-up. LONG fires as soon
+    as the slope turns positive, EXIT on the first negative-slope candle."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60, gray_pctile=0.0)
+    prices, rise_start, fall_start = _series()
+    events = _run(det, "CE", prices)
+    names = [e for _, e in events]
+    assert "LONG_CE" in names and "EXIT_CE" in names
+    long_i = next(i for i, e in events if e == "LONG_CE")
+    # No 15-sample warm-up: the long may fire well before the quiet phase ends
+    # (any positive jitter counts) — it must exist, and an exit must follow the
+    # fall.
+    exit_i = max(i for i, e in events if e == "EXIT_CE")
+    assert long_i < exit_i
+
+
 def test_relock_reset_rewarms() -> None:
     det = PremiumRibbonDetector("sma5", candle_sec=60)
     prices, _, _ = _series()
