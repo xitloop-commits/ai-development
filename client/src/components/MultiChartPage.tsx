@@ -44,7 +44,6 @@ import {
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
-import { PaneFullscreenBtn } from "./PaneFullscreenBtn";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -261,6 +260,8 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, t
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
         className="h-full"
+        onToggleFullscreen={onToggleFs}
+        fullscreenActive={fs}
         header={<>
           <span className="font-bold">{label}</span>
           <span className="font-bold" style={{ color: sideColor }} title={pinned ? "Pinned to the open trade's contract (ATM roll won't switch this pane)" : "Following the current ATM strike"}>
@@ -271,7 +272,6 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, t
           </span>
         </>}
       />
-      <PaneFullscreenBtn active={fs} onToggle={onToggleFs} />
     </div>
   );
 }
@@ -285,6 +285,9 @@ export default function MultiChartPage() {
     if (group) document.title = `${group} CHART — Lucky Basker`;
   }, [group]);
   const [intervalSec, setIntervalSec] = useState(60);
+  // Interval defaults to the CONFIGURED signal candle size (2m today) once the
+  // config loads, unless the user has picked one (Partha, 2026-08-18).
+  const userPickedInterval = useRef(false);
   // Heikin-Ashi by default — matches the SMA5 detector's candles.
   const [style, setStyle] = useState<ChartStyle>("ha");
   // SMA-5 line + both trend ribbons on by default (test-chart parity, 2026-08-13).
@@ -301,6 +304,12 @@ export default function MultiChartPage() {
   // Settings ▸ Trend angle knobs — shared by every pane's ribbon/readout.
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  useEffect(() => {
+    if (userPickedInterval.current) return;
+    const cfg = cohortQ.data?.sma5CandleSec;
+    if (cfg && cfg !== intervalSec) setIntervalSec(cfg);
+  }, [cohortQ.data?.sma5CandleSec, intervalSec]);
 
   // T165 — live-simulation: while a replay streams, the panes chart the
   // REPLAYED day (its locked contracts arrive via strikeLockState; the seed
@@ -354,7 +363,7 @@ export default function MultiChartPage() {
         <span className="font-bold tracking-wide">{group} — live ATM options</span>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
-            <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => setIntervalSec(iv.seconds)}>{iv.label}</button>
+            <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { userPickedInterval.current = true; setIntervalSec(iv.seconds); }}>{iv.label}</button>
           ))}
         </div>
         <div className="flex items-center gap-0.5">

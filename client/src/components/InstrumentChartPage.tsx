@@ -37,7 +37,6 @@ import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
 import { snapToCandle, buildTradeMarkers, buildTradeLines } from "@/lib/chartOverlays";
-import { PaneFullscreenBtn } from "./PaneFullscreenBtn";
 import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -256,6 +255,7 @@ function FloatingPane({ storageKey, title, defaultBox, children, onClose }: {
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
   trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, sma5CandleSec, alsoMark,
+  fullscreenActive, onToggleFullscreen,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -272,6 +272,8 @@ function TradePane({
    *  it shares the strike — Focus layout draws its markers here instead of a
    *  separate thumbnail). */
   alsoMark?: ChartTradeRow[];
+  fullscreenActive?: boolean;
+  onToggleFullscreen?: () => void;
 }) {
   const secId = trade.contractSecurityId ?? "";
   const hist = trpc.trading.optionTicksForContract.useQuery(
@@ -316,6 +318,8 @@ function TradePane({
         sma5Ha={sma5Ha}
         sma5Period={sma5Period}
         sma5CandleSec={sma5CandleSec}
+        onToggleFullscreen={onToggleFullscreen}
+        fullscreenActive={fullscreenActive}
         emptyText={optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours)."}
         className="min-h-0 flex-1"
         header={<>
@@ -862,6 +866,8 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                       sma5Period={sma5Period}
                       sma5CandleSec={sma5CandleSec}
                       alsoMark={marks}
+                      fullscreenActive={isFs}
+                      onToggleFullscreen={() => setFullscreenPane((p) => (p === `split:${side}` ? null : `split:${side}`))}
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No {side === "CE" ? "CALL" : "PUT"} trades yet.</div>
@@ -872,7 +878,6 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                   {dim && !isFs && (
                     <div className="pointer-events-none absolute inset-0 z-20 rounded bg-black/80" title="No open trade on this side" />
                   )}
-                  <PaneFullscreenBtn active={isFs} onToggle={() => setFullscreenPane((p) => (p === `split:${side}` ? null : `split:${side}`))} />
                 </div>
               );
             });
@@ -976,6 +981,8 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             trendReadout={trendReadout}
             trendReadoutRight={trendReadoutRight}
             extraLines={trendLines}
+            onToggleFullscreen={() => setFullscreenPane((p) => (p === "underlying" ? null : "underlying"))}
+            fullscreenActive={fullscreenPane === "underlying"}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"
             onTimeClick={onUnderlyingClick}
@@ -1032,7 +1039,6 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               </div>
             </div>
           )}
-          <PaneFullscreenBtn active={fullscreenPane === "underlying"} onToggle={() => setFullscreenPane((p) => (p === "underlying" ? null : "underlying"))} />
         </div>
         {/* Panes 2..N — this instrument's open trades (newest first) + the
             clicked/focused trade, each its own contract chart. */}
@@ -1052,8 +1058,9 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}
+                fullscreenActive={fullscreenPane === paneId}
+                onToggleFullscreen={() => setFullscreenPane((p) => (p === paneId ? null : paneId))}
               />
-              <PaneFullscreenBtn active={fullscreenPane === paneId} onToggle={() => setFullscreenPane((p) => (p === paneId ? null : paneId))} />
             </div>
           );
         })}

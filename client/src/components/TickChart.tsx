@@ -4,7 +4,7 @@
  * window (underlying + CE + PE). Full rebuild on data/config change, preserving
  * the visible time range so live refresh / interval switches don't reset zoom.
  */
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import {
   createChart,
   CandlestickSeries,
@@ -144,6 +144,10 @@ export interface TickChartProps {
   /** Fired with the clicked time (IST-shifted epoch seconds) — used to pick the
    *  nearest trade for the reason panel. */
   onTimeClick?: (timeSec: number) => void;
+  /** When provided, a maximize/fullscreen toggle is shown in the chart's bottom
+   *  controls bar (replaces the old standalone PaneFullscreenBtn). */
+  onToggleFullscreen?: () => void;
+  fullscreenActive?: boolean;
 }
 
 export function TickChart({
@@ -168,6 +172,8 @@ export function TickChart({
   className,
   onTimeClick,
   onLineDrag,
+  onToggleFullscreen,
+  fullscreenActive,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -183,6 +189,10 @@ export function TickChart({
   // tick). `count` is the bar count at teardown — used to tell "default full-fit"
   // (keep following live) from "zoomed/panned" (preserve the window).
   const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number }>({ logical: null, count: 0 });
+  // The current fit-to-last-4h function, refreshed each rebuild so the toolbar's
+  // Reset-zoom button can snap back to the live 4h window.
+  const fitRef = useRef<(() => void) | null>(null);
+  const resetZoom = useCallback(() => fitRef.current?.(), []);
   const legendRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<HTMLDivElement>(null);
   const angleRightRef = useRef<HTMLDivElement>(null);
@@ -559,19 +569,23 @@ export function TickChart({
       // still follows the live right edge; a user who scrolls BACK (right edge
       // leaves view) keeps their exact window.
       const fourHrBars = Math.max(1, Math.ceil((4 * 3600) / Math.max(1, intervalSec)));
-      // "Following" = the saved window is (near) an auto 4h-fit at the live edge:
-      // right edge visible AND its width matches a 4h fit. Any deliberate zoom or
-      // scroll (different width, or edge left the view) is preserved instead — so
-      // the default is last-4h but the user's own zoom is never clobbered.
-      const savedFitFrom = Math.max(0, saved.count - fourHrBars);
-      const savedFitW = (saved.count - 1 + RIGHT_MARGIN_BARS) - savedFitFrom;
+      // Re-fit (advance the live 4h window) ONLY when the saved view is STILL an
+      // ~4h window pinned at the live edge. The moment the user zooms or pans, the
+      // width changes (or the right edge leaves view), so we preserve their exact
+      // window instead — a manual zoom is never reset. Pure geometry, no event
+      // guessing (the wheel/drag listeners proved unreliable). Reset-zoom snaps
+      // back to a 4h window, which then follows again.
+      const fitFrom = Math.max(0, saved.count - fourHrBars);
+      const fitW = (saved.count - 1 + RIGHT_MARGIN_BARS) - fitFrom; // width of a 4h fit at the saved count
       const savedW = saved.logical ? saved.logical.to - saved.logical.from : 0;
-      const isFollowing = !saved.logical
-        || (saved.logical.to >= saved.count - 1 && Math.abs(savedW - savedFitW) <= 3);
+      const atEdge = saved.logical ? saved.logical.to >= saved.count - 1 : true;
+      const widthTol = Math.max(4, fitW * 0.05);
+      const isFollowing = !saved.logical || (atEdge && Math.abs(savedW - fitW) <= widthTol);
       const fit = () => chart.timeScale().setVisibleLogicalRange({
         from: Math.max(0, bars - fourHrBars),
         to: bars - 1 + RIGHT_MARGIN_BARS,
       });
+      fitRef.current = fit; // let the Reset-zoom button re-fit to the latest edge
       if (!isFollowing && saved.logical) {
         const want = { from: saved.logical.from, to: saved.logical.to };
         const assert = () => {
@@ -672,7 +686,7 @@ export function TickChart({
           // A small non-blocking pill at the BOTTOM of the chart telling the user
           // what's happening in the background (loading / source / live) — any
           // candles already drawn stay visible. Spinner only while `loading`.
-          <div className="absolute inset-x-0 bottom-2 z-20 flex justify-center pointer-events-none">
+          <div className="absolute inset-x-0 bottom-8 z-20 flex justify-center pointer-events-none">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/85 px-2.5 py-0.5 text-[0.625rem] text-muted-foreground shadow-sm backdrop-blur-sm">
               {loading && (
                 <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted-foreground/40 border-t-transparent" />
@@ -707,6 +721,38 @@ export function TickChart({
           />
         )}
         <div ref={containerRef} className="h-full w-full" />
+        {/* Bottom controls bar — reset-zoom (always) + maximize (when the parent
+            wires onToggleFullscreen). Low-opacity until hover, like the old
+            standalone fullscreen button it replaces. (Partha, 2026-08-18) */}
+        <div className="absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded border border-border/60 bg-background/80 px-0.5 py-0.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
+          <button
+            type="button"
+            onClick={resetZoom}
+            title="Reset zoom — show the last 4 hours"
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+          </button>
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              title={fullscreenActive ? "Exit fullscreen (Esc)" : "Fullscreen this pane"}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                {fullscreenActive ? (
+                  <path d="M9 3v6H3M21 9h-6V3M3 15h6v6M15 21v-6h6" />
+                ) : (
+                  <path d="M8 3H3v5M21 8V3h-5M3 16v5h5M16 21h5v-5" />
+                )}
+              </svg>
+            </button>
+          )}
+        </div>
         {/* Drag handles for movable lines (e.g. Target). A full-width grab strip
             at the line's Y with a grip + live price on the right. */}
         {dragLines.map((l) => (
