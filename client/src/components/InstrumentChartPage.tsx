@@ -39,6 +39,7 @@ import { TickChart } from "./TickChart";
 import { snapToCandle, buildTradeMarkers, buildTradeLines } from "@/lib/chartOverlays";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
+import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
 import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -257,7 +258,7 @@ function FloatingPane({ storageKey, title, defaultBox, children, onClose }: {
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
   trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, sma5CandleSec, alsoMark,
-  fullscreenActive, onToggleFullscreen, markerFilter = ALL_MARKER_FILTER,
+  fullscreenActive, onToggleFullscreen, markerFilter = ALL_MARKER_FILTER, crosshairSync,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -277,6 +278,7 @@ function TradePane({
   fullscreenActive?: boolean;
   onToggleFullscreen?: () => void;
   markerFilter?: TradeMarkerFilter;
+  crosshairSync?: CrosshairSync;
 }) {
   const secId = trade.contractSecurityId ?? "";
   const hist = trpc.trading.optionTicksForContract.useQuery(
@@ -321,6 +323,7 @@ function TradePane({
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}
+        crosshairSync={crosshairSync}
         sma5Ha={sma5Ha}
         sma5Period={sma5Period}
         sma5CandleSec={sma5CandleSec}
@@ -373,6 +376,8 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   // Win/Loss + SMA5/MA marker toggles (chart top).
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(ALL_MARKER_FILTER);
+  // One crosshair bus shared by every pane → hover one, crosshair on all.
+  const crosshairSync = useMemo(() => createCrosshairSync(), []);
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
@@ -873,6 +878,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                       indicators={indicators}
                       optionsEnabled={optionsEnabled}
                 markerFilter={markerFilter}
+                crosshairSync={crosshairSync}
                       sma5Ha={sma5Ha}
                       sma5Period={sma5Period}
                       sma5CandleSec={sma5CandleSec}
@@ -912,6 +918,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
                 markerFilter={markerFilter}
+                crosshairSync={crosshairSync}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}
@@ -939,6 +946,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
                 markerFilter={markerFilter}
+                crosshairSync={crosshairSync}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}
@@ -996,6 +1004,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             extraLines={trendLines}
             onToggleFullscreen={() => setFullscreenPane((p) => (p === "underlying" ? null : "underlying"))}
             fullscreenActive={fullscreenPane === "underlying"}
+            crosshairSync={crosshairSync}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="h-full"
             onTimeClick={onUnderlyingClick}
@@ -1069,6 +1078,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
                 markerFilter={markerFilter}
+                crosshairSync={crosshairSync}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}

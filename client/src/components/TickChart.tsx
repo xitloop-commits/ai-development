@@ -5,6 +5,7 @@
  * the visible time range so live refresh / interval switches don't reset zoom.
  */
 import { useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+import type { CrosshairSync } from "@/lib/crosshairSync";
 import {
   createChart,
   CandlestickSeries,
@@ -148,6 +149,9 @@ export interface TickChartProps {
    *  controls bar (replaces the old standalone PaneFullscreenBtn). */
   onToggleFullscreen?: () => void;
   fullscreenActive?: boolean;
+  /** Shared crosshair bus — when several panes are given the SAME instance,
+   *  hovering one draws the crosshair on all of them at the same time. */
+  crosshairSync?: CrosshairSync;
 }
 
 export function TickChart({
@@ -174,8 +178,11 @@ export function TickChart({
   onLineDrag,
   onToggleFullscreen,
   fullscreenActive,
+  crosshairSync,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
+  const selfId = useMemo(() => Symbol("xhair"), []);
   const chartRef = useRef<IChartApi | null>(null);
   // Main price series — kept in a ref so the drag-line overlay can convert
   // price↔pixel (priceToCoordinate / coordinateToPrice) against the live scale.
@@ -220,7 +227,14 @@ export function TickChart({
         attributionLogo: false,
       },
       grid: { vertLines: { color: cc.grid }, horzLines: { color: cc.grid } },
-      crosshair: { mode: CrosshairMode.Normal },
+      // Visible crosshair lines that track the cursor freely (Normal, not Magnet),
+      // with a price/time label on each axis. Default styling is nearly invisible
+      // on the dark theme, so colour them explicitly. (Partha, 2026-08-18)
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: cc.text, width: 1, style: LineStyle.LargeDashed, labelBackgroundColor: cc.border },
+        horzLine: { color: cc.text, width: 1, style: LineStyle.LargeDashed, labelBackgroundColor: cc.border },
+      },
       rightPriceScale: { borderColor: cc.border },
       timeScale: {
         borderColor: cc.border,
@@ -540,10 +554,21 @@ export function TickChart({
     };
     if (hoverAngleStrip || trendReadout) renderAngle(candles.length - 1);
 
+    // Guards the teardown/echo paths (declared up here so the crosshair-sync
+    // callback below can read it).
+    let disposed = false;
+    // Only a REAL pointer move on THIS pane may broadcast to the others. The
+    // crosshairMove event ALSO fires when live data updates under a stationary
+    // cursor and when we set the crosshair programmatically (a mirror) — those
+    // have no `sourceEvent`, so gating on it stops the "crosshair floats/jumps on
+    // its own" feedback loop. `hovering` lets us broadcast a single CLEAR when the
+    // pointer finally leaves. (Partha, 2026-08-18)
+    let hovering = false;
     chart.subscribeCrosshairMove((param) => {
       if (param.time == null) {
         if (candles.length) renderLegend(candles[candles.length - 1], candles[candles.length - 2]);
         if (hoverAngleStrip || trendReadout) renderAngle(candles.length - 1);
+        if (hovering) { hovering = false; crosshairSync?.emit(selfId, { time: null, price: null }); }
         return;
       }
       const i = timeIndex.get(param.time as number);
@@ -551,16 +576,35 @@ export function TickChart({
         renderLegend(candles[i], i > 0 ? candles[i - 1] : undefined);
         if (hoverAngleStrip || trendReadout) renderAngle(i);
       }
+      if (param.sourceEvent) {
+        hovering = true;
+        const price = param.point && seriesRef.current
+          ? (seriesRef.current.coordinateToPrice(param.point.y) as number | null)
+          : null;
+        crosshairSync?.emit(selfId, { time: param.time, price: price ?? null });
+      }
     });
+    // Mirror every OTHER pane's crosshair onto this one (vertical time line; the
+    // price aligns same-scale panes and is harmlessly off-scale otherwise). This
+    // set has no sourceEvent, so it never re-broadcasts (see the gate above).
+    const unsubSync = crosshairSync?.subscribe((source, ev) => {
+      if (source === selfId || disposed) return;
+      try {
+        if (ev.time == null || !seriesRef.current) chart.clearCrosshairPosition();
+        else chart.setCrosshairPosition(ev.price ?? 0, ev.time, seriesRef.current);
+      } catch { /* chart gone */ }
+    });
+    // The chart is rebuilt on every tick; re-apply the live shared crosshair so it
+    // doesn't blink out between rebuilds while the pointer sits still.
+    if (crosshairSync?.current?.time != null && seriesRef.current) {
+      try { chart.setCrosshairPosition(crosshairSync.current.price ?? 0, crosshairSync.current.time, seriesRef.current); } catch { /* ignore */ }
+    }
 
     // Restore the user's window across this rebuild. Bar indices are stable on
     // append, so a stashed LOGICAL range keeps the same zoom on the same bars. If
     // the previous view was the default full-fit (from≈0 & to at the edge), we
     // re-fit instead so the chart keeps following new candles live.
-    // `disposed` guard (declared before restore — the rAF re-asserts use it):
-    // chart.remove() can emit a final range-change after cleanup stashed the
-    // good window; the guard stops that from clobbering viewRef.
-    let disposed = false;
+    // (`disposed` is declared above so the crosshair-sync callback can read it.)
     {
       const bars = candles.length;
       const saved = viewRef.current;
@@ -611,6 +655,7 @@ export function TickChart({
 
     return () => {
       disposed = true;
+      unsubSync?.();
       // Stash the visible window BEFORE removing so the next rebuild can restore it.
       try {
         const lr = chart.timeScale().getVisibleLogicalRange();
@@ -619,7 +664,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip, trendReadout, trendReadoutRight]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
@@ -686,7 +731,7 @@ export function TickChart({
           // A small non-blocking pill at the BOTTOM of the chart telling the user
           // what's happening in the background (loading / source / live) — any
           // candles already drawn stay visible. Spinner only while `loading`.
-          <div className="absolute inset-x-0 bottom-8 z-20 flex justify-center pointer-events-none">
+          <div className="absolute inset-x-0 bottom-16 z-20 flex justify-center pointer-events-none">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/85 px-2.5 py-0.5 text-[0.625rem] text-muted-foreground shadow-sm backdrop-blur-sm">
               {loading && (
                 <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted-foreground/40 border-t-transparent" />
@@ -724,7 +769,7 @@ export function TickChart({
         {/* Bottom controls bar — reset-zoom (always) + maximize (when the parent
             wires onToggleFullscreen). Low-opacity until hover, like the old
             standalone fullscreen button it replaces. (Partha, 2026-08-18) */}
-        <div className="absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded border border-border/60 bg-background/80 px-0.5 py-0.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
+        <div className="absolute bottom-7 left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded border border-border/60 bg-background/80 px-0.5 py-0.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
           <button
             type="button"
             onClick={resetZoom}

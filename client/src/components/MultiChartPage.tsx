@@ -46,6 +46,7 @@ import {
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
+import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -99,13 +100,14 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, markerFilter, active, dim, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, markerFilter, crosshairSync, active, dim, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   markerFilter: TradeMarkerFilter;
+  crosshairSync: CrosshairSync;
   /** An OPEN paper trade exists on this instrument+side. */
   active: boolean;
   /** Dim this pane — only while the SIBLING side holds the open trade
@@ -254,6 +256,7 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, markerFilter, 
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}
+        crosshairSync={crosshairSync}
         emptyText={
           !secId ? "Waiting for the ATM contract (feed warming up)…"
             : seedQ.isLoading ? "Loading session history… (first load builds the day index)"
@@ -300,6 +303,8 @@ export default function MultiChartPage() {
   );
   // Win/Loss + SMA5/MA marker toggles (chart top).
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(ALL_MARKER_FILTER);
+  // One crosshair bus shared by every pane → hover one, crosshair on all.
+  const crosshairSync = useMemo(() => createCrosshairSync(), []);
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -406,7 +411,7 @@ export default function MultiChartPage() {
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} fullscreenPane={fullscreenPane} setFullscreenPane={setFullscreenPane} />
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} crosshairSync={crosshairSync} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} fullscreenPane={fullscreenPane} setFullscreenPane={setFullscreenPane} />
         ))}
       </div>
     </div>
@@ -415,12 +420,13 @@ export default function MultiChartPage() {
 
 /** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
  *  panes) that drives the active/dimmed state. */
-function InstrumentRow({ instKey, intervalSec, style, indicators, markerFilter, taOpts, refreshNonce, chartDate, simCutoffRef, fullscreenPane, setFullscreenPane }: {
+function InstrumentRow({ instKey, intervalSec, style, indicators, markerFilter, crosshairSync, taOpts, refreshNonce, chartDate, simCutoffRef, fullscreenPane, setFullscreenPane }: {
   instKey: string;
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
   markerFilter: TradeMarkerFilter;
+  crosshairSync: CrosshairSync;
   taOpts?: Partial<TrendAngleOptions>;
   refreshNonce: number;
   chartDate: string;
@@ -442,8 +448,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, markerFilter, 
   const peOpen = peTrade?.status === "OPEN";
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} active={ceOpen} dim={!ceOpen && peOpen} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
-      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} active={peOpen} dim={!peOpen && ceOpen} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
+      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} crosshairSync={crosshairSync} taOpts={taOpts} active={ceOpen} dim={!ceOpen && peOpen} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
+      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} crosshairSync={crosshairSync} taOpts={taOpts} active={peOpen} dim={!peOpen && ceOpen} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
     </div>
   );
 }
