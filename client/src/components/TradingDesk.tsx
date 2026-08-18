@@ -225,29 +225,13 @@ export default function TradingDesk({
             restore <TodayPnlBar …/> below to bring it (and its Exit-All button)
             back. The flex-1 div keeps the filter bar + menus right-aligned. */}
         <div className="flex-1 min-w-0 flex items-center justify-center gap-2 px-3">
-          <svg viewBox="0 0 150 46" height="30" role="img" aria-label="Gold bar 22K" className="drop-shadow-sm">
-            <defs>
-              <linearGradient id="deskGoldFace" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fff7cc" />
-                <stop offset="38%" stopColor="#f6cf3f" />
-                <stop offset="72%" stopColor="#d9a520" />
-                <stop offset="100%" stopColor="#a97c12" />
-              </linearGradient>
-              <linearGradient id="deskGoldTop" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fff9dd" />
-                <stop offset="100%" stopColor="#f4d75e" />
-              </linearGradient>
-            </defs>
-            {/* body */}
-            <path d="M26 12 L118 12 L138 40 L6 40 Z" fill="url(#deskGoldFace)" stroke="#8a6b0f" strokeWidth="1.2" strokeLinejoin="round" />
-            {/* top bevel face */}
-            <path d="M26 12 L118 12 L110 20 L34 20 Z" fill="url(#deskGoldTop)" stroke="#8a6b0f" strokeWidth="0.8" strokeLinejoin="round" />
-            {/* left bevel */}
-            <path d="M6 40 L26 12 L34 20 L18 40 Z" fill="#c99a1e" opacity="0.55" />
-            {/* shine sweep */}
-            <path d="M40 22 L58 22 L44 38 L26 38 Z" fill="#fffbe6" opacity="0.35" />
-            <text x="74" y="35" textAnchor="middle" fontSize="12" fontWeight="800" letterSpacing="1" fill="#6f520a" fontFamily="ui-sans-serif, system-ui, sans-serif">22K</text>
-          </svg>
+          <img
+            src="/gold-bars.png"
+            alt="Gold bars 22K"
+            height={38}
+            className="h-[38px] w-auto select-none drop-shadow-sm"
+            draggable={false}
+          />
           <span className="text-[0.5rem] font-semibold uppercase tracking-[0.2em] text-[#c79a1e]/80 select-none">gold&nbsp;·&nbsp;1g&nbsp;22k</span>
           {false && (
             <TodayPnlBar
