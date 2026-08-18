@@ -44,6 +44,8 @@ import {
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
+import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
+import { TradeMarkerToggles } from "./TradeMarkerToggles";
 
 /** Option feed segment for an instrument's F&O contracts. */
 function optionSegmentFor(inst: string): string {
@@ -97,12 +99,13 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
+function AtmPane({ instKey, side, intervalSec, style, indicators, markerFilter, active, dim, trade, trades, taOpts, chartDate, simCutoffRef, fs, onToggleFs }: {
   instKey: string;
   side: "CE" | "PE";
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
+  markerFilter: TradeMarkerFilter;
   /** An OPEN paper trade exists on this instrument+side. */
   active: boolean;
   /** Dim this pane — only while the SIBLING side holds the open trade
@@ -182,10 +185,11 @@ function AtmPane({ instKey, side, intervalSec, style, indicators, active, dim, t
     const times = c.candles.map((cd) => cd.time as number);
     if (!times.length) return NO_MARKERS as SeriesMarker<UTCTimestamp>[];
     const onThis = trades.filter(
-      (t) => (t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike),
+      (t) => ((t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike))
+        && tradePassesMarkerFilter(t, markerFilter),
     );
     return buildTradeMarkers(onThis, times, Infinity, true);
-  }, [c.candles, trades, secId, strike]);
+  }, [c.candles, trades, secId, strike, markerFilter]);
 
   // Shared trend engine (same as the test chart): ribbons per source when the
   // indicator is on, plus the blue/pink steep parallels derived from the MA
@@ -294,6 +298,8 @@ export default function MultiChartPage() {
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
     () => new Set<IndicatorKey>(["sma5", "maRibbon", "sma5Ribbon"]),
   );
+  // Win/Loss + SMA5/MA marker toggles (chart top).
+  const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(ALL_MARKER_FILTER);
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -378,6 +384,7 @@ export default function MultiChartPage() {
             </button>
           ))}
         </div>
+        <TradeMarkerToggles filter={markerFilter} onChange={setMarkerFilter} />
         {isSim ? (
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-bold text-amber-500">
             SIMULATION {chartDate} — replayed locked contracts
@@ -399,7 +406,7 @@ export default function MultiChartPage() {
       {/* 2 instrument rows × (CE left | PE right) */}
       <div className="grid min-h-0 flex-1 grid-rows-2 gap-1">
         {instruments.map((inst) => (
-          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} fullscreenPane={fullscreenPane} setFullscreenPane={setFullscreenPane} />
+          <InstrumentRow key={inst} instKey={inst} intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} refreshNonce={refreshNonce} chartDate={chartDate} simCutoffRef={isSim ? simCutoffRef : undefined} fullscreenPane={fullscreenPane} setFullscreenPane={setFullscreenPane} />
         ))}
       </div>
     </div>
@@ -408,11 +415,12 @@ export default function MultiChartPage() {
 
 /** One instrument's CE|PE pair. Owns the open-trades poll (shared by both
  *  panes) that drives the active/dimmed state. */
-function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refreshNonce, chartDate, simCutoffRef, fullscreenPane, setFullscreenPane }: {
+function InstrumentRow({ instKey, intervalSec, style, indicators, markerFilter, taOpts, refreshNonce, chartDate, simCutoffRef, fullscreenPane, setFullscreenPane }: {
   instKey: string;
   intervalSec: number;
   style: ChartStyle;
   indicators: Set<IndicatorKey>;
+  markerFilter: TradeMarkerFilter;
   taOpts?: Partial<TrendAngleOptions>;
   refreshNonce: number;
   chartDate: string;
@@ -434,8 +442,8 @@ function InstrumentRow({ instKey, intervalSec, style, indicators, taOpts, refres
   const peOpen = peTrade?.status === "OPEN";
   return (
     <div className="grid min-h-0 grid-cols-2 gap-1">
-      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={ceOpen} dim={!ceOpen && peOpen} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
-      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} taOpts={taOpts} active={peOpen} dim={!peOpen && ceOpen} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
+      <AtmPane key={`CE-${refreshNonce}-${chartDate}`} instKey={instKey} side="CE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} active={ceOpen} dim={!ceOpen && peOpen} trade={ceTrade} trades={rows.filter((r) => r.side === "CE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("CE")} onToggleFs={toggle("CE")} />
+      <AtmPane key={`PE-${refreshNonce}-${chartDate}`} instKey={instKey} side="PE" intervalSec={intervalSec} style={style} indicators={indicators} markerFilter={markerFilter} taOpts={taOpts} active={peOpen} dim={!peOpen && ceOpen} trade={peTrade} trades={rows.filter((r) => r.side === "PE")} chartDate={chartDate} simCutoffRef={simCutoffRef} fs={fullscreenPane === paneId("PE")} onToggleFs={toggle("PE")} />
     </div>
   );
 }

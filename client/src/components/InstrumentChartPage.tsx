@@ -37,6 +37,8 @@ import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
 import { snapToCandle, buildTradeMarkers, buildTradeLines } from "@/lib/chartOverlays";
+import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
+import { TradeMarkerToggles } from "./TradeMarkerToggles";
 import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -255,7 +257,7 @@ function FloatingPane({ storageKey, title, defaultBox, children, onClose }: {
  *  with the trade's entry/exit markers. T88 step 3. */
 function TradePane({
   trade, inst, date, optSeg, intervalSec, style, indicators, optionsEnabled, sma5Ha, sma5Period, sma5CandleSec, alsoMark,
-  fullscreenActive, onToggleFullscreen,
+  fullscreenActive, onToggleFullscreen, markerFilter = ALL_MARKER_FILTER,
 }: {
   trade: ChartTradeRow;
   inst: string;
@@ -274,6 +276,7 @@ function TradePane({
   alsoMark?: ChartTradeRow[];
   fullscreenActive?: boolean;
   onToggleFullscreen?: () => void;
+  markerFilter?: TradeMarkerFilter;
 }) {
   const secId = trade.contractSecurityId ?? "";
   const hist = trpc.trading.optionTicksForContract.useQuery(
@@ -283,7 +286,10 @@ function TradePane({
   const c = useLiveCandles(secId || null, optSeg, intervalSec, optionsEnabled, hist.data as { t: number[]; ltp: number[] } | undefined);
   const times = useMemo(() => c.candles.map((k) => k.time as number), [c.candles]);
   // Option chart: entry marker always at the BOTTOM, exit on TOP (fixedPos).
-  const markers = useMemo(() => buildTradeMarkers([trade, ...(alsoMark ?? [])], times, Infinity, true), [trade, alsoMark, times]);
+  const markers = useMemo(
+    () => buildTradeMarkers([trade, ...(alsoMark ?? [])].filter((t) => tradePassesMarkerFilter(t, markerFilter)), times, Infinity, true),
+    [trade, alsoMark, times, markerFilter],
+  );
   // Entry + Exit price lines (+ the frozen TSL / target). A CLOSED trade's lines
   // are DIMMED so an OPEN trade's levels stand out.
   // Drag the Target line to move this trade's TP (open paper trades). Same backend
@@ -365,6 +371,8 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     () => new Set<IndicatorKey>(singlePane ? ["sma5", "maRibbon", "sma5Ribbon"] : ["ma", "sma5"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  // Win/Loss + SMA5/MA marker toggles (chart top).
+  const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(ALL_MARKER_FILTER);
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
@@ -560,10 +568,11 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   const markers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
     if (candles.length === 0 || !showTrades) return [];
     const times = candles.map((c) => c.time);
-    const out = buildTradeMarkers((tradesQuery.data as ChartTradeRow[] | undefined) ?? [], times, cutoffTime);
+    const rows = ((tradesQuery.data as ChartTradeRow[] | undefined) ?? []).filter((t) => tradePassesMarkerFilter(t, markerFilter));
+    const out = buildTradeMarkers(rows, times, cutoffTime);
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
-  }, [candles, cutoffTime, showTrades, tradesQuery.data]);
+  }, [candles, cutoffTime, showTrades, tradesQuery.data, markerFilter]);
 
   // Cohort legend — the distinct cohorts among the loaded trades, so the marker
   // colours (pink = MA-Signal, cyan = scalp, …) mean something at a glance.
@@ -760,6 +769,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
         <div className="flex items-center gap-0.5">
           <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
         </div>
+        {showTrades && <TradeMarkerToggles filter={markerFilter} onChange={setMarkerFilter} />}
         {/* Cohort legend — marker colours are per-cohort; this key makes them
             readable (pink = MA-Signal, cyan = scalp, …). */}
         {showTrades && presentCohorts.length > 0 && (
@@ -862,6 +872,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                       style={style}
                       indicators={indicators}
                       optionsEnabled={optionsEnabled}
+                markerFilter={markerFilter}
                       sma5Ha={sma5Ha}
                       sma5Period={sma5Period}
                       sma5CandleSec={sma5CandleSec}
@@ -900,6 +911,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 style={style}
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
+                markerFilter={markerFilter}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}
@@ -926,6 +938,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 style={style}
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
+                markerFilter={markerFilter}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}
@@ -1055,6 +1068,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
                 style={style}
                 indicators={indicators}
                 optionsEnabled={optionsEnabled}
+                markerFilter={markerFilter}
                 sma5Ha={sma5Ha}
                 sma5Period={sma5Period}
                 sma5CandleSec={sma5CandleSec}

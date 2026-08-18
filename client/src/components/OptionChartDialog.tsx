@@ -34,6 +34,8 @@ import {
   type IndicatorKey,
 } from "@/lib/instrumentChart";
 import { resolveCohortHex, cohortLabel } from "@/lib/tradeThemes";
+import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
+import { TradeMarkerToggles } from "./TradeMarkerToggles";
 import { TickChart } from "./TickChart";
 import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
@@ -158,6 +160,8 @@ function OptionChart({
   // Focus mode (Partha, 2026-08-05): the popup opens on ONE trade row, so by
   // default only that trade's in/out is drawn. "All" reveals the whole strike.
   const [showAll, setShowAll] = useState(false);
+  // Win/Loss + SMA5/MA marker toggles (chart top).
+  const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(ALL_MARKER_FILTER);
 
   // ── Candles ────────────────────────────────────────────────────────
   // Minute intervals (1m–5m): broker minute candles — they cover the WHOLE
@@ -337,9 +341,10 @@ function OptionChart({
     return trades.filter(
       (t) =>
         (!t.cohort || !hiddenCohorts.has(t.cohort)) &&
-        (!t.exitStrategy || !hiddenStrategies.has(t.exitStrategy)),
+        (!t.exitStrategy || !hiddenStrategies.has(t.exitStrategy)) &&
+        tradePassesMarkerFilter(t, markerFilter),
     );
-  }, [trades, hiddenCohorts, hiddenStrategies, focusMode, focusedTrade]);
+  }, [trades, hiddenCohorts, hiddenStrategies, focusMode, focusedTrade, markerFilter]);
 
   // Markers follow the instrument-chart convention: cohort colour; entry =
   // direction arrow on the "home" side, exit = ● on the opposite side.
@@ -558,6 +563,7 @@ function OptionChart({
             </div>
           )}
         </div>
+        <TradeMarkerToggles filter={markerFilter} onChange={setMarkerFilter} />
         {focusedTrade != null && (
           <div className="flex items-center gap-0" title="Show only the clicked trade, or every trade on this strike">
             <button className={btn(!showAll)} onClick={() => setShowAll(false)}>
