@@ -36,8 +36,8 @@ function dateLabel(iso: string): string {
 export interface TradeFilter {
   /** IST date "YYYY-MM-DD" (matched on openedAt), or null = all dates. */
   date: string | null;
-  /** Exact `trade.instrument` value, or null = all instruments. */
-  instrument: string | null;
+  /** Selected `trade.instrument` values (multiselect); empty = all instruments. */
+  instruments: string[];
   status: StatusFilter | null;
   side: SideFilter | null;
   /** Bought vs sold — orthogonal to CE/PE, so "Short(PE)" is side=PE + direction=SHORT. */
@@ -55,7 +55,7 @@ export interface TradeFilter {
 
 export const EMPTY_TRADE_FILTER: TradeFilter = {
   date: null,
-  instrument: null,
+  instruments: [],
   status: null,
   side: null,
   direction: null,
@@ -68,7 +68,7 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.date && !f.instrument && !f.status && !f.side && !f.direction && !f.outcome
+  return !f.date && f.instruments.length === 0 && !f.status && !f.side && !f.direction && !f.outcome
     && !f.exitReason && !f.cohort && !f.exitStrategy && !f.source;
 }
 
@@ -80,7 +80,7 @@ export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
   // this axis exists.
   if (f.date && (!t.openedAt || istDateOf(t.openedAt) !== f.date)) return false;
 
-  if (f.instrument && t.instrument !== f.instrument) return false;
+  if (f.instruments.length > 0 && !f.instruments.includes(t.instrument)) return false;
 
   if (f.status) {
     const isOpen = t.status === 'OPEN';
@@ -225,7 +225,7 @@ function _TradeFilterBar({ value, onChange, dates = [], instruments, cohorts, st
 
   const dirty = !isEmptyTradeFilter(value);
   const activeCount =
-    (value.date ? 1 : 0) + (value.instrument ? 1 : 0) + (value.status ? 1 : 0) + (value.side ? 1 : 0) +
+    (value.date ? 1 : 0) + (value.instruments.length ? 1 : 0) + (value.status ? 1 : 0) + (value.side ? 1 : 0) +
     (value.outcome ? 1 : 0) + (value.source ? 1 : 0) + (value.cohort ? 1 : 0) +
     (value.exitStrategy ? 1 : 0);
 
@@ -284,19 +284,27 @@ function _TradeFilterBar({ value, onChange, dates = [], instruments, cohorts, st
             </Group>
           )}
 
-          <Group label="Instr.">
-            <select
-              value={value.instrument ?? ''}
-              onChange={(e) => onChange({ ...value, instrument: e.target.value || null })}
-              title="Filter by instrument"
-              className="max-w-[8rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-            >
-              <option value="">All instruments</option>
+          {/* Instrument — MULTISELECT: click to add/remove; none selected = all. */}
+          {instruments.length > 0 && (
+            <Group label="Instr.">
               {instruments.map((i) => (
-                <option key={i} value={i}>{i}</option>
+                <Pill
+                  key={i}
+                  active={value.instruments.includes(i)}
+                  activeClass="bg-primary/20 text-primary"
+                  onClick={() => onChange({
+                    ...value,
+                    instruments: value.instruments.includes(i)
+                      ? value.instruments.filter((x) => x !== i)
+                      : [...value.instruments, i],
+                  })}
+                  title={`Toggle ${i} (select several to combine)`}
+                >
+                  {i}
+                </Pill>
               ))}
-            </select>
-          </Group>
+            </Group>
+          )}
 
           <Group label="Status">
             <Pill active={value.status === 'OPEN'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('status', 'OPEN')} title="Show only open trades">Open</Pill>

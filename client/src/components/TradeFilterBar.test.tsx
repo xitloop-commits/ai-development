@@ -41,9 +41,15 @@ describe('tradeMatchesFilter', () => {
     expect(tradeMatchesFilter(trade({}), EMPTY_TRADE_FILTER)).toBe(true);
   });
 
-  it('instrument — exact match only', () => {
-    expect(tradeMatchesFilter(trade({ instrument: 'NIFTY 50' }), f({ instrument: 'NIFTY 50' }))).toBe(true);
-    expect(tradeMatchesFilter(trade({ instrument: 'BANK NIFTY' }), f({ instrument: 'NIFTY 50' }))).toBe(false);
+  it('instrument — multiselect; empty = all, else membership', () => {
+    // empty list = all instruments pass
+    expect(tradeMatchesFilter(trade({ instrument: 'BANK NIFTY' }), f({ instruments: [] }))).toBe(true);
+    // single selection = exact membership
+    expect(tradeMatchesFilter(trade({ instrument: 'NIFTY 50' }), f({ instruments: ['NIFTY 50'] }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ instrument: 'BANK NIFTY' }), f({ instruments: ['NIFTY 50'] }))).toBe(false);
+    // multiple selections = union
+    expect(tradeMatchesFilter(trade({ instrument: 'BANK NIFTY' }), f({ instruments: ['NIFTY 50', 'BANK NIFTY'] }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ instrument: 'CRUDE OIL' }), f({ instruments: ['NIFTY 50', 'BANK NIFTY'] }))).toBe(false);
   });
 
   it('date — matches the IST day of openedAt', () => {
