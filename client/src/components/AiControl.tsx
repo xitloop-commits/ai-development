@@ -68,7 +68,7 @@ interface ModeCfg {
   /** T144 — per-cohort strategy race: each cohort's enabled strategies (one
    *  trade placed per enabled strategy on that cohort's signal). */
   cohortStrategies: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean }>;
-  sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
+  sizing: { perInstrument: Record<string, { mode: "lots" | "percent" | "amount"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
 /** T129 — system-wide settings; edited in the Settings menu, not here. */
@@ -782,13 +782,21 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                       <div key={inst} className="flex items-center justify-between gap-2">
                         <span className="text-[0.625rem] text-muted-foreground capitalize">{inst}</span>
                         <div className="flex items-center gap-1">
-                          <input type="number" step={1} min={0} value={s.value}
+                          <input type="number" step={s.mode === "amount" ? 1000 : 1} min={0} value={s.value}
                             onChange={(e) => edit((x) => {
                               const cur = x.sizing.perInstrument[inst] ?? { mode: "lots", value: 0 };
                               x.sizing.perInstrument[inst] = { ...cur, value: e.target.value === "" ? 0 : Number(e.target.value) };
                             })}
-                            className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                          <span className="text-[0.5625rem] text-muted-foreground w-6">{s.mode === "percent" ? "%" : "lots"}</span>
+                            className={`${s.mode === "amount" ? "w-20" : "w-14"} rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan`} />
+                          <button type="button"
+                            onClick={() => edit((x) => {
+                              const cur = x.sizing.perInstrument[inst] ?? { mode: "lots" as const, value: 0 };
+                              x.sizing.perInstrument[inst] = { ...cur, mode: cur.mode === "amount" ? "lots" : "amount" };
+                            })}
+                            title="Toggle sizing: lots ↔ ₹ amount (lots calculated from the amount)"
+                            className="w-6 text-left text-[0.5625rem] text-info-cyan hover:underline cursor-pointer">
+                            {s.mode === "percent" ? "%" : s.mode === "amount" ? "₹" : "lots"}
+                          </button>
                         </div>
                       </div>
                     );

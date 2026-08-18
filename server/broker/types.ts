@@ -411,11 +411,12 @@ export interface BrokerCredentials {
   status: TokenStatus;
 }
 
-/** How a new trade is sized: a fixed number of lots, or a % of available capital. */
-export type SizingMode = "lots" | "percent";
+/** How a new trade is sized: a fixed number of lots, a % of available capital,
+ *  or a fixed ₹ amount to spend (lots calculated from it). */
+export type SizingMode = "lots" | "percent" | "amount";
 export interface InstrumentSizing {
   mode: SizingMode;
-  value: number; // lots count when mode="lots"; % of available capital when "percent"
+  value: number; // lots when "lots"; % of capital when "percent"; ₹ to spend when "amount"
 }
 
 export interface BrokerSettings {

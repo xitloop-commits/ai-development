@@ -140,8 +140,10 @@ const placeTradeUiSchema = z.object({
   type: uiTradeTypeSchema,
   strike: z.number().nullable().default(null),
   entryPrice: z.number().positive(),
-  // Optional: a trade may be sized by fixed lots (qty) instead of % of capital.
+  // Optional: a trade may be sized by fixed lots (qty), % of capital, or a fixed
+  // ₹ amount to spend (lots derived from it, server-side, using the lot size).
   capitalPercent: z.number().min(0).max(100).optional(),
+  capitalAmount: z.number().min(0).optional(),
   expiry: z.string().optional().default(""),
   contractSecurityId: z.string().optional().nullable(),
   qty: z.number().int().positive().optional(),
@@ -318,10 +320,16 @@ export const executorRouter = router({
           entryPrice,
           lotSize ?? 1,
         ));
+      } else if (input.capitalAmount != null && input.capitalAmount > 0) {
+        // Fixed ₹ to spend → lots = floor(₹ / (premium × lotSize)), min 1.
+        const ls = lotSize ?? 1;
+        const lots = Math.max(1, Math.floor(input.capitalAmount / (entryPrice * ls)));
+        qty = lots * ls;
+        margin = qty * entryPrice;
       } else {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Provide either qty (lots) or capitalPercent to size the trade",
+          message: "Provide qty (lots), capitalPercent, or capitalAmount to size the trade",
         });
       }
 

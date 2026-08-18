@@ -26,16 +26,21 @@ describe('manualTradeSize', () => {
       perInstrument: {
         nifty50: { mode: 'lots' as const, value: 20 },
         banknifty: { mode: 'percent' as const, value: 7 },
+        crudeoil: { mode: 'amount' as const, value: 200_000 },
       },
     },
   };
 
-  it('lots mode sends qty and zero capitalPercent', () => {
-    expect(manualTradeSize(manual, 'NIFTY 50')).toEqual({ capitalPercent: 0, qty: 20 });
+  it('lots mode sends qty and zero capital fields', () => {
+    expect(manualTradeSize(manual, 'NIFTY 50')).toEqual({ capitalPercent: 0, capitalAmount: 0, qty: 20 });
   });
 
   it('percent mode sends capitalPercent and zero qty', () => {
-    expect(manualTradeSize(manual, 'BANK NIFTY')).toEqual({ capitalPercent: 7, qty: 0 });
+    expect(manualTradeSize(manual, 'BANK NIFTY')).toEqual({ capitalPercent: 7, capitalAmount: 0, qty: 0 });
+  });
+
+  it('amount mode sends capitalAmount (₹) and zero qty — server derives the lots', () => {
+    expect(manualTradeSize(manual, 'CRUDE OIL')).toEqual({ capitalPercent: 0, capitalAmount: 200_000, qty: 0 });
   });
 
   it('resolves via the same key whichever spelling the caller has', () => {
@@ -45,8 +50,8 @@ describe('manualTradeSize', () => {
   it('defaults to ONE LOT, never a percentage, when unconfigured', () => {
     // Failing to 1 lot risks a trade that is too small. Failing to a percentage
     // risks a capital-sized position nobody asked for — the worse direction.
-    expect(manualTradeSize(manual, 'UNKNOWN')).toEqual({ capitalPercent: 0, qty: 1 });
-    expect(manualTradeSize(undefined, 'NIFTY 50')).toEqual({ capitalPercent: 0, qty: 1 });
+    expect(manualTradeSize(manual, 'UNKNOWN')).toEqual({ capitalPercent: 0, capitalAmount: 0, qty: 1 });
+    expect(manualTradeSize(undefined, 'NIFTY 50')).toEqual({ capitalPercent: 0, capitalAmount: 0, qty: 1 });
   });
 });
 

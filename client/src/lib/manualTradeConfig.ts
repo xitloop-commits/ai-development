@@ -14,7 +14,7 @@
  */
 
 export interface ManualSizing {
-  mode: 'lots' | 'percent';
+  mode: 'lots' | 'percent' | 'amount';
   value: number;
 }
 
@@ -38,7 +38,8 @@ export function sizingKeyFor(instrument: string): string {
  * Resolve `{ capitalPercent, qty }` for a manual trade.
  *
  * "lots" → qty in lots (the server multiplies by the scrip master's lot size)
- * with capitalPercent 0; "percent" → let the server size from capital, qty 0.
+ * with capitalPercent 0; "percent" → let the server size from capital, qty 0;
+ * "amount" → let the server size from a fixed ₹ spend (capitalAmount), qty 0.
  * Nothing configured → 1 lot, the smallest tradeable unit. Defaulting to a
  * PERCENTAGE here would make a missing config silently place a capital-sized
  * position, which is the wrong direction to fail in.
@@ -46,12 +47,15 @@ export function sizingKeyFor(instrument: string): string {
 export function manualTradeSize(
   manual: ManualBlock | undefined,
   instrument: string,
-): { capitalPercent: number; qty: number } {
+): { capitalPercent: number; capitalAmount: number; qty: number } {
   const s = manual?.sizing?.perInstrument?.[sizingKeyFor(instrument)];
   if (!s || s.mode === 'lots') {
-    return { capitalPercent: 0, qty: Math.max(1, Math.round(s?.value ?? 1)) };
+    return { capitalPercent: 0, capitalAmount: 0, qty: Math.max(1, Math.round(s?.value ?? 1)) };
   }
-  return { capitalPercent: s.value, qty: 0 };
+  if (s.mode === 'amount') {
+    return { capitalPercent: 0, capitalAmount: Math.max(0, s.value), qty: 0 };
+  }
+  return { capitalPercent: s.value, capitalAmount: 0, qty: 0 };
 }
 
 /**

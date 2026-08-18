@@ -7,6 +7,8 @@ import type { InstrumentSizing } from "../broker/types";
  *   - mode "lots":    fixed lot count (rounded, min 1).
  *   - mode "percent": % of the channel's trading pool spent on premium, i.e.
  *                     floor(pool * pct / (premium * lotSize)), min 1.
+ *   - mode "amount":  a fixed ₹ amount to spend on premium, i.e.
+ *                     floor(₹ / (premium * lotSize)), min 1.
  *
  * Returns 1 when sizing is absent or inputs are unusable, so a trade always
  * has a valid size. The DA capital/exposure gate still bounds the final order.
@@ -24,6 +26,10 @@ export function sizedLots(
       1,
       Math.floor((tradingPool * (sizing.value / 100)) / (premium * lotSize)),
     );
+  }
+  if (sizing.mode === "amount") {
+    if (premium <= 0 || lotSize <= 0 || sizing.value <= 0) return 1;
+    return Math.max(1, Math.floor(sizing.value / (premium * lotSize)));
   }
   return Math.max(1, Math.round(sizing.value));
 }

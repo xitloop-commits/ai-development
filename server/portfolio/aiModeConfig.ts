@@ -54,7 +54,7 @@ export interface CohortsConfig {
 
 export interface SizingConfig {
   /** Per-instrument size: lots, or % of capital. */
-  perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>;
+  perInstrument: Record<string, { mode: "lots" | "percent" | "amount"; value: number }>;
 }
 
 export interface OrderConfig {
@@ -705,8 +705,10 @@ function sanitizeMode(c: AiModeConfig): AiModeConfig {
   }
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
-    s.mode = s.mode === "percent" ? "percent" : "lots";
-    s.value = clampNum(s.value, 0, s.mode === "percent" ? 100 : 1000, 10);
+    s.mode = s.mode === "percent" ? "percent" : s.mode === "amount" ? "amount" : "lots";
+    // Upper bound per mode: % ≤ 100, ₹ amount ≤ 20,00,000, lots ≤ 1000.
+    const max = s.mode === "percent" ? 100 : s.mode === "amount" ? 2_000_000 : 1000;
+    s.value = clampNum(s.value, 0, max, 10);
   }
   c.order.orderType = c.order.orderType === "LIMIT" ? "LIMIT" : "MARKET";
   c.order.productType = c.order.productType === "CNC" ? "CNC" : "INTRADAY";
