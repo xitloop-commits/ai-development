@@ -251,9 +251,14 @@ class TickHandler extends EventEmitter {
     xBack: number,
     src: "open" | "close",
     useHa: boolean,
+    candleSec: number,
     instrument?: string,
     securityId?: string | null,
   ): { level: number | null; closedBelow: boolean } {
+    // Candle size in seconds — matches the trade's SIGNAL timeframe (2026-08-18:
+    // was hardcoded 60s / 1-min; now the SMA5/MA candle_sec so "everything works
+    // on the same candle"). Guard against a bad value.
+    const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
     const cur = this.dynTslState.get(tradeId);
     if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
     let st = cur;
@@ -264,10 +269,10 @@ class TickHandler extends EventEmitter {
       // use them, so the x-back trail is live from the first tick.
       if (instrument && securityId) {
         st.seed = "pending";
-        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / 60), isBuy, xBack, src, useHa);
+        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, xBack, src, useHa, cs);
       }
     }
-    const minute = Math.floor(lttSec / 60);
+    const minute = Math.floor(lttSec / cs);
     if (st.minute === null) {
       st.minute = minute;
       st.o = st.h = st.l = st.c = ltp;
@@ -334,8 +339,10 @@ class TickHandler extends EventEmitter {
     xBack: number,
     src: "open" | "close",
     useHa: boolean,
+    candleSec: number,
   ): Promise<void> {
     try {
+      const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
       const { readOptionContractTicks } = await import("../chartData");
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const ticks = await readOptionContractTicks(instrument, today, securityId);
@@ -343,11 +350,11 @@ class TickHandler extends EventEmitter {
       if (this.dynTslState.get(tradeId) !== st) return;
       const n = Math.min(ticks.t.length, ticks.ltp.length);
       if (n === 0) { st.seed = "failed"; return; }
-      // 1-min raw candles for minutes BEFORE the first live minute.
+      // Raw candles (at the signal timeframe) for buckets BEFORE the first live one.
       type C = { minute: number; o: number; h: number; l: number; c: number };
       const raw: C[] = [];
       for (let i = 0; i < n; i++) {
-        const m = Math.floor(ticks.t[i] / 60);
+        const m = Math.floor(ticks.t[i] / cs);
         if (m >= firstLiveMinute) break; // arrays are chronological
         const p = ticks.ltp[i];
         if (!(p > 0)) continue;
@@ -381,16 +388,19 @@ class TickHandler extends EventEmitter {
         st.haOpenPrev = haOpenPrev;   // continue the chart-accurate recursion
         st.haClosePrev = haClosePrev;
       }
-      // Ratcheted x-back stop over the merged history: every candle close k
-      // produced candidate completed[k − xBack + 1 − 1] → all indices up to
-      // length − xBack. Never loosen a level the live path already set.
+      // Seed the stop from the x-back candle AS OF ENTRY — the candle `back` bars
+      // before the first live candle — NOT a ratchet-max over the whole session.
+      // The old loop took Math.max over every pre-entry candle, which latched the
+      // DAY'S HIGH premium as the "trailing stop", so a trade that entered hours
+      // later at a lower price got a stop far above its own entry/peak (phantom
+      // "Secured" profit, exit on candle 1). Fixed 2026-08-18. Ratcheting forward
+      // is the live path's job; here we only set the starting level.
       const back = Math.max(1, xBack);
-      let stop = st.stop;
-      for (let i = 0; i + back <= st.completed.length; i++) {
-        const cand = src === "open" ? st.completed[i].open : st.completed[i].close;
-        stop = stop === null ? cand : isBuy ? Math.max(stop, cand) : Math.min(stop, cand);
+      const idx = st.completed.length - back; // the x-back candle at the entry boundary
+      if (idx >= 0) {
+        const cand = src === "open" ? st.completed[idx].open : st.completed[idx].close;
+        st.stop = st.stop === null ? cand : isBuy ? Math.max(st.stop, cand) : Math.min(st.stop, cand);
       }
-      st.stop = stop;
       // Trim to the rolling window the live path maintains.
       const keep = back + 2;
       if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
@@ -1009,11 +1019,16 @@ class TickHandler extends EventEmitter {
           // Dynamic candle-based honour-exit TSL: build the option-premium HA
           // candles from ticks and hand ladderDecide the ratcheted trailing level.
           // Only when that mode is active — otherwise no candle state is kept.
+          // Candle-TSL runs on the SAME timeframe as the trade's signal, so the
+          // whole strategy works off one candle (2026-08-18): MA cohort → maCandleSec,
+          // everything else → sma5CandleSec (both default to the SMA5/MA setting).
+          const _cc = getCommonConfig();
+          const tslCandleSec = trade.cohort === "ma_signal" ? _cc.maCandleSec : _cc.sma5CandleSec;
           const dyn =
             lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
               && !trade.entryPending && trade.entryPrice > 0
               ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc, lcfg.esTslCandleHa,
-                  trade.instrument, trade.contractSecurityId)
+                  tslCandleSec, trade.instrument, trade.contractSecurityId)
               : null;
           const dynTsl = dyn?.level ?? undefined;
           // Surface the raw candle level to the UI so the TradeBar can draw it as
