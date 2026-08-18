@@ -10,9 +10,10 @@
  * Candle/HA/Line style, the Indicators menu (SMA-5 green/red on by default),
  * and a cohort legend for the marker colours.
  */
-import { useMemo, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import type { UTCTimestamp, SeriesMarker } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
+import { trendAnalysis, trendReadoutText, type TrendAngleOptions } from "@/lib/trendRibbon";
 import {
   toCandles,
   IST_OFFSET_SECONDS,
@@ -123,7 +124,25 @@ function OptionChart({
     return s.anchorRecvTs + ((clock - s.startedAt) / 1000) * (s.speed || 1);
   }, [isReplay, replayStatus.data, replayStatus.dataUpdatedAt]);
 
+  // Signal timeframes + trend-angle tuning, so the popup can draw the SAME ribbon
+  // the instrument page does (and default to the configured candle size).
+  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const sma5CandleSec = cohortQ.data?.sma5CandleSec ?? 60;
+  const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
+  const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
+  const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+
   const [intervalSec, setIntervalSec] = useState(60);
+  // Default the interval to the CONFIGURED signal candle size (2m today), once
+  // the config loads — unless the user has already picked one. "All charts
+  // default to the timeframe from the config" (Partha, 2026-08-18).
+  const userPickedInterval = useRef(false);
+  const pickInterval = useCallback((sec: number) => { userPickedInterval.current = true; setIntervalSec(sec); }, []);
+  useEffect(() => {
+    if (userPickedInterval.current) return;
+    const cfg = cohortQ.data?.sma5CandleSec;
+    if (cfg && cfg !== intervalSec) setIntervalSec(cfg);
+  }, [cohortQ.data?.sma5CandleSec, intervalSec]);
   // Heikin-Ashi by default — matches the SMA5 detector's HA candles (Partha, 2026-08-05).
   const [style, setStyle] = useState<ChartStyle>("ha");
   // SMA-5 (green above / red below price) on by default (Partha, 2026-08-05).
@@ -258,6 +277,39 @@ function OptionChart({
     }
     return out;
   }, [useTicks, isToday, isReplay, brokerCandles, live.candles]);
+
+  // ── Trend ribbon (slope trend) — the SAME engine SEA enters on, so the popup
+  // shows the maRibbon / sma5Ribbon indicators the instrument page does. Computed
+  // on the DETECTOR timeframes (colours flip when signals fire); handed to
+  // TickChart as extraLines. Was missing here → checking the ribbon drew nothing.
+  const trendA = useMemo(
+    () => (indicators.has("maRibbon") && candles.length >= 10
+      ? trendAnalysis(candles as unknown as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec })
+      : undefined),
+    [indicators, candles, taOpts, maCandleSec],
+  );
+  const trendS = useMemo(
+    () => (indicators.has("sma5Ribbon") && candles.length >= 10
+      ? trendAnalysis(candles as unknown as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec })
+      : undefined),
+    [indicators, candles, taOpts, sma5CandleSec],
+  );
+  const trendLines = useMemo(
+    () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
+    [trendA, trendS],
+  );
+  const trendReadout = useMemo(() => {
+    if (!trendA) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendA.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "ma")));
+    return m;
+  }, [trendA]);
+  const trendReadoutRight = useMemo(() => {
+    if (!trendS) return undefined;
+    const m = new Map<number, { text: string; color: string }>();
+    trendS.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "sma5")));
+    return m;
+  }, [trendS]);
 
   // ── Trades on this strike ──────────────────────────────────────────
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
@@ -471,7 +523,7 @@ function OptionChart({
                 className={btn(intervalSec === iv.seconds, disabled)}
                 disabled={disabled}
                 title={disabled ? "Sub-minute needs live ticks (today only)" : undefined}
-                onClick={() => setIntervalSec(iv.seconds)}
+                onClick={() => pickInterval(iv.seconds)}
               >
                 {iv.label}
               </button>
@@ -580,6 +632,10 @@ function OptionChart({
         style={style}
         indicators={indicators}
         intervalSec={intervalSec}
+        sma5CandleSec={sma5CandleSec}
+        extraLines={trendLines}
+        trendReadout={trendReadout}
+        trendReadoutRight={trendReadoutRight}
         loading={loading}
         statusText={statusText}
         emptyText={

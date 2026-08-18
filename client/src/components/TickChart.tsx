@@ -554,10 +554,25 @@ export function TickChart({
     {
       const bars = candles.length;
       const saved = viewRef.current;
-      const isDefault =
-        !saved.logical || (saved.logical.from <= 0.5 && saved.logical.to >= saved.count - 1);
-      const fit = () => chart.timeScale().setVisibleLogicalRange({ from: 0, to: bars - 1 + RIGHT_MARGIN_BARS });
-      if (!isDefault && saved.logical) {
+      // Default viewport = the LAST 4 HOURS only, so the recent action reads big
+      // and clear instead of the whole day squeezed in (Partha, 2026-08-18). It
+      // still follows the live right edge; a user who scrolls BACK (right edge
+      // leaves view) keeps their exact window.
+      const fourHrBars = Math.max(1, Math.ceil((4 * 3600) / Math.max(1, intervalSec)));
+      // "Following" = the saved window is (near) an auto 4h-fit at the live edge:
+      // right edge visible AND its width matches a 4h fit. Any deliberate zoom or
+      // scroll (different width, or edge left the view) is preserved instead — so
+      // the default is last-4h but the user's own zoom is never clobbered.
+      const savedFitFrom = Math.max(0, saved.count - fourHrBars);
+      const savedFitW = (saved.count - 1 + RIGHT_MARGIN_BARS) - savedFitFrom;
+      const savedW = saved.logical ? saved.logical.to - saved.logical.from : 0;
+      const isFollowing = !saved.logical
+        || (saved.logical.to >= saved.count - 1 && Math.abs(savedW - savedFitW) <= 3);
+      const fit = () => chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, bars - fourHrBars),
+        to: bars - 1 + RIGHT_MARGIN_BARS,
+      });
+      if (!isFollowing && saved.logical) {
         const want = { from: saved.logical.from, to: saved.logical.to };
         const assert = () => {
           if (disposed) return;
