@@ -221,18 +221,18 @@ def test_unknown_instrument_uses_its_own_path(tmp_path):
 
 
 def test_loader_uses_shared_mvp_target_names(tmp_path):
-    """Phase E9 lock + Wave 2 + D55: the loader walks
-    `_shared.targets.MVP_TARGET_NAMES`, not a private tuple. Verify by
-    writing every canonical target and asserting all 101 are loaded — no
-    more, no less (65 scalp + 18 trend + 18 swing per V2_MASTER_SPEC D55 +
-    Part B direction_down 2026-07-02; was 60 pre-trend/swing-addition)."""
+    """Phase E9 lock: the loader walks `_shared.targets.MVP_TARGET_NAMES`,
+    not a private tuple. Verify by writing every canonical target and
+    asserting all are loaded — no more, no less. T166 (2026-08-19): the set
+    is now 52 option-premium heads (13 types x 60/300/600/900s); the old
+    spot trend/swing layers are retired."""
     models_root, config_dir = _build_layout(
         tmp_path,
         targets=list(MVP_TARGET_NAMES),
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert set(loaded.models.keys()) == set(MVP_TARGET_NAMES)
-    assert len(loaded.models) == 101
+    assert len(loaded.models) == 52
 
 
 def test_orphan_upside_percentile_target_not_loaded(tmp_path):

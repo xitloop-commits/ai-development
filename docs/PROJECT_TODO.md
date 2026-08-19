@@ -2,6 +2,46 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T166 [ML/SEA] — Nifty/Bank: 3 option-premium ML cohorts on 5/10/15-min horizons — SPEC LOCKED 2026-08-19, build pending 🆕
+Partha spec (design study complete, all decisions locked). **Nifty50 + BankNifty only**;
+Crude/NatGas stay exactly as-is (protected).
+- **Cohorts → horizons (forward-looking prediction windows, NOT candle size):**
+  Scalp = **300s (5m)** · Trend = **600s (10m, NEW — never trained)** · Swing = **900s (15m)**.
+  Drop every other horizon (scalp 60/120/180/240 for indices, trend 1800, swing 3600/7200).
+- **Labels: option-premium only** for all three (CE/PE LTP, the scalp-layer semantics).
+  **Retire the spot-based trend/swing label pipeline** (`trend_swing_targets.py` + columnar twin).
+- **Gate:** wave2-style for all three — order-flow imbalance, bid/ask spread, order-book depth,
+  explicit pressure, volume, momentum, OI S/R. Generalise `decide_action_wave2` to be
+  **horizon-parameterised**, run it 3× (300/600/900). Trend gate → 600s; **build a swing gate
+  (none exists live today).**
+- **Entry** = model gate at **candle close** (5/10/15-min per cohort). **Exit** = model
+  `exit_signal` head at candle close (currently veto-only → make it a live exit) **+ a
+  tick-level hard safety SL** backstop.
+- **Cadence:** decisions only at candle boundaries; features stay tick-rich; tick-level only
+  for the safety SL.
+- **Coexistence (b):** run **alongside** MA/SMA5; all cohorts independent, **no priority/
+  arbitration** (one instrument may hold several cohort positions at once — accepted).
+- **Crude/NatGas protection:** the head list is **global** (one set trains all 4 instruments)
+  and Crude/NatGas run `wave1` reading the **60s** heads → **keep the 60s window** in the
+  global set. Global windows become **(60, 300, 600, 900)** option-premium, 13 head-types →
+  **52 heads/instrument (was 101)**. Crude/NatGas lose only heads they never used → **zero
+  live change.**
+- **Configurable = training-config** source of truth (edit horizon + retrain; NOT a live knob —
+  any horizon change forces a retrain).
+- **Enable steps (after paper-validation):** `nifty50/banknifty.json` gate_mode → wave2/3-cohort
+  mode, cohort toggles on, auto-trade on.
+- **Edit points** (from the pipeline map): `_shared/targets.py` (L105/110-111 horizons + L205-229
+  asserts), `config/instrument_profiles/{nifty50,banknifty,crudeoil,naturalgas}_profile.json:22`,
+  `cohort.py:47-51` bands (scalp=300/trend=600/swing=900, 60s stays scalp),
+  `signal_engine_agent/thresholds.py` (wave2 L495-600 + trend L883-951 → parameterise),
+  `signal_engine_agent/engine.py` (gate dispatch L1149-1244, `_HEAD_PREDS` L388-456,
+  `_live_cohorts` L995-1010), `output/emitter.py` target columns, schema registry, model_loader.
+- **Risk:** all 4 models retrain once (head shape changed); 600s is brand-new (must pass
+  walk-forward backtest before live); swing gate + live-exit + candle-close gating are new paths
+  → **paper-first**. Design lands in overviews [02](systems/02_feature_engineering.md) /
+  [03](systems/03_model_training.md) / [04](systems/04_signal_engine.md) as built.
+  Related: T29 (head-type routing), T71 (nifty/bank gate audit), T73 (retrain launcher item).
+
 ### T163 [SEA] — sma5/ma cohorts rewritten to LOCKED-PREMIUM trend ribbons ✅ BUILT 2026-08-13 (validate next session)
 Partha spec: each leg follows the trend ribbon of the SESSION-LOCKED option
 contract's OWN premium — CE ribbon UP → LONG_CE, DOWN → EXIT_CE; PE likewise;

@@ -578,14 +578,14 @@ def test_latest_heads_json_written_with_full_schema(tmp_path: Path) -> None:
     assert payload["version"] == 1
     assert payload["instrument"] == "nifty50"
     assert payload["schema_version"] == 8
-    assert payload["head_count"] == 101
+    assert payload["head_count"] == 52
     assert set(payload["heads"].keys()) == set(MVP_TARGET_NAMES)
 
-    # Spot-check head_type distribution (Part B: +2 trend, +2 swing direction_down)
+    # T166: option-premium only — every head is head_type "scalp".
     head_types = [h["head_type"] for h in payload["heads"].values()]
-    assert head_types.count("scalp") == 65
-    assert head_types.count("trend") == 18
-    assert head_types.count("swing") == 18
+    assert head_types.count("scalp") == 52
+    assert head_types.count("trend") == 0
+    assert head_types.count("swing") == 0
 
     # Spot-check schema_version stamped on each head
     for h in payload["heads"].values():

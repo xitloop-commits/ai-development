@@ -1,72 +1,69 @@
 """
 _shared.targets — single source of truth for the MVP target set.
 
-Per IMPLEMENTATION_PLAN_v2.md §6 D4 + §7 E9 (Wave 2 lock May 11 2026) and
-V2_MASTER_SPEC §2.2 D55 (trend+swing addition lock May 17 2026): the MTA
-model trainer (`model_training_agent.trainer`) and the SEA model loader
-(`signal_engine_agent.model_loader`) both need the same canonical list
-of 84 ML targets. Before this module they each kept private copies that
+The MTA model trainer (`model_training_agent.trainer`) and the SEA model
+loader (`signal_engine_agent.model_loader`) both need the same canonical
+list of ML targets. Before this module they each kept private copies that
 silently drifted.
 
-The 101 targets per instrument:
+T166 (2026-08-19) — Nifty/Bank 3-cohort option-premium retrain
+-------------------------------------------------------------
+The head set is now OPTION-PREMIUM ONLY across four forward windows. The old
+spot-based trend/swing layers (900/1800/3600/7200s on the SPOT series) are
+RETIRED — every head predicts an option-leg (CE/PE) premium move.
 
-    65 scalp  =  13 target types × 5 windows (60/120/180/240/300s)
-    18 trend  =   9 target types × 2 windows (900/1800s)        ← D55 + Part B
-    18 swing  =   9 target types × 2 windows (3600/7200s)       ← D55 + Part B
-    ────────────────────────────────────────────────
-    101 heads total  (Part B 2026-07-04: +risk_reward_ratio_pe scalp,
-                      +direction_down/reversal/exit_signal trend+swing)
+    52 heads per instrument = 13 target types x 4 windows (60/300/600/900s)
 
-Each `TargetSpec` carries a `head_type ∈ {scalp, trend, swing}` so
-callers can route per-layer logic (gate selection, isotonic calibration,
-SHAP grouping) without name-pattern parsing.
+Window -> trading cohort (see signal_engine_agent/cohort.py):
 
-Scalp target types (locked Phase D4 + Wave 2):
+    60s   -> scalp   (crude/natgas `wave1` gate reads this; unused by indices,
+                      retained so MCX behaviour is 100% unchanged)
+    300s  -> scalp   (Nifty/Bank 5-min cohort)
+    600s  -> trend   (Nifty/Bank 10-min cohort — NEW, never trained before)
+    900s  -> swing   (Nifty/Bank 15-min cohort)
+
+The `head_type` field is now "scalp" for EVERY head (all option-premium label
+semantics). The *trading* cohort (scalp/trend/swing) is derived from the
+forward window by `cohort.classify_window_seconds`, NOT from `head_type`.
+
+Deploy note: the SEA model loader silently skips heads whose `.lgbm` is not on
+disk, so shipping this registry ahead of the retrain is safe — crude/natgas
+keep loading their surviving 60s/300s heads (their `wave1` gate reads only
+60s), and the new 600s/900s heads stay absent (nan) until the first retrain
+produces them. The matching `config/instrument_profiles/*.json`
+`target_windows_sec` edit ([60,300,600,900]) must land WITH that retrain, not
+before it — it changes the live feature schema.
+
+Each `TargetSpec` carries a `head_type` (currently always "scalp") so callers
+can still route per-layer logic (calibration grouping, SHAP) without name
+parsing.
+
+Target types (option-leg, locked Phase D4 + Wave 2 + Part B):
     direction              binary       (was the trade up or down?)
     direction_magnitude    regression   (how much did it move?)
-    direction_persists     binary       (did direction hold throughout
-                                         the window — no intra-window flip?)
-    risk_reward_ratio      regression   (predicted RR if we'd taken it)
-    max_upside             regression   (predicted ₹ upside, CE-leg)
-    max_drawdown           regression   (predicted ₹ downside, CE-leg)
-    max_upside_pe          regression   (predicted ₹ upside, PE-leg)
-    max_drawdown_pe        regression   (predicted ₹ downside, PE-leg)
+    direction_persists     binary       (did direction hold — no intra-flip?)
+    risk_reward_ratio      regression   (predicted RR, CE-leg)
+    risk_reward_ratio_pe   regression   (predicted RR, PE-leg — Part B)
+    max_upside             regression   (predicted rupee upside, CE-leg)
+    max_drawdown           regression   (predicted rupee downside, CE-leg)
+    max_upside_pe          regression   (predicted rupee upside, PE-leg)
+    max_drawdown_pe        regression   (predicted rupee downside, PE-leg)
     total_premium_decay    regression   (theta-burn over the window)
     avg_decay_per_strike   regression   (premium decay normalised per-strike)
-    breakout_in            binary       (did spot cross day_high or
-                                         day_low within the window?)
+    breakout_in            binary       (did spot cross day_high/low in window?)
     exit_signal            binary       (should an open position close —
                                          direction flip OR drawdown > 1%?)
 
-Trend + swing target types (V2_MASTER_SPEC §2.2.2 D75 — added 2026-05-17):
-    direction              binary       (spot move clears noise floor up?)
-    magnitude              regression   (signed spot(t+w) − spot(t))
-    max_excursion          regression   (best upward move in window)
-    max_drawdown           regression   (worst dip in window)
-    continues              binary       (direction at t+w matches dominant
-                                         direction over [t-300s, t])
-    breakout_imminent      binary       (max excursion ≥ noise_floor × scale;
-                                         scale=3 for trend, 6 for swing)
-
-Trend / swing names MUST match the columns written by
-`tick_feature_agent.features.trend_swing_targets` to parquet — pattern
-`{trend|swing}_{type}_{w}s`. Both modules ultimately agree on this set
-via column-name string match at parquet load time, so any drift here
-breaks training silently.
-
-`upside_percentile_30s` is a TFA-emitted live feature column (computed
-session-rank of `max_upside_30s`); keeping it in the parquet feature
-schema is correct, but training a model to PREDICT it was a leftover
-from before the spec lock and is no longer in scope.
-
 Naming convention:
-    scalp direction         → `direction_{Ws}` (e.g. `direction_60s`)
-    scalp direction-mag     → `direction_{Ws}_magnitude`
-    scalp regression        → `{type}_{Ws}` (e.g. `max_upside_60s`)
-    trend/swing             → `{layer}_{type}_{Ws}` (e.g. `trend_magnitude_900s`)
+    direction         -> `direction_{Ws}` (e.g. `direction_300s`)
+    direction-mag     -> `direction_{Ws}_magnitude`
+    everything else   -> `{type}_{Ws}` (e.g. `max_upside_300s`)
 
-Scalp names preserved verbatim from prior copies so existing .lgbm
-artifacts on disk keep loading.
+Scalp names are preserved verbatim from prior copies so existing .lgbm
+artifacts for the 60s/300s windows keep loading; 600s is a brand-new window.
+
+`upside_percentile_{w}s` is a TFA-emitted live feature column (session-rank of
+`max_upside_{w}s`); it stays in the feature schema but is NOT a trained head.
 """
 
 from __future__ import annotations
@@ -77,16 +74,15 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class TargetSpec:
-    """One row of the 101-head target matrix.
+    """One row of the target matrix.
 
     Fields:
         name              the .lgbm filename root + the metrics.json key
         target_type       LightGBM objective family (binary / regression)
-        lookahead_seconds the window this target predicts forward
-        head_type         which layer this head belongs to — scalp (option-leg,
-                          60s-300s), trend (spot, 900s/1800s), swing (spot,
-                          3600s/7200s). Defaulted to "scalp" so existing
-                          positional constructors keep working.
+        lookahead_seconds the forward window this target predicts
+        head_type         label-semantics layer. Now always "scalp" (all heads
+                          are option-leg / option-premium). Kept for backward
+                          compatibility with per-layer routing callers.
     """
 
     name: str
@@ -95,85 +91,58 @@ class TargetSpec:
     head_type: Literal["scalp", "trend", "swing"] = "scalp"
 
 
-# Scalp lookahead windows — keep this tuple ordered shortest → longest for
-# stable iteration order in trainer logs / loader output.
-#
-# Wave 2 (May 11 2026): drop 30s (below 1m persistence floor) and 900s
-# (long-horizon direction models flat on commodities — see Wave 1
-# benchmark report). Add 120/180/240 to densely cover the 1m–5m range
-# where the user wants signals to persist.
-LOOKAHEAD_WINDOWS_SECONDS: tuple[int, ...] = (60, 120, 180, 240, 300)
+# Forward-looking option-premium windows (T166, 2026-08-19).
+#   60s  — crude/natgas `wave1` gate; retained so MCX behaviour is unchanged.
+#   300s — Nifty/Bank scalp cohort (5 min).
+#   600s — Nifty/Bank trend cohort (10 min) — NEW, never trained before.
+#   900s — Nifty/Bank swing cohort (15 min).
+# Ordered shortest -> longest for stable trainer/loader iteration order.
+# MUST equal `target_windows_sec` in every config/instrument_profiles/*.json
+# at retrain time (they build, respectively, the head list and the parquet
+# columns the trainer reads).
+LOOKAHEAD_WINDOWS_SECONDS: tuple[int, ...] = (60, 300, 600, 900)
 
-# Trend + swing horizons (V2_MASTER_SPEC §2.2.1 / D55, locked 2026-05-17).
-# Must match `tick_feature_agent.features.trend_swing_targets.{TREND,SWING}_HORIZONS_SEC`
-# — both sides agree on the parquet column-name pattern `{layer}_{type}_{w}s`.
-TREND_HORIZONS_SEC: tuple[int, ...] = (900, 1800)
-SWING_HORIZONS_SEC: tuple[int, ...] = (3600, 7200)
-
-# Trend + swing target types (9 per horizon — V2_MASTER_SPEC §2.2.2 + Part B).
-# Listed in the same order as `trend_swing_target_column_names()` writes them
-# to parquet so trainer iteration order matches column order.
-_TREND_SWING_TYPES: tuple[tuple[str, Literal["binary", "regression"]], ...] = (
-    ("direction",         "binary"),
-    # Part B (2026-07-02): mirror of `direction` for the DOWN leg. `direction`
-    # is up-only (1 iff move > +noise_floor), so a low value means "not up"
-    # (flat OR down) — it can't call a down-leg. `direction_down` is the
-    # symmetric 1-iff-(move < −noise_floor) head, letting the trend gate fire
-    # puts on genuine down-legs instead of guessing from (1 − up_prob).
-    ("direction_down",    "binary"),
-    ("magnitude",         "regression"),
-    ("max_excursion",     "regression"),
-    ("max_drawdown",      "regression"),
-    ("continues",         "binary"),
-    ("breakout_imminent", "binary"),
-    # Part B (2026-07-04): turning-point + exit heads for trend/swing.
-    ("reversal",          "binary"),
-    ("exit_signal",       "binary"),
+# The 13 option-leg target types, one set per window. Order preserved from the
+# prior scalp layer so existing .lgbm iteration order / filenames are stable.
+# The "direction_magnitude" entry is written with the irregular inline suffix
+# `direction_{w}s_magnitude` (see _build_mvp_targets); every other type uses
+# the regular `{type}_{w}s` tail.
+_SCALP_TYPES: tuple[tuple[str, Literal["binary", "regression"]], ...] = (
+    ("direction",            "binary"),
+    ("direction_magnitude",  "regression"),
+    ("risk_reward_ratio",    "regression"),
+    ("max_upside",           "regression"),
+    ("max_drawdown",         "regression"),
+    ("total_premium_decay",  "regression"),
+    ("avg_decay_per_strike", "regression"),
+    ("direction_persists",   "binary"),
+    ("breakout_in",          "binary"),
+    ("exit_signal",          "binary"),
+    ("max_upside_pe",        "regression"),
+    ("max_drawdown_pe",      "regression"),
+    ("risk_reward_ratio_pe", "regression"),
 )
+
+# How many target types per window — used by the self-validation guard below.
+_TYPES_PER_WINDOW = len(_SCALP_TYPES)
 
 
 def _build_mvp_targets() -> tuple[TargetSpec, ...]:
-    """Build the 101-head target list deterministically.
+    """Build the 52-head option-premium target list deterministically.
 
-    Built once at import time. The naming convention is intentionally
-    irregular within scalp (direction uses an inline `_magnitude` suffix
-    rather than a regular `_magnitude_{w}s` tail) — preserved verbatim
-    from previous loader copies so existing scalp .lgbm files retain
-    naming. Trend / swing names follow the regular `{layer}_{type}_{w}s`
-    pattern that matches the parquet columns written by
-    `tick_feature_agent.features.trend_swing_targets`.
+    Built once at import time. `direction` uses an inline `_magnitude` suffix
+    (`direction_{w}s_magnitude`) rather than a regular `_magnitude_{w}s` tail —
+    preserved verbatim from previous loader copies so existing scalp .lgbm
+    files retain their naming.
     """
     out: list[TargetSpec] = []
-
-    # ── Scalp: 65 heads (13 types × 5 windows) ──────────────────────────
     for w in LOOKAHEAD_WINDOWS_SECONDS:
-        # Original 7 (CE-leg only)
-        out.append(TargetSpec(f"direction_{w}s", "binary", w, "scalp"))
-        out.append(TargetSpec(f"direction_{w}s_magnitude", "regression", w, "scalp"))
-        out.append(TargetSpec(f"risk_reward_ratio_{w}s", "regression", w, "scalp"))
-        out.append(TargetSpec(f"max_upside_{w}s", "regression", w, "scalp"))
-        out.append(TargetSpec(f"max_drawdown_{w}s", "regression", w, "scalp"))
-        out.append(TargetSpec(f"total_premium_decay_{w}s", "regression", w, "scalp"))
-        out.append(TargetSpec(f"avg_decay_per_strike_{w}s", "regression", w, "scalp"))
-        # Wave 2 additions (5 new types)
-        out.append(TargetSpec(f"direction_persists_{w}s", "binary", w, "scalp"))
-        out.append(TargetSpec(f"breakout_in_{w}s", "binary", w, "scalp"))
-        out.append(TargetSpec(f"exit_signal_{w}s", "binary", w, "scalp"))
-        out.append(TargetSpec(f"max_upside_pe_{w}s", "regression", w, "scalp"))
-        out.append(TargetSpec(f"max_drawdown_pe_{w}s", "regression", w, "scalp"))
-        # Part B (2026-07-04): PE-leg risk-reward, mirror of risk_reward_ratio.
-        out.append(TargetSpec(f"risk_reward_ratio_pe_{w}s", "regression", w, "scalp"))
-
-    # ── Trend: 18 heads (9 types × 2 horizons, on SPOT not option leg) ──
-    for w in TREND_HORIZONS_SEC:
-        for type_name, obj in _TREND_SWING_TYPES:
-            out.append(TargetSpec(f"trend_{type_name}_{w}s", obj, w, "trend"))
-
-    # ── Swing: 18 heads (9 types × 2 horizons, on SPOT not option leg) ──
-    for w in SWING_HORIZONS_SEC:
-        for type_name, obj in _TREND_SWING_TYPES:
-            out.append(TargetSpec(f"swing_{type_name}_{w}s", obj, w, "swing"))
-
+        for type_name, obj in _SCALP_TYPES:
+            if type_name == "direction_magnitude":
+                name = f"direction_{w}s_magnitude"
+            else:
+                name = f"{type_name}_{w}s"
+            out.append(TargetSpec(name, obj, w, "scalp"))
     return tuple(out)
 
 
@@ -191,39 +160,34 @@ MVP_TARGET_OBJECTIVES: dict[str, str] = {t.name: t.target_type for t in MVP_TARG
 
 
 MVP_TARGET_HEAD_TYPES: dict[str, str] = {t.name: t.head_type for t in MVP_TARGETS}
-"""{name: 'scalp' | 'trend' | 'swing'} — for per-layer routing (T29 gates,
-T25 calibration grouping, T34 SHAP-by-layer reports)."""
+"""{name: 'scalp'} — every head is option-premium now. Kept for per-layer
+routing callers (calibration grouping, SHAP-by-layer); the trading cohort
+(scalp/trend/swing) is derived from the window, not this field."""
 
 
 # ── Self-validation at import time ────────────────────────────────────────
 
-# Fail-fast guards: if anyone edits this file and breaks the 101-head
-# invariant (65 scalp + 18 trend + 18 swing — Part B 2026-07-04 added
-# risk_reward_ratio_pe to scalp, and direction_down + reversal + exit_signal
-# to trend + swing), the import explodes immediately rather than letting the
-# trainer/loader run with a malformed target set.
-assert len(MVP_TARGETS) == 101, f"MVP_TARGETS must be 101, got {len(MVP_TARGETS)}"
-assert len(set(MVP_TARGET_NAMES)) == 101, "MVP_TARGETS contains duplicates"
+# Fail-fast guards: if anyone edits this file and breaks the option-premium
+# head invariant (13 types x 4 windows = 52, all scalp), the import explodes
+# immediately rather than letting the trainer/loader run with a malformed set.
+_EXPECTED_HEADS = len(LOOKAHEAD_WINDOWS_SECONDS) * _TYPES_PER_WINDOW  # 4 x 13 = 52
+assert len(MVP_TARGETS) == _EXPECTED_HEADS, (
+    f"MVP_TARGETS must be {_EXPECTED_HEADS}, got {len(MVP_TARGETS)}"
+)
+assert len(set(MVP_TARGET_NAMES)) == _EXPECTED_HEADS, "MVP_TARGETS contains duplicates"
 
-# Per-layer window coverage
-_scalp_windows = {t.lookahead_seconds for t in MVP_TARGETS if t.head_type == "scalp"}
-assert _scalp_windows == set(LOOKAHEAD_WINDOWS_SECONDS), (
-    f"scalp window mismatch: {_scalp_windows} vs {set(LOOKAHEAD_WINDOWS_SECONDS)}"
-)
-_trend_windows = {t.lookahead_seconds for t in MVP_TARGETS if t.head_type == "trend"}
-assert _trend_windows == set(TREND_HORIZONS_SEC), (
-    f"trend window mismatch: {_trend_windows} vs {set(TREND_HORIZONS_SEC)}"
-)
-_swing_windows = {t.lookahead_seconds for t in MVP_TARGETS if t.head_type == "swing"}
-assert _swing_windows == set(SWING_HORIZONS_SEC), (
-    f"swing window mismatch: {_swing_windows} vs {set(SWING_HORIZONS_SEC)}"
+# Every head is option-premium ("scalp") now.
+assert all(t.head_type == "scalp" for t in MVP_TARGETS), (
+    "T166: every head must be option-premium (head_type 'scalp')"
 )
 
-# Head-type distribution
-_by_layer = {
-    ht: sum(1 for t in MVP_TARGETS if t.head_type == ht)
-    for ht in ("scalp", "trend", "swing")
-}
-assert _by_layer == {"scalp": 65, "trend": 18, "swing": 18}, (
-    f"head_type distribution wrong: {_by_layer}"
+# Each window carries exactly the 13 option-leg types.
+_by_window: dict[int, int] = {}
+for _t in MVP_TARGETS:
+    _by_window[_t.lookahead_seconds] = _by_window.get(_t.lookahead_seconds, 0) + 1
+assert set(_by_window) == set(LOOKAHEAD_WINDOWS_SECONDS), (
+    f"window mismatch: {set(_by_window)} vs {set(LOOKAHEAD_WINDOWS_SECONDS)}"
+)
+assert all(n == _TYPES_PER_WINDOW for n in _by_window.values()), (
+    f"each window must have {_TYPES_PER_WINDOW} types, got {_by_window}"
 )
