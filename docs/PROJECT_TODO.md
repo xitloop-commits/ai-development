@@ -2,9 +2,28 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-### T166 [ML/SEA] — Nifty/Bank: 3 option-premium ML cohorts on 5/10/15-min horizons — SPEC LOCKED 2026-08-19, build pending 🆕
+### T166 [ML/SEA] — Nifty/Bank: 3 option-premium ML cohorts on 5/10/15-min horizons — PHASE A SHIPPED 2026-08-19, retrain + Phase B pending 🚧
 Partha spec (design study complete, all decisions locked). **Nifty50 + BankNifty only**;
 Crude/NatGas stay exactly as-is (protected).
+- **✅ Phase A SHIPPED (511158e, verified green):** option-premium head registry —
+  `_shared/targets.py` now 52 heads (13 option-leg types × 60/300/600/900s), spot
+  trend/swing layers retired; tests (`test_targets`, `test_model_loader`, trainer
+  `LATEST_HEADS`) updated + green; engine/trainer/loader import clean at 52 heads.
+  Safe ahead of retrain (loader skips missing .lgbm → crude/natgas keep 60s/300s;
+  600s/900s stay nan until trained). Pre-existing `test_cohort` drift
+  (trend_count 12→14 in engine `_HEAD_PREDS`) is unrelated → fixed in Phase B.
+- **⏳ NEXT — retrain:** run MTA for nifty50 + banknifty (+ crude/natgas to refit the
+  60s heads on the new 52-head schema) so the 300/600/900s heads exist. Requires the
+  profile `target_windows_sec → [60,300,600,900]` edit (changes live feature schema →
+  lands WITH the retrain, never before). Validate: 600s AUC + crude/natgas 60s
+  signals unchanged.
+- **⏳ Phase B (build against the retrained models):** horizon-parameterise
+  `decide_action_wave2` (run 300/600/900), build a swing gate, wire `exit_signal` as
+  a live candle-close exit + tick safety SL, candle-close evaluation cadence, update
+  `_HEAD_PREDS` + `cohort.py` bands (600→trend/900→swing, fixes the test), new
+  gate_mode OFF by default.
+- **⏳ Phase C — cutover:** flip `nifty50/banknifty.json` to the new mode, paper-first,
+  then live.
 - **Cohorts → horizons (forward-looking prediction windows, NOT candle size):**
   Scalp = **300s (5m)** · Trend = **600s (10m, NEW — never trained)** · Swing = **900s (15m)**.
   Drop every other horizon (scalp 60/120/180/240 for indices, trend 1800, swing 3600/7200).
