@@ -5,6 +5,21 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **🔎 OPEN THREADS (Partha "many issues around this — we'll fix all, keep understanding", 2026-08-20).**
+  Foundation: every option position is a BUY → **long premium**; an UP premium candle
+  = profit for the held leg (CE *or* PE), so the TSL always trails BELOW the premium
+  (`isBuy` always true; the `!isBuy`/short branches are dead here). Known issues to
+  work through:
+  1. **Candle-close exit lag** — the stop can sit ABOVE the live price (e.g. Nifty
+     24150CE stop 219 vs price 208.5) because the exit waits for the 5-min candle to
+     CLOSE below the level; premium sinks below the stop meanwhile → give-back.
+     Decision pending: exit **intra-candle** (tick crosses below) vs keep candle-close.
+  2. **`maxGapPct` only tightens when the stop lags far BELOW price** — it does nothing
+     when price falls back below the stop (the give-back case above).
+  3. **Looseness tuning** — xBack was 5 (too slow, rarely anchored); now 2.
+  4. **Losing trades never anchor** (no new highs) → the 5% SL floor carries them; the
+     candle-TSL viz shows no gold anchor (correct, but worth confirming intended).
+  5. **Chart highlight visibility** — needs the client rebuilt to the latest commit.
 - **➕ REV3 2026-08-20 (Partha): chart candle-highlight for the candle-TSL.**
   The server now tags, per trade, the **anchor candle** (the bar the stop is pinned
   to) and the **ignored sideways candle** times (`tslAnchorTime` + `tslIgnoredTimes`
