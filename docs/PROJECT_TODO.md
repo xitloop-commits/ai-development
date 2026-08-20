@@ -2,6 +2,45 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
+Partha spec (design locked). Common (Master) block: the stop is a **single choice —
+SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **✅ BUILT + verified (typecheck clean, 33 exit tests green incl. new cases).**
+  Config `MasterTslLevel` (trailMode + candle params, defaults + migration);
+  server: `dynTslLevel`/`seedDynTsl` gained O/H/L/C anchors + sideways-ignore
+  (backward-compatible — Ladder/Glide byte-identical), Master TSL eval armed at
+  entry + Mode B wired to the candle trailer (raw candles, close-confirmed breach),
+  Ladder candle-TSL suppressed when Master TSL is on (`!mTSL`); UI `MasterTslRow`
+  (Peak/Candle toggle, anchor O/H/L/C, x-back, sideways ignore/count) + SL-xor-TSL
+  radio; new tests: candle low-anchor + sideways-ignore-holds + arm-at-entry.
+  **Next: paper-validate live (watch a Candle-mode TSL hold through a sideways box
+  then step up on a new high; confirm SL-xor-TSL toggle).**
+- **TSL armed at ENTRY** (no profit-gate / activation-hold). At entry peak = entry,
+  so the stop starts at entry − distance.
+- **TSL Mode A — Peak clamp** (today's behaviour, but armed at entry): trail a set
+  distance below the peak; unit toggles **% (of premium) / ₹ (net P&L)**.
+- **TSL Mode B — Candle-based** (reuses the existing `dynTslLevel` candle trailer):
+  stop = the **O/H/L/C (toggle, default LOW)** of the candle **x bars back**;
+  **ratchet-up only**, **completed candles only**, exit on **close-confirmed breach**.
+  Candle timeframe = the signal `candle_sec` (same as SMA5/MA ribbon).
+  **Sideways handling (toggle):** a candle that makes **no new high (long) / no new
+  low (short)** vs the prior candle is "sideways" → **ignore** (doesn't advance the
+  x-back counter, so the stop HOLDS through chop and only steps up on real new highs)
+  or **count** (mechanical x-back). Recommended defaults: LOW + ratchet-only +
+  completed-candles; sideways = ignore. `x` is the looseness knob.
+- **Why:** current Master TSL only does peak-clamp and waits for a profit gate; Partha
+  wants a chop-proof candle trail that's live from entry and locks gains like a
+  chandelier stop on the option premium.
+- **Changes:** `aiModeConfig.ts` (extend `tsl` to `MasterTslLevel` with trailMode +
+  candle params; defaults + migration); `tickHandler.ts` (arm-at-entry; wire Mode B to
+  a candle trailer; SL/TSL exclusivity tolerated); extend `dynTslLevel` with high/low
+  anchors + sideways-ignore (optional params, defaults preserve Ladder/Glide);
+  `SettingsMenu.tsx` (SL-xor-TSL radio + TSL A/B sub-controls + help). Tests:
+  `tickHandler.masterExits.test.ts`, `tickHandler.tsl.test.ts`.
+- **Breakage/impact:** Master-exits config schema bump (migrated); only the Master TSL
+  path changes — per-strategy exits + Ladder/Glide candle-TSL unaffected (extension is
+  backward-compatible). Design lands in [05 Execution](systems/05_execution.md).
+
 ### T166 [ML/SEA] — Nifty/Bank: 3 option-premium ML cohorts on 5/10/15-min horizons — PHASE A SHIPPED 2026-08-19, retrain + Phase B pending 🚧
 Partha spec (design study complete, all decisions locked). **Nifty50 + BankNifty only**;
 Crude/NatGas stay exactly as-is (protected).

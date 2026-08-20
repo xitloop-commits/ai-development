@@ -23,6 +23,20 @@ import { InfoDot } from "./InfoDot";
 type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 type ExitLevelMode = "percent" | "rupees";
 interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
+// T167 — Master TSL (armed at entry). "peak" = Mode A (trail % / ₹ below the peak);
+// "candle" = Mode B (trail to the O/H/L/C of the candle x bars back).
+type TslTrailMode = "peak" | "candle";
+type CandleAnchor = "open" | "high" | "low" | "close";
+type SidewaysMode = "ignore" | "count";
+interface MasterTslLevel {
+  enabled: boolean;
+  trailMode: TslTrailMode;
+  mode: ExitLevelMode;   // Mode A unit
+  value: number;         // Mode A distance
+  anchor: CandleAnchor;  // Mode B: which point of the x-back candle
+  xBack: number;         // Mode B: candles back
+  sideways: SidewaysMode;// Mode B: sideways-candle handling
+}
 interface CommonCfg {
   revPct: number;
   sma5ExitConfirm: number;
@@ -39,7 +53,7 @@ interface CommonCfg {
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
-  masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterLevel };
+  masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterTslLevel };
   // T162 — trend-angle ribbon/readout tunables (display/measurement only).
   trendAngle: {
     source: "ma" | "sma5";
@@ -127,18 +141,21 @@ function Group({ title, info, toggle, children }: {
   );
 }
 
-function NumRow({ label, value, onChange, step = 1, min, max, unit, check }: {
+function NumRow({ label, value, onChange, step = 1, min, max, unit, check, help }: {
   label: string; value: number; onChange: (v: number) => void;
   step?: number; min?: number; max?: number; unit?: string;
   /** Optional leading checkbox to enable/disable this exit. When unchecked the
    *  input dims but keeps its value, so re-enabling restores the setting. */
   check?: { checked: boolean; onChange: () => void };
+  /** Per-setting help — a small info dot next to the label. */
+  help?: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-1.5 min-w-0">
         {check && <Check2 checked={check.checked} onChange={check.onChange} title={check.checked ? "Disable" : "Enable"} />}
         <span className={`text-[0.625rem] ${check && !check.checked ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>{label}</span>
+        {help && <InfoDot text={help} />}
       </span>
       <div className={`flex items-center gap-1 ${check && !check.checked ? "opacity-40" : ""}`}>
         <input type="number" step={step} min={min} max={max} value={value} disabled={check && !check.checked}
@@ -151,9 +168,10 @@ function NumRow({ label, value, onChange, step = 1, min, max, unit, check }: {
 }
 
 /** A master SL/TP/TSL row: enable checkbox + % / ₹ toggle + value. */
-function MasterRow({ label, level, onToggle, onMode, onValue }: {
+function MasterRow({ label, level, onToggle, onMode, onValue, help }: {
   label: string; level: MasterLevel;
   onToggle: () => void; onMode: (m: ExitLevelMode) => void; onValue: (v: number) => void;
+  help?: string;
 }) {
   const rs = level.mode === "rupees";
   const off = !level.enabled;
@@ -162,6 +180,7 @@ function MasterRow({ label, level, onToggle, onMode, onValue }: {
       <span className="flex items-center gap-1.5 min-w-0">
         <Check2 checked={level.enabled} onChange={onToggle} title={level.enabled ? "Disable" : "Enable"} />
         <span className={`text-[0.625rem] ${off ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>{label}</span>
+        {help && <InfoDot text={help} />}
       </span>
       <div className={`flex items-center gap-1 ${off ? "opacity-40" : ""}`}>
         <div className="flex rounded border border-border overflow-hidden">
@@ -179,6 +198,74 @@ function MasterRow({ label, level, onToggle, onMode, onValue }: {
           className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
         <span className="text-[0.5625rem] text-muted-foreground w-4">{rs ? "₹" : "%"}</span>
       </div>
+    </div>
+  );
+}
+
+/** T167 — Master Trailing-stop row. Armed at entry. Two trail modes:
+ *  Peak (Mode A: % / ₹ below the peak) and Candle (Mode B: trail to the O/H/L/C
+ *  of the x-back candle, ratchet-up, sideways ignored/counted). */
+function MasterTslRow({ level, onToggle, onPatch, candleSecLabel, help }: {
+  level: MasterTslLevel;
+  onToggle: () => void;
+  onPatch: (fn: (t: MasterTslLevel) => void) => void;
+  candleSecLabel: string;
+  help?: string;
+}) {
+  const off = !level.enabled;
+  const candle = level.trailMode === "candle";
+  const rs = level.mode === "rupees";
+  const Seg = <T extends string>(opts: readonly T[], cur: T, set: (v: T) => void, fmt?: (v: T) => string, cap?: boolean) => (
+    <div className={`flex rounded border border-border overflow-hidden ${off ? "opacity-40" : ""}`}>
+      {opts.map((o) => (
+        <button key={o} type="button" disabled={off} onClick={() => set(o)}
+          className={`px-1.5 py-0.5 text-[0.5625rem] font-bold ${cap ? "capitalize" : ""} transition-colors ${
+            cur === o ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+          }`}>{fmt ? fmt(o) : o}</button>
+      ))}
+    </div>
+  );
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Check2 checked={level.enabled} onChange={onToggle} title={level.enabled ? "Disable" : "Enable"} />
+          <span className={`text-[0.625rem] ${off ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>Trailing stop</span>
+          {help && <InfoDot text={help} />}
+        </span>
+        {Seg(["peak", "candle"] as const, level.trailMode, (v) => onPatch((t) => { t.trailMode = v; }),
+          (v) => (v === "peak" ? "Peak" : "Candle"))}
+      </div>
+      {!off && !candle && (
+        <div className="flex items-center justify-end gap-1 pl-5">
+          {Seg(["percent", "rupees"] as const, level.mode, (v) => onPatch((t) => { t.mode = v; }), (v) => (v === "percent" ? "%" : "₹"))}
+          <input type="number" step={rs ? 100 : 0.5} min={rs ? 1 : 0} max={rs ? 1000000 : 100} value={level.value}
+            onChange={(e) => onPatch((t) => { t.value = e.target.value === "" ? 0 : Number(e.target.value); })}
+            className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          <span className="text-[0.5625rem] text-muted-foreground w-4">{rs ? "₹" : "%"}</span>
+        </div>
+      )}
+      {!off && candle && (
+        <div className="flex flex-col gap-1.5 pl-5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Anchor
+              <InfoDot text="Which point of the x-back candle the stop trails to. Low = most room (safest against chop); High = tightest; Open/Close in between." /></span>
+            {Seg(["open", "high", "low", "close"] as const, level.anchor, (v) => onPatch((t) => { t.anchor = v; }), (v) => v[0].toUpperCase())}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Candles back (x)
+              <InfoDot text={`How many candles back to anchor the stop — the looseness knob (bigger = more room). Timeframe follows the SMA5/MA candle setting (${candleSecLabel}).`} /></span>
+            <input type="number" step={1} min={1} max={20} value={level.xBack}
+              onChange={(e) => onPatch((t) => { t.xBack = e.target.value === "" ? 1 : Math.max(1, Math.min(20, Math.round(Number(e.target.value)))); })}
+              className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Sideways
+              <InfoDot text="A candle that makes no new high (long) / no new low (short) vs the prior candle is 'sideways'. Ignore = it does NOT advance the x-back, so the stop HOLDS through chop and steps up only on a real new high. Count = every candle advances the x-back." /></span>
+            {Seg(["ignore", "count"] as const, level.sideways, (v) => onPatch((t) => { t.sideways = v; }), undefined, true)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -244,25 +331,34 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
-                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. % = of premium; ₹ = NET P&L after charges. Trailing: % trails that far below the peak premium, ₹ gives back at most that many ₹ of net profit from the peak. Glide's disaster stop always stays on as a last-resort backstop.">
+                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. The stop is ONE choice — Stop-loss OR Trailing stop, never both (Take-profit is separate). % = of premium; ₹ = NET P&L after charges. Glide's disaster stop always stays on as a last-resort backstop.">
                   <MasterRow label="Take-profit" level={d.masterExits.tp}
+                    help="Bank the trade at this profit, overriding every strategy's own TP. % = premium this far above entry; ₹ = net P&L (after charges) reaches this."
                     onToggle={() => edit((x) => { x.masterExits.tp.enabled = !x.masterExits.tp.enabled; })}
                     onMode={(m) => edit((x) => { x.masterExits.tp.mode = m; })}
                     onValue={(v) => edit((x) => { x.masterExits.tp.value = v; })} />
                   <MasterRow label="Stop-loss" level={d.masterExits.sl}
-                    onToggle={() => edit((x) => { x.masterExits.sl.enabled = !x.masterExits.sl.enabled; })}
+                    help="A FIXED floor. Cut the trade at this loss, overriding every strategy's own SL. % = premium this far below entry; ₹ = net loss reaches this. Turning this on turns Trailing stop off (one stop at a time)."
+                    onToggle={() => edit((x) => {
+                      x.masterExits.sl.enabled = !x.masterExits.sl.enabled;
+                      if (x.masterExits.sl.enabled) x.masterExits.tsl.enabled = false; // SL xor TSL
+                    })}
                     onMode={(m) => edit((x) => { x.masterExits.sl.mode = m; })}
                     onValue={(v) => edit((x) => { x.masterExits.sl.value = v; })} />
-                  <MasterRow label="Trailing stop" level={d.masterExits.tsl}
-                    onToggle={() => edit((x) => { x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled; })}
-                    onMode={(m) => edit((x) => { x.masterExits.tsl.mode = m; })}
-                    onValue={(v) => edit((x) => { x.masterExits.tsl.value = v; })} />
+                  <MasterTslRow level={d.masterExits.tsl}
+                    candleSecLabel={TF_LABEL(d.sma5CandleSec)}
+                    help="A MOVING floor, armed at entry. Peak: trail % / ₹ below the running peak. Candle: trail to the O/H/L/C of the candle x bars back, ratchet up, holding through sideways candles. Turning this on turns Stop-loss off (one stop at a time)."
+                    onToggle={() => edit((x) => {
+                      x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled;
+                      if (x.masterExits.tsl.enabled) x.masterExits.sl.enabled = false; // SL xor TSL
+                    })}
+                    onPatch={(fn) => edit((x) => fn(x.masterExits.tsl))} />
                 </Group>
 
                 <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-Signal only (it rides to the MA leg-end EXIT). SMA5 rides on Ladder and is closed on its price↔line cross.">
                   {COHORT_ROWS.map((c) => (
                     <div key={c.key} className="flex items-center justify-between gap-2">
-                      <span className="text-[0.625rem] text-muted-foreground">{c.label}</span>
+                      <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">{c.label}<InfoDot text={`Exit strategy for ${c.label} trades. Sprint = fixed TP/SL/TSL; Runway/Anchor = staged; Ladder = stepping SL + trail; Glide = ride to the MA leg-end (MA-Signal only).`} /></span>
                       <select
                         value={d.cohortStrategy?.[c.key] ?? "sprint"}
                         onChange={(e) => edit((x) => { x.cohortStrategy[c.key] = e.target.value as StratName; })}
@@ -292,8 +388,10 @@ export function SettingsMenu() {
                 >
                   <div className={`flex flex-col gap-1.5 ${(d.reentryOnTrend?.enabled ?? true) ? "" : "opacity-40"}`}>
                     <NumRow label="Wait window" value={d.reentryOnTrend?.windowSec ?? 30} step={5} min={5} max={600} unit="s"
+                      help="After a stop-out, wait this long before re-firing the same direction (only if the detector hasn't flipped meanwhile)."
                       onChange={(v) => edit((x) => { x.reentryOnTrend.windowSec = v; })} />
                     <NumRow label="Max re-entries" value={d.reentryOnTrend?.maxReentries ?? 3} step={1} min={0} max={20}
+                      help="Most times one leg may be re-entered — caps churn so a chop can't repeatedly re-fire."
                       onChange={(v) => edit((x) => { x.reentryOnTrend.maxReentries = v; })} />
                   </div>
                 </Group>
@@ -303,7 +401,7 @@ export function SettingsMenu() {
                   info="The tri-colour trend ribbon + bottom readout on the test chart. Source: which line's lean we trust — MA (20-EMA, the MA-Signal cohort's own line: calm, late) or SMA5 (fast, flickery). Lookback: minutes back the slope compares — short reacts fast, long stays calm. Scale: Auto grades steepness on each day's own curve; Fixed uses a permanent yardstick (% per lookback = 45°). Gray zone: percentile of the day's moves that reads as no-trend — wider = only convincing trends colour. Smooth: repaint history so colours start at the visible turn (live edge always sees the raw lag). Display/measurement only — no trading rule reads these yet."
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">Slope source</span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Slope source<InfoDot text="Which line's lean the ribbon trusts — MA (20-EMA: calm, late) or SMA5 (fast, flickery)." /></span>
                     <div className="flex rounded border border-border overflow-hidden">
                       {(["ma", "sma5"] as const).map((s) => (
                         <button key={s} type="button" onClick={() => edit((x) => { x.trendAngle.source = s; })}
@@ -316,9 +414,10 @@ export function SettingsMenu() {
                     </div>
                   </div>
                   <NumRow label="Lookback" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="min"
+                    help="Candles back the slope compares across — short reacts fast, long stays calm."
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">Scale</span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Scale<InfoDot text="Auto grades steepness on each day's own curve; Fixed uses a permanent yardstick (% per lookback = 45°)." /></span>
                     <div className="flex rounded border border-border overflow-hidden">
                       {(["auto", "fixed"] as const).map((s) => (
                         <button key={s} type="button" onClick={() => edit((x) => { x.trendAngle.scaleMode = s; })}
@@ -332,12 +431,14 @@ export function SettingsMenu() {
                   </div>
                   {(d.trendAngle?.scaleMode ?? "auto") === "fixed" && (
                     <NumRow label="45° yardstick" value={d.trendAngle?.fixedPctPer45 ?? 0.2} step={0.05} min={0.01} max={10} unit="%"
+                      help="Fixed mode only: the % move (over the lookback) that reads as a 45° slope."
                       onChange={(v) => edit((x) => { x.trendAngle.fixedPctPer45 = v; })} />
                   )}
                   <NumRow label="Gray zone" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
+                    help="Percentile of the day's moves that reads as no-trend (the amber-yellow zone) — higher = only convincing trends get coloured."
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">Smooth transitions</span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Smooth transitions<InfoDot text="Repaint history so colours start at the visible turn (the live edge always sees the raw lag). Display only." /></span>
                     <Check2 checked={d.trendAngle?.smooth ?? true} onChange={() => edit((x) => { x.trendAngle.smooth = !x.trendAngle.smooth; })}
                       title={(d.trendAngle?.smooth ?? true) ? "Show the raw (live-realistic) ribbon" : "Repaint history to the visible turns"} />
                   </div>
@@ -351,32 +452,40 @@ export function SettingsMenu() {
                       chart ribbons (same trendAngle fields, one truth). Pushed
                       live to SEA; a lookback change re-warms in seconds. */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
+                    help="Candles the ribbon slope compares across. Shared with the MA detector and the chart ribbons — one truth."
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
                   {/* No gray knob here — the SMA5 ribbon is BINARY (green/red
                       only, Partha 2026-08-14). Gray floor lives on the MA group. */}
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)</span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Entry gate (premium confirm)<InfoDot text="ON = a CE/PE entry only fires if that option's premium is above its own SMA5 at the cross (the premium confirms the underlying move). OFF = fire on the underlying cross regardless. Exits are never gated." /></span>
                     <Check2 checked={d.sma5EntryGate} onChange={() => edit((x) => { x.sma5EntryGate = !x.sma5EntryGate; })}
                       title={d.sma5EntryGate ? "Disable — enter on the underlying cross" : "Enable — require the premium above its own SMA5"} />
                   </div>
                   <NumRow label="Entry watch" value={d.sma5EntryWatch} step={1} min={0} max={10} unit="candles"
+                    help="After a cross, entry waits this many candles that each close FURTHER in the trade's direction before entering. 0 = enter on the cross. Avoids buying a spike that reverts."
                     onChange={(v) => edit((x) => { x.sma5EntryWatch = v; })} />
                   <NumRow label="Exit confirm" value={d.sma5ExitConfirm} step={1} min={1} max={5} unit="candles"
+                    help="A reversal exits the current side only after the close holds the new side for this many candles. 1 = exit on the first cross; 2+ ignores a one-candle poke that recovers next bar."
                     onChange={(v) => edit((x) => { x.sma5ExitConfirm = v; })} />
                   <NumRow label="Buffer" value={d.sma5Buffer} step={0.05} min={0} max={2} unit="%"
+                    help="Deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line. 0 = exact cross."
                     onChange={(v) => edit((x) => { x.sma5Buffer = v; })} />
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">
                   <TfRow label="Timeframe" sec={d.maCandleSec}
-                    onChange={(s) => edit((x) => { x.maCandleSec = s; })} />
+                    onChange={(s) => edit((x) => { x.maCandleSec = s; })}
+                    help="Candle size the MA-Signal runs on (1m/2m/3m/5m). Changing it live re-warms the slope over a few candles." />
                   {/* T163 ribbon-mode knobs. Gray floor is MA-only — the SMA5
                       ribbon is binary (green/red, no gray, 2026-08-14). */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
+                    help="Candles the ribbon slope compares across. Shared with the SMA5 detector and the chart ribbons."
                     onChange={(v) => edit((x) => { x.trendAngle.lookbackMin = v; })} />
                   <NumRow label="Ribbon gray floor (MA only)" value={d.trendAngle?.grayPctile ?? 40} step={5} min={10} max={60} unit="pctl"
+                    help="Percentile of moves that reads as no-trend for the MA ribbon (the SMA5 ribbon is binary green/red — no gray)."
                     onChange={(v) => edit((x) => { x.trendAngle.grayPctile = v; })} />
                   <NumRow label="Reversal size" value={d.revPct} step={0.02} min={0} max={0.6} unit="%"
+                    help="0 = follow the chart's green/red MA line (EMA-slope). Above 0 = flip on a raw price reversal of that %."
                     onChange={(v) => edit((x) => { x.revPct = v; })} />
                 </Group>
 
@@ -401,12 +510,15 @@ export function SettingsMenu() {
                       }}
                     >
                       <NumRow label="Age exit" value={Math.round(ge.rcaMaxAgeMs / 60000)} step={1} min={1} max={360} unit="min"
+                        help="RCA auto-closes an open trade once it has been open this long."
                         check={{ checked: ge.ageEnabled, onChange: () => edit((x) => { x.globalExits.ageEnabled = !x.globalExits.ageEnabled; }) }}
                         onChange={(v) => edit((x) => { x.globalExits.rcaMaxAgeMs = v * 60000; })} />
                       <NumRow label="Stale tick" value={Math.round(ge.rcaStaleTickMs / 60000)} step={1} min={1} max={60} unit="min"
+                        help="RCA closes a trade after this long with no fresh tick (illiquid contract / feed gap)."
                         check={{ checked: ge.staleEnabled, onChange: () => edit((x) => { x.globalExits.staleEnabled = !x.globalExits.staleEnabled; }) }}
                         onChange={(v) => edit((x) => { x.globalExits.rcaStaleTickMs = v * 60000; })} />
                       <NumRow label="Volatility" value={ge.rcaVolThreshold} step={0.1} min={0} max={10}
+                        help="RCA closes a trade when predicted volatility exceeds this threshold."
                         check={{ checked: ge.volEnabled, onChange: () => edit((x) => { x.globalExits.volEnabled = !x.globalExits.volEnabled; }) }}
                         onChange={(v) => edit((x) => { x.globalExits.rcaVolThreshold = v; })} />
                     </Group>
@@ -424,13 +536,13 @@ export function SettingsMenu() {
                 >
                   <div className={`flex flex-col gap-1.5 ${d.squareoff.enabled ? "" : "opacity-40"}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.625rem] text-muted-foreground">NSE</span>
+                      <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">NSE<InfoDot text="IST time all open NSE cash / F&O positions are force-closed." /></span>
                       <input type="time" value={d.squareoff.nseTime} disabled={!d.squareoff.enabled}
                         onChange={(e) => edit((x) => { x.squareoff.nseTime = e.target.value; })}
                         className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.625rem] text-muted-foreground">MCX</span>
+                      <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">MCX<InfoDot text="IST time all open MCX commodity positions are force-closed." /></span>
                       <input type="time" value={d.squareoff.mcxTime} disabled={!d.squareoff.enabled}
                         onChange={(e) => edit((x) => { x.squareoff.mcxTime = e.target.value; })}
                         className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-60" />
@@ -440,7 +552,7 @@ export function SettingsMenu() {
 
                 <Group title="Lubas exit · live" info="Lubas: the app watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live, but there is no stop at the exchange if the app is down. Dhan: the broker holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run.">
                   <div className="flex items-center justify-between">
-                    <span className="text-[0.625rem] text-muted-foreground">Manages live exits</span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Manages live exits<InfoDot text="Lubas = the app watches ticks and places exits (Runway/Anchor/Glide/trailing work, but no stop at the exchange if the app is down). Dhan = the broker holds fixed SL/TP at the exchange (survives a crash, but staged strategies don't run)." /></span>
                     <button type="button"
                       onClick={() => edit((x) => { x.lubasManagedExit = !x.lubasManagedExit; })}
                       className={`px-2 py-1 rounded text-[0.625rem] font-bold tracking-wide border transition-colors ${

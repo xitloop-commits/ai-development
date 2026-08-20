@@ -95,7 +95,11 @@ interface CommonCfg {
   masterExits: {
     tp: { enabled: boolean; mode: ExitLevelMode; value: number };
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };
-    tsl: { enabled: boolean; mode: ExitLevelMode; value: number };
+    // T167 — TSL gained trailMode + candle params (armed at entry).
+    tsl: {
+      enabled: boolean; trailMode: "peak" | "candle"; mode: ExitLevelMode; value: number;
+      anchor: "open" | "high" | "low" | "close"; xBack: number; sideways: "ignore" | "count";
+    };
   };
   // T162 — trend-angle ribbon/readout tunables (display/measurement only); mirrors
   // the server CommonConfig so the AI menu's config round-trip stays type-safe.

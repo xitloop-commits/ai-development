@@ -62,3 +62,36 @@ describe("seedDynTsl — anchors at entry, not the session high", () => {
     expect(st.stop).not.toBeCloseTo(150, 1); // the old bug latched the session high
   });
 });
+
+describe("dynTslLevel — candle O/H/L/C anchor + sideways (T167)", () => {
+  it("anchors the stop to the LOW of the x-back candle", () => {
+    const id = "low-anchor", cs = 60;
+    // candle0 (bucket 0): open 100, low 95, close/high 105.
+    h.dynTslLevel(id, 0, 100, true, 1, "low", false, cs);
+    h.dynTslLevel(id, 10, 95, true, 1, "low", false, cs);   // low = 95
+    h.dynTslLevel(id, 20, 105, true, 1, "low", false, cs);
+    // cross into bucket 1 → candle0 closes; low-anchor x-back(1) = its LOW = 95.
+    const out = h.dynTslLevel(id, 70, 106, true, 1, "low", false, cs);
+    expect(out.level).toBeCloseTo(95, 5);
+  });
+
+  it("sideways=ignore HOLDS the stop through a no-new-high candle; count advances it", () => {
+    const cs = 60;
+    // Same tick path for both modes: candle0 makes a new high (progress, low=100),
+    // candle1 is sideways (high 108 < 110, low 102). LOW anchor, xBack 1.
+    const feed = (id: string, sideways: "ignore" | "count") => {
+      const t = (lt: number, p: number) =>
+        h.dynTslLevel(id, lt, p, true, 1, "low", false, cs, undefined, undefined, sideways);
+      // candle0: o105 l100 h110 c110  → new high → progress; low = 100.
+      t(0, 105); t(10, 100); t(20, 110);
+      // candle1: o106 l102 h108 c106  → no new high (108 < 110) → SIDEWAYS.
+      t(60, 106); t(70, 102); t(80, 108); t(90, 106);
+      // cross into bucket 2 → candle1 closes.
+      return t(120, 107).level;
+    };
+    // ignore: stays anchored to candle0's low (100) — the stop HOLDS through chop.
+    expect(feed("side-ignore", "ignore")).toBeCloseTo(100, 5);
+    // count: advances to candle1's low (102) — every candle counts.
+    expect(feed("side-count", "count")).toBeCloseTo(102, 5);
+  });
+});

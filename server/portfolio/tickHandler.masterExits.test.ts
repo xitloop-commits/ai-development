@@ -31,7 +31,7 @@ vi.mock("./state", async () => {
 const master: any = {
   tp: { enabled: false, mode: "percent", value: 10 },
   sl: { enabled: false, mode: "percent", value: 10 },
-  tsl: { enabled: false, mode: "percent", value: 3 },
+  tsl: { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore" },
 };
 // Sprint block with % SL/TP modes so resolveNetRsExit returns null (strategy
 // not in ₹ mode) — the master is the only thing under test here.
@@ -100,7 +100,7 @@ beforeEach(() => {
   (tickHandler as any).exitingTrades.clear();
   master.tp = { enabled: false, mode: "percent", value: 10 };
   master.sl = { enabled: false, mode: "percent", value: 10 };
-  master.tsl = { enabled: false, mode: "percent", value: 3 };
+  master.tsl = { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore" };
   getCapitalStateMock.mockResolvedValue({
     channel: "paper", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
     currentDayIndex: 1, targetPercent: 1, profitHistory: [], cumulativePnl: 0, cumulativeCharges: 0, sessionTradeCount: 0,
@@ -126,6 +126,15 @@ describe("master exits apply to every instrument", () => {
       expect(r.reason).toBe("TP_HIT");
     });
   }
+
+  it("T167 — master TSL (peak %) is ARMED AT ENTRY: exits below entry before ever being in profit", async () => {
+    master.tsl.enabled = true; master.tsl.trailMode = "peak"; master.tsl.mode = "percent"; master.tsl.value = 3;
+    // Never goes into profit: entry 100, peak stays 100, stop = 97. Drop to 96 → hit.
+    // Pre-T167 this would NOT fire (the old peakFav>0 gate armed it only in profit).
+    const r = await run(trade("NIFTY_50"), [100, 96]);
+    expect(r.exited).toBe(true);
+    expect(r.reason).toBe("TSL_HIT");
+  });
 
   it("does NOT close either instrument when master is OFF and strategy levels are far", async () => {
     const nifty = await run(trade("NIFTY_50"), [100, 95, 92]);

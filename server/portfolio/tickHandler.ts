@@ -25,7 +25,7 @@ import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit, ladderDecide } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
-import { getExitConfig, getCommonConfig } from "./aiModeConfig";
+import { getExitConfig, getCommonConfig, type CandleAnchor, type SidewaysMode } from "./aiModeConfig";
 import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
@@ -180,8 +180,17 @@ interface DynTslCandleState {
   o: number; h: number; l: number; c: number; // in-progress raw OHLC
   haOpenPrev: number | null;      // prior HA open  (recursive)
   haClosePrev: number | null;     // prior HA close (recursive)
-  completed: Array<{ open: number; close: number }>; // completed HA candles (rolling)
+  completed: Array<{ open: number; close: number; high: number; low: number }>; // completed candles (rolling)
   stop: number | null;            // ratcheted trailing level (never loosens)
+  /** T167 — progress candles only (for the candle-TSL sideways="ignore" mode).
+   *  A completed candle enters here ONLY when it makes a new favourable extreme
+   *  (new high for a long / new low for a short) vs `runFav`. The x-back trail
+   *  then counts progress candles, so the stop HOLDS through sideways chop and
+   *  steps up only on a genuine new high. Unused when sideways="count". */
+  progress?: Array<{ open: number; close: number; high: number; low: number }>;
+  /** T167 — running favourable extreme across counted candles (the high-water
+   *  mark that decides whether a new candle is "progress" vs "sideways"). */
+  runFav?: number | null;
   /** History-seed status (2026-08-14, Partha: "the candles already exist").
    *  A fresh state kicks a one-shot async seed from the option-day index so
    *  the x-back trail exists from the trade's FIRST tick instead of waiting
@@ -249,11 +258,12 @@ class TickHandler extends EventEmitter {
     ltp: number,
     isBuy: boolean,
     xBack: number,
-    src: "open" | "close",
+    src: CandleAnchor,
     useHa: boolean,
     candleSec: number,
     instrument?: string,
     securityId?: string | null,
+    sideways: SidewaysMode = "count",
   ): { level: number | null; closedBelow: boolean } {
     // Candle size in seconds — matches the trade's SIGNAL timeframe (2026-08-18:
     // was hardcoded 60s / 1-min; now the SMA5/MA candle_sec so "everything works
@@ -263,13 +273,13 @@ class TickHandler extends EventEmitter {
     if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
     let st = cur;
     if (!st) {
-      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null };
+      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null, progress: [], runFav: null };
       this.dynTslState.set(tradeId, st);
       // History seed (2026-08-14): the chart's candles exist before entry —
       // use them, so the x-back trail is live from the first tick.
       if (instrument && securityId) {
         st.seed = "pending";
-        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, xBack, src, useHa, cs);
+        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, xBack, src, useHa, cs, sideways);
       }
     }
     const minute = Math.floor(lttSec / cs);
@@ -302,15 +312,30 @@ class TickHandler extends EventEmitter {
     // ignored — only the close counts. `closedBelow` is a one-tick pulse.
     const levelDuringCandle = st.stop;
     const closedBelow = levelDuringCandle !== null && (isBuy ? candleClose < levelDuringCandle : candleClose > levelDuringCandle);
-    st.completed.push({ open: candleOpen, close: candleClose });
+    const rec = { open: candleOpen, close: candleClose, high: st.h, low: st.l };
+    st.completed.push(rec);
     // Keep only what the lookback needs (plus a little slack).
     const keep = Math.max(1, xBack) + 2;
     if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
-    // Candidate = the chosen HA value of the candle `xBack` bars back (1 = the
-    // candle that just closed). Ratchet UP only — a lower candle never loosens it.
-    const idx = st.completed.length - Math.max(1, xBack);
+    // T167 — track "progress" candles (those making a new favourable extreme vs
+    // runFav) so the sideways="ignore" mode can x-back over progress candles only.
+    // In "count" mode this list is unused and the path below is byte-identical to
+    // pre-T167 (open/close over st.completed).
+    const fav = isBuy ? rec.high : rec.low;
+    if (st.runFav == null || (isBuy ? fav > st.runFav : fav < st.runFav)) {
+      st.runFav = fav;
+      (st.progress ??= []).push(rec);
+      if (st.progress.length > keep) st.progress.splice(0, st.progress.length - keep);
+    }
+    // Candidate = the chosen O/H/L/C of the candle `xBack` bars back (1 = the
+    // candle that just closed). In "ignore" mode we count progress candles only,
+    // so the stop HOLDS through sideways chop. Ratchet UP only — a lower candle
+    // never loosens it.
+    const arr = sideways === "ignore" ? (st.progress ?? []) : st.completed;
+    const idx = arr.length - Math.max(1, xBack);
     if (idx >= 0) {
-      const candidate = src === "open" ? st.completed[idx].open : st.completed[idx].close;
+      const c0 = arr[idx];
+      const candidate = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
       if (st.stop === null) st.stop = candidate;
       else st.stop = isBuy ? Math.max(st.stop, candidate) : Math.min(st.stop, candidate);
     }
@@ -337,9 +362,10 @@ class TickHandler extends EventEmitter {
     firstLiveMinute: number,
     isBuy: boolean,
     xBack: number,
-    src: "open" | "close",
+    src: CandleAnchor,
     useHa: boolean,
     candleSec: number,
+    sideways: SidewaysMode = "count",
   ): Promise<void> {
     try {
       const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
@@ -364,7 +390,7 @@ class TickHandler extends EventEmitter {
       }
       if (raw.length === 0) { st.seed = "failed"; return; }
       // HA recursion from the session start — same maths as the live path.
-      const seeded: Array<{ open: number; close: number }> = [];
+      const seeded: Array<{ open: number; close: number; high: number; low: number }> = [];
       let haOpenPrev: number | null = null;
       let haClosePrev: number | null = null;
       for (const k of raw) {
@@ -379,7 +405,7 @@ class TickHandler extends EventEmitter {
           open = k.o;
           close = k.c;
         }
-        seeded.push({ open, close });
+        seeded.push({ open, close, high: k.h, low: k.l });
       }
       // Merge: seeded history strictly precedes anything the live path built.
       const noLiveCandleYet = st.completed.length === 0;
@@ -387,6 +413,17 @@ class TickHandler extends EventEmitter {
       if (useHa && noLiveCandleYet && st.haOpenPrev === null) {
         st.haOpenPrev = haOpenPrev;   // continue the chart-accurate recursion
         st.haClosePrev = haClosePrev;
+      }
+      // T167 — rebuild the progress list + runFav over the merged history so the
+      // sideways="ignore" x-back has its pre-entry progress candles too.
+      st.progress = [];
+      st.runFav = null;
+      for (const c of st.completed) {
+        const f = isBuy ? c.high : c.low;
+        if (st.runFav == null || (isBuy ? f > st.runFav : f < st.runFav)) {
+          st.runFav = f;
+          st.progress.push(c);
+        }
       }
       // Seed the stop from the x-back candle AS OF ENTRY — the candle `back` bars
       // before the first live candle — NOT a ratchet-max over the whole session.
@@ -396,14 +433,17 @@ class TickHandler extends EventEmitter {
       // "Secured" profit, exit on candle 1). Fixed 2026-08-18. Ratcheting forward
       // is the live path's job; here we only set the starting level.
       const back = Math.max(1, xBack);
-      const idx = st.completed.length - back; // the x-back candle at the entry boundary
+      const seedArr = sideways === "ignore" ? st.progress : st.completed;
+      const idx = seedArr.length - back; // the x-back candle at the entry boundary
       if (idx >= 0) {
-        const cand = src === "open" ? st.completed[idx].open : st.completed[idx].close;
+        const c0 = seedArr[idx];
+        const cand = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
         st.stop = st.stop === null ? cand : isBuy ? Math.max(st.stop, cand) : Math.min(st.stop, cand);
       }
       // Trim to the rolling window the live path maintains.
       const keep = back + 2;
       if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
+      if (st.progress.length > keep) st.progress.splice(0, st.progress.length - keep);
       st.seed = "done";
     } catch {
       st.seed = "failed"; // legacy warm-from-entry behaviour
@@ -614,12 +654,15 @@ class TickHandler extends EventEmitter {
     // trade actually uses a ₹-mode SL/TP — no cost for the all-% common case.
     // T141 — master SL/TP/TSL (common block). When a switch is on it OVERRIDES
     // every strategy's own level of that kind for EVERY trade on this channel.
-    const master = getCommonConfig().masterExits;
+    const cc = getCommonConfig();
+    const master = cc.masterExits;
     const mTP = master.tp.enabled, mSL = master.sl.enabled, mTSL = master.tsl.enabled;
     const masterNeedsRates =
       (mTP && master.tp.mode === "rupees") ||
       (mSL && master.sl.mode === "rupees") ||
-      (mTSL && master.tsl.mode === "rupees");
+      // TSL needs the rate table only in the ₹ peak-clamp mode (candle mode is
+      // price-based; % mode is premium-based).
+      (mTSL && master.tsl.trailMode === "peak" && master.tsl.mode === "rupees");
 
     const anyNetRs = masterNeedsRates || openTrades.some((t) => {
       if (resolveNetRsExit(t.exitStrategy, channel) !== null) return true;
@@ -826,7 +869,7 @@ class TickHandler extends EventEmitter {
           const needNet =
             (mTP && master.tp.mode === "rupees") ||
             (mSL && master.sl.mode === "rupees") ||
-            (mTSL && master.tsl.mode === "rupees");
+            (mTSL && master.tsl.trailMode === "peak" && master.tsl.mode === "rupees");
           const curNet = needNet ? netPnlAtPrice(trade, tick.ltp, chargeRates) : 0;
           const pctLevel = (v: number, favourable: boolean) =>
             trade.entryPrice * (1 + (isBuy === favourable ? v : -v) / 100);
@@ -846,18 +889,34 @@ class TickHandler extends EventEmitter {
             if (hit) masterHit = { reason: "SL_HIT", exitPrice: tick.ltp };
           }
           if (!masterHit && mTSL) {
+            // T167 — armed at ENTRY (no profit-gate). Mode B (candle) trails to the
+            // O/H/L/C of the x-back candle; Mode A (peak) trails a % / ₹ distance
+            // below the running peak.
             let hit = false;
-            if (master.tsl.mode === "rupees") {
-              // Give back at most `value` ₹ of net P&L from the peak, once in profit.
+            if (master.tsl.trailMode === "candle") {
+              // Mode B — reuse the shared candle trailer at the SIGNAL timeframe,
+              // raw candles for true O/H/L/C. Exit on a CLOSE-confirmed breach of
+              // the ratcheted x-back level; sideways candles are ignored/counted
+              // per config. The seed builds the pre-entry candles so it's live from
+              // the first tick.
+              const cs = trade.cohort === "ma_signal" ? cc.maCandleSec : cc.sma5CandleSec;
+              const dyn = this.dynTslLevel(
+                trade.id, tick.ltt, tick.ltp, isBuy, master.tsl.xBack, master.tsl.anchor,
+                false, cs, trade.instrument, trade.contractSecurityId, master.tsl.sideways,
+              );
+              trade.dynTslLevel = dyn.level ?? null;
+              hit = dyn.closedBelow;
+            } else if (master.tsl.mode === "rupees") {
+              // Mode A ₹ — give back at most `value` ₹ of net P&L from the running
+              // peak-net. Armed at entry: no `peakNet > 0` gate, so it trails from
+              // the first tick like a ₹ stop that ratchets up with profit.
               const peakNet = netPnlAtPrice(trade, newPeak, chargeRates);
-              hit = peakNet > 0 && peakNet - curNet >= master.tsl.value;
+              hit = peakNet - curNet >= master.tsl.value;
             } else {
-              // Trail `value`% below the peak premium, once the peak is in profit.
-              const peakFavour = isBuy ? newPeak - trade.entryPrice : trade.entryPrice - newPeak;
-              if (peakFavour > 0) {
-                const stop = isBuy ? newPeak * (1 - master.tsl.value / 100) : newPeak * (1 + master.tsl.value / 100);
-                hit = isBuy ? tick.ltp <= stop : tick.ltp >= stop;
-              }
+              // Mode A % — trail `value`% below the peak premium, armed at entry
+              // (peak starts at entry, so the stop is live immediately).
+              const stop = isBuy ? newPeak * (1 - master.tsl.value / 100) : newPeak * (1 + master.tsl.value / 100);
+              hit = isBuy ? tick.ltp <= stop : tick.ltp >= stop;
             }
             if (hit) masterHit = { reason: "TSL_HIT", exitPrice: tick.ltp };
           }
@@ -889,11 +948,17 @@ class TickHandler extends EventEmitter {
           // Downside display = the tighter of the master hard-SL and the armed TSL.
           let stopDisp: number | null = mSL ? toPrice(master.sl.value, master.sl.mode, false) : null;
           if (mTSL) {
-            const peakFav = isBuy ? newPeak - trade.entryPrice : trade.entryPrice - newPeak;
-            if (peakFav > 0) {
-              const tslStop = master.tsl.mode === "rupees"
+            // Armed at entry — draw the trailing stop from the first tick (no
+            // profit gate). Candle mode uses the ratcheted x-back level set above.
+            let tslStop: number | null = null;
+            if (master.tsl.trailMode === "candle") {
+              tslStop = trade.dynTslLevel ?? null;
+            } else {
+              tslStop = master.tsl.mode === "rupees"
                 ? newPeak - (isBuy ? 1 : -1) * (master.tsl.value / trade.qty)
                 : (isBuy ? newPeak * (1 - master.tsl.value / 100) : newPeak * (1 + master.tsl.value / 100));
+            }
+            if (tslStop != null) {
               stopDisp = stopDisp == null ? tslStop : (isBuy ? Math.max(stopDisp, tslStop) : Math.min(stopDisp, tslStop));
             }
           }
@@ -1024,8 +1089,11 @@ class TickHandler extends EventEmitter {
           // everything else → sma5CandleSec (both default to the SMA5/MA setting).
           const _cc = getCommonConfig();
           const tslCandleSec = trade.cohort === "ma_signal" ? _cc.maCandleSec : _cc.sma5CandleSec;
+          // T167 — when a Master TSL is active it OWNS the candle trailer for this
+          // trade (it drives dynTslState in the master block above); suppress the
+          // strategy's own candle-TSL so the two never double-feed the same state.
           const dyn =
-            lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
+            !mTSL && lcfg.esHonour && lcfg.esTslEnabled && lcfg.esTslMode === "candles"
               && !trade.entryPending && trade.entryPrice > 0
               ? this.dynTslLevel(trade.id, tick.ltt, tick.ltp, isBuy, lcfg.esTslCandles, lcfg.esTslCandleSrc, lcfg.esTslCandleHa,
                   tslCandleSec, trade.instrument, trade.contractSecurityId)

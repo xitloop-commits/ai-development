@@ -204,6 +204,38 @@ export interface MasterLevel {
   value: number;
 }
 
+/** TSL trailing style. "peak" = Mode A (trail a % / ₹ distance below the running
+ *  peak). "candle" = Mode B (trail to the O/H/L/C of the candle x bars back). */
+export type TslTrailMode = "peak" | "candle";
+/** Which point of the x-back candle the candle-TSL anchors to. LOW = loosest
+ *  (most room), HIGH = tightest; OPEN/CLOSE in between. Default LOW. */
+export type CandleAnchor = "open" | "high" | "low" | "close";
+/** How the candle-TSL treats a "sideways" candle (one that makes no new high for
+ *  a long / no new low for a short vs the prior candle). "ignore" = it does NOT
+ *  advance the x-back counter, so the stop HOLDS through chop and only steps up
+ *  on a genuine new high; "count" = mechanical x-back (every candle counts). */
+export type SidewaysMode = "ignore" | "count";
+
+/** Master TSL level (T167). Armed at ENTRY (no profit-gate). Carries both the
+ *  peak-clamp params (Mode A) and the candle-trail params (Mode B); `trailMode`
+ *  selects which is live. Only one Master stop runs at a time — SL xor TSL. */
+export interface MasterTslLevel {
+  enabled: boolean;
+  trailMode: TslTrailMode;
+  // ── Mode A (peak clamp) ──
+  /** percent = trail value% below the peak premium; rupees = give back at most
+   *  value ₹ of net P&L from the peak. */
+  mode: ExitLevelMode;
+  value: number;
+  // ── Mode B (candle-based) ──
+  /** Which point of the x-back candle to trail to (default "low"). */
+  anchor: CandleAnchor;
+  /** Candles back the anchor sits (>=1) — the looseness knob. */
+  xBack: number;
+  /** Sideways-candle handling (see SidewaysMode). */
+  sideways: SidewaysMode;
+}
+
 /**
  * Master SL / TP / TSL (T141). Live in the COMMON block so they span paper +
  * live + replay. Each is an independent switch; when on it is THE only level of
@@ -218,7 +250,7 @@ export interface MasterLevel {
 export interface MasterExitsConfig {
   tp: MasterLevel;
   sl: MasterLevel;
-  tsl: MasterLevel;
+  tsl: MasterTslLevel;
 }
 
 export interface CommonConfig {
@@ -375,7 +407,10 @@ function baseCommon(): CommonConfig {
     masterExits: {
       tp: { enabled: false, mode: "percent", value: 10 },
       sl: { enabled: false, mode: "percent", value: 10 },
-      tsl: { enabled: false, mode: "percent", value: 3 },
+      tsl: {
+        enabled: false, trailMode: "peak", mode: "percent", value: 3,
+        anchor: "low", xBack: 2, sideways: "ignore",
+      },
     },
   };
 }
@@ -638,7 +673,10 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
     (c as CommonConfig).masterExits = {
       tp: { enabled: false, mode: "percent", value: 10 },
       sl: { enabled: false, mode: "percent", value: 10 },
-      tsl: { enabled: false, mode: "percent", value: 3 },
+      tsl: {
+        enabled: false, trailMode: "peak", mode: "percent", value: 3,
+        anchor: "low", xBack: 2, sideways: "ignore",
+      },
     };
   }
   const m = c.masterExits;
@@ -646,8 +684,17 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   m.tp.value = clampLevel(m.tp.value, m.tp.mode, 100, 10, 3000);
   m.sl.enabled = !!m.sl.enabled; m.sl.mode = exitMode(m.sl.mode);
   m.sl.value = clampLevel(m.sl.value, m.sl.mode, 100, 10, 2000);
-  m.tsl.enabled = !!m.tsl.enabled; m.tsl.mode = exitMode(m.tsl.mode);
+  // T167 — TSL gained trailMode + candle params; back-fill for old configs.
+  m.tsl.enabled = !!m.tsl.enabled;
+  m.tsl.trailMode = m.tsl.trailMode === "candle" ? "candle" : "peak";
+  m.tsl.mode = exitMode(m.tsl.mode);
   m.tsl.value = clampLevel(m.tsl.value, m.tsl.mode, 90, 3, 1500);
+  m.tsl.anchor = (["open", "high", "low", "close"] as const).includes(m.tsl.anchor) ? m.tsl.anchor : "low";
+  m.tsl.xBack = Math.round(clampNum(m.tsl.xBack, 1, 20, 2));
+  m.tsl.sideways = m.tsl.sideways === "count" ? "count" : "ignore";
+  // SL xor TSL — only one Master stop runs. If a stale config has both on, keep
+  // SL (the hard floor) and drop TSL, so the invariant holds server-side too.
+  if (m.sl.enabled && m.tsl.enabled) m.tsl.enabled = false;
   // Re-entry-on-trend — back-fill for an old config, then coerce + clamp.
   if (!c.reentryOnTrend) (c as CommonConfig).reentryOnTrend = { enabled: true, windowSec: 30, maxReentries: 3 };
   const r = c.reentryOnTrend;
