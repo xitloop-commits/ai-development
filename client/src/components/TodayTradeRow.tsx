@@ -6,7 +6,7 @@ import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Channel, TradeRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace, optionExchangeFor, feedExchangeForTrade, isEquityTrade, isPaperChannel } from '@/lib/tradeTypes';
+import { channelToWorkspace, feedExchangeForTrade, isEquityTrade, isPaperChannel } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -22,8 +22,7 @@ import { tradePoints } from '@/lib/tradeCalculations';
 import { copyContract } from '@/lib/copyContract';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strategyPillStyle, strategyLabel, canExitTrades } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import { istDateString } from '@/lib/signalChart';
-import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
+import { postChartFocus } from '@/lib/chartFocusBus';
 import { useSelectedSignalSeq, selectSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { trpc } from '@/lib/trpc';
@@ -66,6 +65,9 @@ export interface TodayTradeRowProps {
   /** ES-honour ON → the ladder's own exits are off; hide its TSL + TTP markers. */
   ladderEsHonour?: boolean;
   ladderEsTslEnabled?: boolean;
+  /** T167 — Master TSL on (common block). Labels the bar's stop "TSL" for every
+   *  trade it manages, regardless of the trade's own strategy. */
+  masterTslEnabled?: boolean;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
   /** Paper workspace only — Ctrl+click the Capital-column CTA to mirror this OPEN
@@ -99,6 +101,7 @@ function _TodayTradeRow({
   ladderTtp,
   ladderEsHonour,
   ladderEsTslEnabled,
+  masterTslEnabled,
   tradeNo,
   liveLtp,
   onGoLive,
@@ -107,7 +110,6 @@ function _TodayTradeRow({
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [reconcileOpen, setReconcileOpen] = useState(false);
-  const [chartOpen, setChartOpen] = useState(false);
   // Go-Live CTA: "armed" = Ctrl held while hovering → bright (Ctrl+click fires).
   const [goLiveArmed, setGoLiveArmed] = useState(false);
   const [slPrice, setSlPrice] = useState('');
@@ -202,22 +204,10 @@ function _TodayTradeRow({
   // the broker app's search box to pull up the same strike. Null when the trade
   // isn't an option or has no expiry, and then the tag is not clickable.
   const copyLabel = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
-  // Target for the popup option chart (only for CE/PE trades with a contract id).
-  const chartTarget: OptionChartTargetLite | null =
-    (contractLabel === 'CE' || contractLabel === 'PE') && trade.contractSecurityId && trade.strike != null
-      ? {
-          instrumentKey: trade.instrument,
-          displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
-          securityId: trade.contractSecurityId,
-          exchangeSegment: optionExchangeFor(trade.instrument),
-          strike: trade.strike,
-          side: contractLabel,
-          channel,
-          date: istDateString(new Date(trade.openedAt)),
-          expiry: trade.expiry,
-          tradeId: trade.id,
-        }
-      : null;
+  // The direction pill focuses this trade in the CHARTS window — only for a CE/PE
+  // trade with a resolved contract (a pill that focuses nothing is worse than none).
+  const canFocusChart =
+    (contractLabel === 'CE' || contractLabel === 'PE') && !!trade.contractSecurityId && trade.strike != null;
 
   // Tray→desk selection: highlight + scroll this row when its signal card is clicked.
   const selectedSeq = useSelectedSignalSeq();
@@ -330,14 +320,20 @@ function _TodayTradeRow({
                   target to aim at. `chartTarget` is null for a non-option or a
                   trade with no contract id, and then this stays a plain span —
                   a button that opens nothing is worse than no button. */}
-              {chartTarget ? (
+              {canFocusChart ? (
                 <button
                   type="button"
-                  onClick={() => setChartOpen(true)}
+                  onClick={() => postChartFocus({
+                    instrument: trade.instrument,
+                    side: contractLabel as 'CE' | 'PE',
+                    strike: trade.strike ?? null,
+                    contractSecurityId: trade.contractSecurityId ?? null,
+                    tradeKey: String(tradeNo ?? trade.signalSeq ?? ''),
+                  })}
                   className={`text-[0.5625rem] rounded px-1 py-0.5 whitespace-nowrap cursor-pointer hover:brightness-125 transition-[filter] ${isOpen ? 'font-bold' : 'font-semibold'} ${
                     isBuy ? 'bg-bullish/15 text-bullish' : 'bg-destructive/15 text-destructive'
                   }`}
-                  title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel} — click for this strike's chart (candles + your entry/exit + SL/TP, live 5s)`}
+                  title={`${isBuy ? 'Long (bought)' : 'Short (sold)'} ${contractLabel} — click to focus this trade in the CHARTS window (open it from the top bar first)`}
                 >
                   {isBuy ? 'Long' : 'Short'}({contractLabel})
                 </button>
@@ -423,14 +419,15 @@ function _TodayTradeRow({
                     : undefined
                 }
                 trailingEnabled={
-                  // Under ES-honour the trailing stop IS the honour-exit TSL cap —
-                  // label it "TSL" when that cap is on (it manages + exits the
-                  // trade, e.g. candle TSL → TSL_HIT); "SL" only when it's off and
-                  // just the safety SL governs. Non-honour ladder / other strategies
-                  // keep the classic server-trail label.
-                  trade.exitStrategy === "ladder" && ladderEsHonour
-                    ? !!ladderEsTslEnabled
-                    : serverTrails
+                  // T167 — the Master TSL (common block) manages + trails EVERY
+                  // trade, so the stop marker reads "TSL" whenever it's on. Else
+                  // fall back to the per-strategy label: under ES-honour it's the
+                  // honour-exit TSL cap; otherwise the classic server-trail flag.
+                  masterTslEnabled
+                    ? true
+                    : trade.exitStrategy === "ladder" && ladderEsHonour
+                      ? !!ladderEsTslEnabled
+                      : serverTrails
                 }
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
@@ -739,7 +736,6 @@ function _TodayTradeRow({
       channel={channel}
       onClose={() => setReconcileOpen(false)}
     />
-    <OptionChartDialog open={chartOpen} onOpenChange={setChartOpen} target={chartTarget} />
     </>
   );
 }
@@ -792,6 +788,7 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.ladderTtp === b.ladderTtp &&
     a.ladderEsHonour === b.ladderEsHonour &&
     a.ladderEsTslEnabled === b.ladderEsTslEnabled &&
+    a.masterTslEnabled === b.masterTslEnabled &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&
     // By-value compare neutralises the per-poll reference + undefined/absent churn.

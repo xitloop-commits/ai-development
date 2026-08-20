@@ -117,6 +117,13 @@ export function TodaySection({
   const ladderEsTslEnabled = useMemo(() => {
     return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esTslEnabled;
   }, [aiConfigQuery.data, exitBook]);
+
+  // T167 — Master TSL on (common block, spans every book). When on it manages +
+  // trails EVERY trade, so the bar's stop marker should read "TSL" regardless of
+  // the trade's own strategy.
+  const masterTslEnabled = useMemo(() => {
+    return !!(aiConfigQuery.data as any)?.common?.masterExits?.tsl?.enabled;
+  }, [aiConfigQuery.data]);
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -325,6 +332,7 @@ export function TodaySection({
           ladderTtp={ladderTtp}
           ladderEsHonour={ladderEsHonour}
           ladderEsTslEnabled={ladderEsTslEnabled}
+          masterTslEnabled={masterTslEnabled}
           tradeNo={trades.indexOf(trade) + 1}
           onGoLive={channel === 'paper' ? handleGoLive : undefined}
           goneLive={goneLive.has(trade.id)}

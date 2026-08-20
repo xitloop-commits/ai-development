@@ -692,9 +692,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   m.tsl.anchor = (["open", "high", "low", "close"] as const).includes(m.tsl.anchor) ? m.tsl.anchor : "low";
   m.tsl.xBack = Math.round(clampNum(m.tsl.xBack, 1, 20, 2));
   m.tsl.sideways = m.tsl.sideways === "count" ? "count" : "ignore";
-  // SL xor TSL — only one Master stop runs. If a stale config has both on, keep
-  // SL (the hard floor) and drop TSL, so the invariant holds server-side too.
-  if (m.sl.enabled && m.tsl.enabled) m.tsl.enabled = false;
+  // T167 (rev 2026-08-20): SL + TSL may COEXIST. The SL is the hard catastrophe
+  // floor (checked first, cuts immediately); the TSL trails above it. No mutual
+  // exclusivity — a loose candle TSL with no floor let a trade bleed past 11%.
   // Re-entry-on-trend — back-fill for an old config, then coerce + clamp.
   if (!c.reentryOnTrend) (c as CommonConfig).reentryOnTrend = { enabled: true, windowSec: 30, maxReentries: 3 };
   const r = c.reentryOnTrend;

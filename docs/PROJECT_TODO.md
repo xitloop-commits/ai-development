@@ -5,6 +5,16 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **↺ REV 2026-08-20 (Partha, after an 11% bleed):** SL + TSL now **COEXIST** — the
+  SL is the hard catastrophe floor (checked first, cuts immediately), the TSL trails
+  above it. Dropped the SL-xor-TSL exclusivity (UI toggles + server migration). Root
+  cause of the bleed: a loose candle TSL (LOW anchor, xBack 5, 5-min, sideways=ignore)
+  with **SL off** = no floor + waits for a 5-min close below a far-below level (and can
+  stay unset until 5 new-high candles). Also: the bar's stop marker now reads **"TSL"
+  and is always shown** whenever the Master TSL is on (threaded `masterTslEnabled`
+  common→TodaySection→TodayTradeRow→TradeBar; the SL floor keeps `stopLossPrice`
+  always set so the marker never disappears). Note: the gold marker only turns yellow
+  once the stop trails ABOVE entry (locked profit) — red while at-risk, by design.
 - **✅ BUILT + verified (typecheck clean, 33 exit tests green incl. new cases).**
   Config `MasterTslLevel` (trailMode + candle params, defaults + migration);
   server: `dynTslLevel`/`seedDynTsl` gained O/H/L/C anchors + sideways-ignore

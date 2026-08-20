@@ -331,27 +331,21 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
-                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. The stop is ONE choice — Stop-loss OR Trailing stop, never both (Take-profit is separate). % = of premium; ₹ = NET P&L after charges. Glide's disaster stop always stays on as a last-resort backstop.">
+                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. Stop-loss and Trailing stop can BOTH be on: the SL is the hard catastrophe floor (cuts immediately), the TSL trails above it. % = of premium; ₹ = NET P&L after charges. Glide's disaster stop always stays on as a last-resort backstop.">
                   <MasterRow label="Take-profit" level={d.masterExits.tp}
                     help="Bank the trade at this profit, overriding every strategy's own TP. % = premium this far above entry; ₹ = net P&L (after charges) reaches this."
                     onToggle={() => edit((x) => { x.masterExits.tp.enabled = !x.masterExits.tp.enabled; })}
                     onMode={(m) => edit((x) => { x.masterExits.tp.mode = m; })}
                     onValue={(v) => edit((x) => { x.masterExits.tp.value = v; })} />
                   <MasterRow label="Stop-loss" level={d.masterExits.sl}
-                    help="A FIXED floor. Cut the trade at this loss, overriding every strategy's own SL. % = premium this far below entry; ₹ = net loss reaches this. Turning this on turns Trailing stop off (one stop at a time)."
-                    onToggle={() => edit((x) => {
-                      x.masterExits.sl.enabled = !x.masterExits.sl.enabled;
-                      if (x.masterExits.sl.enabled) x.masterExits.tsl.enabled = false; // SL xor TSL
-                    })}
+                    help="The hard FLOOR. Cut the trade at this loss no matter what — checked first, cuts immediately. Keep this on as the catastrophe backstop even when the Trailing stop is on (the TSL trails above it). % = premium this far below entry; ₹ = net loss reaches this."
+                    onToggle={() => edit((x) => { x.masterExits.sl.enabled = !x.masterExits.sl.enabled; })}
                     onMode={(m) => edit((x) => { x.masterExits.sl.mode = m; })}
                     onValue={(v) => edit((x) => { x.masterExits.sl.value = v; })} />
                   <MasterTslRow level={d.masterExits.tsl}
                     candleSecLabel={TF_LABEL(d.sma5CandleSec)}
-                    help="A MOVING floor, armed at entry. Peak: trail % / ₹ below the running peak. Candle: trail to the O/H/L/C of the candle x bars back, ratchet up, holding through sideways candles. Turning this on turns Stop-loss off (one stop at a time)."
-                    onToggle={() => edit((x) => {
-                      x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled;
-                      if (x.masterExits.tsl.enabled) x.masterExits.sl.enabled = false; // SL xor TSL
-                    })}
+                    help="A MOVING stop, armed at entry, trailing above the hard SL floor. Peak: trail % / ₹ below the running peak. Candle: trail to the O/H/L/C of the candle x bars back, ratchet up, holding through sideways candles. Keep the Stop-loss on too so a loose TSL still has a floor."
+                    onToggle={() => edit((x) => { x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled; })}
                     onPatch={(fn) => edit((x) => fn(x.masterExits.tsl))} />
                 </Group>
 
