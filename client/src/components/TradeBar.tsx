@@ -381,8 +381,10 @@ export function TradeBar({
   const tpPrice = favToPrice(tpPct);
   // Trailing on → the stop IS a trailing stop (label TSL) even before it trails
   // into profit; trailing off → a plain fixed SL. Colour still shows the phase:
-  // red while at-risk (below entry), gold once it has locked profit.
-  const stopColor = stopLocked ? TSL_COLOR : SL_COLOR;
+  // T167 — a TRAILING stop (TSL) is always gold, at-risk or in profit, so it's
+  // recognisable as the trailing stop the whole time. A plain fixed SL stays red
+  // while at-risk and only turns gold if it somehow locks profit.
+  const stopColor = (trailingEnabled || stopLocked) ? TSL_COLOR : SL_COLOR;
   const stopText = trailingEnabled ? "TSL" : "SL";
   const stopProfit = profitAtFav(stopFav);
   const stopTip = `${trailingEnabled ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
