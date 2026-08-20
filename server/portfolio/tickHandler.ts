@@ -1601,6 +1601,11 @@ class TickHandler extends EventEmitter {
       if (live.msBelowEntry != null) patch.msBelowEntry = live.msBelowEntry;
       if (live.msAboveEntry != null) patch.msAboveEntry = live.msAboveEntry;
       if (live.stopLossPrice != null) patch.stopLossPrice = live.stopLossPrice;
+      // T167 candle-TSL highlight — persist the anchor + ignored candle times so
+      // tradesForChart can hand them to the chart (anchor is a small number;
+      // ignored array only written when non-empty).
+      if (live.tslAnchorTime !== undefined) patch.tslAnchorTime = live.tslAnchorTime;
+      if (live.tslIgnoredTimes && live.tslIgnoredTimes.length) patch.tslIgnoredTimes = live.tslIgnoredTimes;
       // Trailing take-profit: the live record may have ratcheted the target up.
       if (live.targetPrice != null) patch.targetPrice = live.targetPrice;
       // TSL activation timestamp (UI stopwatch) — stamp once, never clear.
