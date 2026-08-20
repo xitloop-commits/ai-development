@@ -297,9 +297,9 @@ export function TickChart({
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
           if (anchorT != null && ct === anchorT) {
-            d.borderColor = "#eab308"; d.wickColor = "#eab308"; // anchor — gold outline
+            d.color = "#eab308"; d.borderColor = "#fde047"; d.wickColor = "#fde047"; // anchor — SOLID gold
           } else if (ignoredSet && ignoredSet.has(ct)) {
-            d.color = "#6b7280"; d.borderColor = "#6b7280"; d.wickColor = "#6b7280"; // ignored — dim gray
+            d.color = "#4b5563"; d.borderColor = "#4b5563"; d.wickColor = "#4b5563"; // ignored — dim slate
           }
           return d;
         }),
