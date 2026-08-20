@@ -264,6 +264,7 @@ class TickHandler extends EventEmitter {
     instrument?: string,
     securityId?: string | null,
     sideways: SidewaysMode = "count",
+    maxGapPct: number = 0,
   ): { level: number | null; closedBelow: boolean } {
     // Candle size in seconds — matches the trade's SIGNAL timeframe (2026-08-18:
     // was hardcoded 60s / 1-min; now the SMA5/MA candle_sec so "everything works
@@ -335,7 +336,14 @@ class TickHandler extends EventEmitter {
     const idx = arr.length - Math.max(1, xBack);
     if (idx >= 0) {
       const c0 = arr[idx];
-      const candidate = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
+      let candidate = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
+      // T167 loose-cap: if the anchored stop lags more than maxGapPct% below the
+      // current premium (for a long), tighten it to the x-back candle's HIGH so
+      // the trail never sits that far behind price. (Short: tighten to the LOW.)
+      if (maxGapPct > 0 && ltp > 0) {
+        const gap = isBuy ? (ltp - candidate) / ltp : (candidate - ltp) / ltp;
+        if (gap > maxGapPct / 100) candidate = isBuy ? c0.high : c0.low;
+      }
       if (st.stop === null) st.stop = candidate;
       else st.stop = isBuy ? Math.max(st.stop, candidate) : Math.min(st.stop, candidate);
     }
@@ -903,6 +911,7 @@ class TickHandler extends EventEmitter {
               const dyn = this.dynTslLevel(
                 trade.id, tick.ltt, tick.ltp, isBuy, master.tsl.xBack, master.tsl.anchor,
                 false, cs, trade.instrument, trade.contractSecurityId, master.tsl.sideways,
+                master.tsl.maxGapPct,
               );
               trade.dynTslLevel = dyn.level ?? null;
               hit = dyn.closedBelow;

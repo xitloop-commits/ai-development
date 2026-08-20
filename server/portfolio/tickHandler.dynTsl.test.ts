@@ -94,4 +94,18 @@ describe("dynTslLevel — candle O/H/L/C anchor + sideways (T167)", () => {
     // count: advances to candle1's low (102) — every candle counts.
     expect(feed("side-count", "count")).toBeCloseTo(102, 5);
   });
+
+  it("loose-cap tightens the stop to the candle HIGH when it lags > maxGapPct%", () => {
+    const cs = 60;
+    // candle0: o100 l90 h105 c105. LOW anchor, xBack 1. At close the current
+    // price is 120 → a low-anchored stop (90) lags 25% below → cap trips.
+    const feed = (id: string, maxGapPct: number) => {
+      const t = (lt: number, p: number) =>
+        h.dynTslLevel(id, lt, p, true, 1, "low", false, cs, undefined, undefined, "count", maxGapPct);
+      t(0, 100); t(10, 90); t(20, 105);
+      return t(70, 120).level; // close candle0 with current price 120
+    };
+    expect(feed("cap-off", 0)).toBeCloseTo(90, 5);   // no cap → LOW anchor (90)
+    expect(feed("cap-on", 10)).toBeCloseTo(105, 5);  // 25% > 10% → tighten to HIGH (105)
+  });
 });

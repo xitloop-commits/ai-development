@@ -31,7 +31,7 @@ vi.mock("./state", async () => {
 const master: any = {
   tp: { enabled: false, mode: "percent", value: 10 },
   sl: { enabled: false, mode: "percent", value: 10 },
-  tsl: { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore" },
+  tsl: { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore", maxGapPct: 10 },
 };
 // Sprint block with % SL/TP modes so resolveNetRsExit returns null (strategy
 // not in ₹ mode) — the master is the only thing under test here.
@@ -100,7 +100,7 @@ beforeEach(() => {
   (tickHandler as any).exitingTrades.clear();
   master.tp = { enabled: false, mode: "percent", value: 10 };
   master.sl = { enabled: false, mode: "percent", value: 10 };
-  master.tsl = { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore" };
+  master.tsl = { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 2, sideways: "ignore", maxGapPct: 10 };
   getCapitalStateMock.mockResolvedValue({
     channel: "paper", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
     currentDayIndex: 1, targetPercent: 1, profitHistory: [], cumulativePnl: 0, cumulativeCharges: 0, sessionTradeCount: 0,

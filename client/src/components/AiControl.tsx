@@ -99,6 +99,7 @@ interface CommonCfg {
     tsl: {
       enabled: boolean; trailMode: "peak" | "candle"; mode: ExitLevelMode; value: number;
       anchor: "open" | "high" | "low" | "close"; xBack: number; sideways: "ignore" | "count";
+      maxGapPct: number;
     };
   };
   // T162 — trend-angle ribbon/readout tunables (display/measurement only); mirrors

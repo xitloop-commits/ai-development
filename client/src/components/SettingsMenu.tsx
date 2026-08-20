@@ -36,6 +36,7 @@ interface MasterTslLevel {
   anchor: CandleAnchor;  // Mode B: which point of the x-back candle
   xBack: number;         // Mode B: candles back
   sideways: SidewaysMode;// Mode B: sideways-candle handling
+  maxGapPct: number;     // Mode B: tighten to the candle HIGH if the stop lags >this% (0=off)
 }
 interface CommonCfg {
   revPct: number;
@@ -263,6 +264,16 @@ function MasterTslRow({ level, onToggle, onPatch, candleSecLabel, help }: {
             <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Sideways
               <InfoDot text="A candle that makes no new high (long) / no new low (short) vs the prior candle is 'sideways'. Ignore = it does NOT advance the x-back, so the stop HOLDS through chop and steps up only on a real new high. Count = every candle advances the x-back." /></span>
             {Seg(["ignore", "count"] as const, level.sideways, (v) => onPatch((t) => { t.sideways = v; }), undefined, true)}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Max gap %
+              <InfoDot text="Loose-cap. If the trailing stop lags more than this far below the current premium (for a long), tighten it to the x-back candle's HIGH so the trail never sits that far behind price. 0 = off." /></span>
+            <div className="flex items-center gap-1">
+              <input type="number" step={1} min={0} max={100} value={level.maxGapPct}
+                onChange={(e) => onPatch((t) => { t.maxGapPct = e.target.value === "" ? 0 : Math.max(0, Math.min(100, Math.round(Number(e.target.value)))); })}
+                className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+              <span className="text-[0.5625rem] text-muted-foreground w-4">%</span>
+            </div>
           </div>
         </div>
       )}

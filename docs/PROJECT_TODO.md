@@ -5,6 +5,15 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **➕ REV2 2026-08-20 (Partha): candle-TSL loose-cap + always-gold marker.**
+  New `maxGapPct` (configurable, default 10, 0=off): at each candle close, if the
+  LOW-anchored stop lags more than that % below the current premium (for a long),
+  tighten it to the x-back candle's **HIGH** so the trail never sits that far behind
+  price (caps give-back on runners + the slow-engage problem). Wired end-to-end
+  (`dynTslLevel` param → master eval → config/migration → UI number field). Also:
+  the TSL stop marker is now **always gold** (`trailingEnabled` colours it, at-risk or
+  in profit) instead of red-until-profit. New test: loose-cap tightens LOW→HIGH when
+  gap > maxGapPct. **Needs a server restart to take effect (running build predates it).**
 - **↺ REV 2026-08-20 (Partha, after an 11% bleed):** SL + TSL now **COEXIST** — the
   SL is the hard catastrophe floor (checked first, cuts immediately), the TSL trails
   above it. Dropped the SL-xor-TSL exclusivity (UI toggles + server migration). Root

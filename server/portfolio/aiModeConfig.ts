@@ -234,6 +234,10 @@ export interface MasterTslLevel {
   xBack: number;
   /** Sideways-candle handling (see SidewaysMode). */
   sideways: SidewaysMode;
+  /** Loose-cap (%). If the trailing stop lags more than this far below the
+   *  current premium (for a long), tighten it to the x-back candle's HIGH so
+   *  the trail never sits more than ~this% behind price. 0 = off. Default 10. */
+  maxGapPct: number;
 }
 
 /**
@@ -409,7 +413,7 @@ function baseCommon(): CommonConfig {
       sl: { enabled: false, mode: "percent", value: 10 },
       tsl: {
         enabled: false, trailMode: "peak", mode: "percent", value: 3,
-        anchor: "low", xBack: 2, sideways: "ignore",
+        anchor: "low", xBack: 2, sideways: "ignore", maxGapPct: 10,
       },
     },
   };
@@ -675,7 +679,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
       sl: { enabled: false, mode: "percent", value: 10 },
       tsl: {
         enabled: false, trailMode: "peak", mode: "percent", value: 3,
-        anchor: "low", xBack: 2, sideways: "ignore",
+        anchor: "low", xBack: 2, sideways: "ignore", maxGapPct: 10,
       },
     };
   }
@@ -692,6 +696,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   m.tsl.anchor = (["open", "high", "low", "close"] as const).includes(m.tsl.anchor) ? m.tsl.anchor : "low";
   m.tsl.xBack = Math.round(clampNum(m.tsl.xBack, 1, 20, 2));
   m.tsl.sideways = m.tsl.sideways === "count" ? "count" : "ignore";
+  m.tsl.maxGapPct = clampNum(m.tsl.maxGapPct, 0, 100, 10); // 0 = off
   // T167 (rev 2026-08-20): SL + TSL may COEXIST. The SL is the hard catastrophe
   // floor (checked first, cuts immediately); the TSL trails above it. No mutual
   // exclusivity — a loose candle TSL with no floor let a trade bleed past 11%.
