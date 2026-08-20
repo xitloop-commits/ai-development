@@ -151,6 +151,12 @@ export interface TradeRecord {
    *  faint TSL line climbing toward entry before it becomes the live stop (above
    *  entry it IS stopLossPrice). Absent outside candle-TSL mode. */
   dynTslLevel?: number | null;
+  /** T167 viz — bucket-start epoch-sec of the candle the candle-TSL is anchored
+   *  to (chart outlines it gold). Absent outside candle-TSL mode. */
+  tslAnchorTime?: number | null;
+  /** T167 viz — bucket-start epoch-secs of the sideways candles the candle-TSL
+   *  IGNORED (chart dims them). */
+  tslIgnoredTimes?: number[];
   /** MOST-ADVERSE LTP since entry (lowest for BUY, highest for SELL) — the mirror
    *  of peakLtp. peak↔trough = the trade's full travel, drawn on the TradeBar and
    *  frozen on close. Absent on trades that pre-date the field. */

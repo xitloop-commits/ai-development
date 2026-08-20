@@ -180,17 +180,23 @@ interface DynTslCandleState {
   o: number; h: number; l: number; c: number; // in-progress raw OHLC
   haOpenPrev: number | null;      // prior HA open  (recursive)
   haClosePrev: number | null;     // prior HA close (recursive)
-  completed: Array<{ open: number; close: number; high: number; low: number }>; // completed candles (rolling)
+  completed: Array<{ open: number; close: number; high: number; low: number; t?: number }>; // completed candles (rolling); t = bucket start epoch sec
   stop: number | null;            // ratcheted trailing level (never loosens)
   /** T167 — progress candles only (for the candle-TSL sideways="ignore" mode).
    *  A completed candle enters here ONLY when it makes a new favourable extreme
    *  (new high for a long / new low for a short) vs `runFav`. The x-back trail
    *  then counts progress candles, so the stop HOLDS through sideways chop and
    *  steps up only on a genuine new high. Unused when sideways="count". */
-  progress?: Array<{ open: number; close: number; high: number; low: number }>;
+  progress?: Array<{ open: number; close: number; high: number; low: number; t?: number }>;
   /** T167 — running favourable extreme across counted candles (the high-water
    *  mark that decides whether a new candle is "progress" vs "sideways"). */
   runFav?: number | null;
+  /** T167 viz — bucket-start epoch-sec of the candle the current stop is anchored
+   *  to (the x-back candle), for the chart to outline it. */
+  anchorTime?: number | null;
+  /** T167 viz — bucket-start epoch-secs of the sideways candles that were
+   *  IGNORED (rolling, bounded), for the chart to dim them. */
+  ignoredTimes?: number[];
   /** History-seed status (2026-08-14, Partha: "the candles already exist").
    *  A fresh state kicks a one-shot async seed from the option-day index so
    *  the x-back trail exists from the trade's FIRST tick instead of waiting
@@ -313,7 +319,7 @@ class TickHandler extends EventEmitter {
     // ignored — only the close counts. `closedBelow` is a one-tick pulse.
     const levelDuringCandle = st.stop;
     const closedBelow = levelDuringCandle !== null && (isBuy ? candleClose < levelDuringCandle : candleClose > levelDuringCandle);
-    const rec = { open: candleOpen, close: candleClose, high: st.h, low: st.l };
+    const rec = { open: candleOpen, close: candleClose, high: st.h, low: st.l, t: st.minute * cs };
     st.completed.push(rec);
     // Keep only what the lookback needs (plus a little slack).
     const keep = Math.max(1, xBack) + 2;
@@ -327,6 +333,10 @@ class TickHandler extends EventEmitter {
       st.runFav = fav;
       (st.progress ??= []).push(rec);
       if (st.progress.length > keep) st.progress.splice(0, st.progress.length - keep);
+    } else if (sideways === "ignore") {
+      // Viz — remember the IGNORED (sideways) candle so the chart can dim it.
+      (st.ignoredTimes ??= []).push(rec.t);
+      if (st.ignoredTimes.length > 240) st.ignoredTimes.splice(0, st.ignoredTimes.length - 240);
     }
     // Candidate = the chosen O/H/L/C of the candle `xBack` bars back (1 = the
     // candle that just closed). In "ignore" mode we count progress candles only,
@@ -336,6 +346,7 @@ class TickHandler extends EventEmitter {
     const idx = arr.length - Math.max(1, xBack);
     if (idx >= 0) {
       const c0 = arr[idx];
+      st.anchorTime = c0.t ?? null; // viz — the candle the stop is pinned to
       let candidate = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
       // T167 loose-cap: if the anchored stop lags more than maxGapPct% below the
       // current premium (for a long), tighten it to the x-back candle's HIGH so
@@ -398,7 +409,7 @@ class TickHandler extends EventEmitter {
       }
       if (raw.length === 0) { st.seed = "failed"; return; }
       // HA recursion from the session start — same maths as the live path.
-      const seeded: Array<{ open: number; close: number; high: number; low: number }> = [];
+      const seeded: Array<{ open: number; close: number; high: number; low: number; t: number }> = [];
       let haOpenPrev: number | null = null;
       let haClosePrev: number | null = null;
       for (const k of raw) {
@@ -413,7 +424,7 @@ class TickHandler extends EventEmitter {
           open = k.o;
           close = k.c;
         }
-        seeded.push({ open, close, high: k.h, low: k.l });
+        seeded.push({ open, close, high: k.h, low: k.l, t: k.minute * cs });
       }
       // Merge: seeded history strictly precedes anything the live path built.
       const noLiveCandleYet = st.completed.length === 0;
@@ -433,6 +444,14 @@ class TickHandler extends EventEmitter {
           st.progress.push(c);
         }
       }
+      // Viz — dim the pre-entry sideways (ignored) candles too.
+      if (sideways === "ignore") {
+        const progT = new Set(st.progress.map((c) => c.t));
+        st.ignoredTimes = st.completed
+          .filter((c) => c.t != null && !progT.has(c.t))
+          .map((c) => c.t as number)
+          .slice(-240);
+      }
       // Seed the stop from the x-back candle AS OF ENTRY — the candle `back` bars
       // before the first live candle — NOT a ratchet-max over the whole session.
       // The old loop took Math.max over every pre-entry candle, which latched the
@@ -445,6 +464,7 @@ class TickHandler extends EventEmitter {
       const idx = seedArr.length - back; // the x-back candle at the entry boundary
       if (idx >= 0) {
         const c0 = seedArr[idx];
+        st.anchorTime = c0.t ?? null; // viz — the candle the seeded stop is pinned to
         const cand = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
         st.stop = st.stop === null ? cand : isBuy ? Math.max(st.stop, cand) : Math.min(st.stop, cand);
       }
@@ -456,6 +476,14 @@ class TickHandler extends EventEmitter {
     } catch {
       st.seed = "failed"; // legacy warm-from-entry behaviour
     }
+  }
+
+  /** T167 viz — read the candle-TSL highlight state for a trade: the anchor
+   *  candle's bucket time (to outline gold on the chart) + the ignored sideways
+   *  candle times (to dim). Empty when the trade has no candle-TSL state. */
+  private dynTslViz(tradeId: string): { anchorTime: number | null; ignoredTimes: number[] } {
+    const st = this.dynTslState.get(tradeId);
+    return { anchorTime: st?.anchorTime ?? null, ignoredTimes: st?.ignoredTimes ?? [] };
   }
 
   /** Drop the per-channel state cache. Pass a channel to drop just that one — used
@@ -914,6 +942,9 @@ class TickHandler extends EventEmitter {
                 master.tsl.maxGapPct,
               );
               trade.dynTslLevel = dyn.level ?? null;
+              const viz = this.dynTslViz(trade.id);
+              trade.tslAnchorTime = viz.anchorTime;
+              trade.tslIgnoredTimes = viz.ignoredTimes;
               hit = dyn.closedBelow;
             } else if (master.tsl.mode === "rupees") {
               // Mode A ₹ — give back at most `value` ₹ of net P&L from the running

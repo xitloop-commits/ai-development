@@ -5,6 +5,14 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **➕ REV3 2026-08-20 (Partha): chart candle-highlight for the candle-TSL.**
+  The server now tags, per trade, the **anchor candle** (the bar the stop is pinned
+  to) and the **ignored sideways candle** times (`tslAnchorTime` + `tslIgnoredTimes`
+  on the trade, from `dynTslState`, served via `tradesForChart`). The chart outlines
+  the anchor **gold** and dims the ignored bars **gray** (`TickChart` per-candle
+  `borderColor`/`color`/`wickColor`, matched by bucket time + `IST_OFFSET_SECONDS`).
+  Only lines up when the **chart interval == the TSL `candle_sec`**. Server-authoritative
+  so the highlight always matches the real stop.
 - **➕ REV2 2026-08-20 (Partha): candle-TSL loose-cap + always-gold marker.**
   New `maxGapPct` (configurable, default 10, 0=off): at each candle close, if the
   LOW-anchored stop lags more than that % below the current premium (for a long),

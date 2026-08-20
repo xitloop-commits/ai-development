@@ -20,6 +20,7 @@ import {
   type SeriesMarker,
 } from "lightweight-charts";
 import type { Candle } from "@/lib/signalChart";
+import { IST_OFFSET_SECONDS } from "@/lib/signalChart";
 import {
   heikinAshi,
   type ChartStyle,
@@ -110,8 +111,16 @@ export interface TickChartProps {
    *  `draggable` lines get a grab handle (needs `onLineDrag`). */
   tradeLines?: { price: number; color: string; title: string; draggable?: boolean }[];
   /** T-angle overlays: free-form line series with gaps (points without a
-   *  `value` are whitespace). Blue steep-up + pink steep-down MA parallels. */
-  extraLines?: { data: { time: UTCTimestamp; value?: number }[]; color: string }[];
+   *  `value` are whitespace). Blue steep-up + pink steep-down MA parallels.
+   *  `order` sets the draw order (higher = on top; default 1000) so callers can
+   *  stack e.g. the MA ribbon above the SMA5 ribbon. */
+  extraLines?: { data: { time: UTCTimestamp; value?: number }[]; color: string; order?: number }[];
+  /** T167 candle-TSL highlight — the anchor candle (outlined gold, the one the
+   *  stop is pinned to) + the ignored sideways candle times (dimmed). Matched by
+   *  candle `time` (bucket epoch sec); only lines up when the chart interval ==
+   *  the TSL candle_sec. */
+  tslAnchorTime?: number | null;
+  tslIgnoredTimes?: number[];
   /** Called when a draggable line is dropped at a new price (title, newPrice). */
   onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
@@ -152,6 +161,9 @@ export interface TickChartProps {
   /** Shared crosshair bus — when several panes are given the SAME instance,
    *  hovering one draws the crosshair on all of them at the same time. */
   crosshairSync?: CrosshairSync;
+  /** Called by the control-bar Reset button (in addition to fitting the view) —
+   *  parents use it to clear a focus / return to the active strike. */
+  onResetView?: () => void;
 }
 
 export function TickChart({
@@ -166,6 +178,8 @@ export function TickChart({
   sma5Period = 5,
   sma5CandleSec = 60,
   extraLines,
+  tslAnchorTime,
+  tslIgnoredTimes,
   hoverAngleStrip,
   trendReadout,
   trendReadoutRight,
@@ -179,6 +193,7 @@ export function TickChart({
   onToggleFullscreen,
   fullscreenActive,
   crosshairSync,
+  onResetView,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
@@ -268,8 +283,26 @@ export function TickChart({
     if (mainLine) {
       series.setData(candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
     } else {
+      // T167 candle-TSL highlight — outline the anchor candle gold, dim the
+      // ignored sideways candles. Server times are raw epoch; chart candles are
+      // IST-shifted, so add the offset to match.
+      const anchorT = tslAnchorTime != null ? tslAnchorTime + IST_OFFSET_SECONDS : null;
+      const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
+        ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
-        candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
+        candles.map((c) => {
+          const d: {
+            time: UTCTimestamp; open: number; high: number; low: number; close: number;
+            color?: string; borderColor?: string; wickColor?: string;
+          } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
+          const ct = c.time as number;
+          if (anchorT != null && ct === anchorT) {
+            d.borderColor = "#eab308"; d.wickColor = "#eab308"; // anchor — gold outline
+          } else if (ignoredSet && ignoredSet.has(ct)) {
+            d.color = "#6b7280"; d.borderColor = "#6b7280"; d.wickColor = "#6b7280"; // ignored — dim gray
+          }
+          return d;
+        }),
       );
     }
     if (markers.length) createSeriesMarkers(series, markers);
@@ -287,6 +320,10 @@ export function TickChart({
             lastValueVisible: false,
             crosshairMarkerVisible: false,
           });
+          // Draw the trend/MA ribbon ON TOP of everything (candles + other lines)
+          // so its colour is never hidden; `order` lets a caller stack the MA
+          // ribbon above the SMA5 one (Partha, 2026-08-18).
+          s.setSeriesOrder(line.order ?? 1000);
           s.setData(seg);
         }
         seg = [];
@@ -608,29 +645,17 @@ export function TickChart({
     {
       const bars = candles.length;
       const saved = viewRef.current;
-      // Default viewport = the LAST 4 HOURS only, so the recent action reads big
-      // and clear instead of the whole day squeezed in (Partha, 2026-08-18). It
-      // still follows the live right edge; a user who scrolls BACK (right edge
-      // leaves view) keeps their exact window.
-      const fourHrBars = Math.max(1, Math.ceil((4 * 3600) / Math.max(1, intervalSec)));
-      // Re-fit (advance the live 4h window) ONLY when the saved view is STILL an
-      // ~4h window pinned at the live edge. The moment the user zooms or pans, the
-      // width changes (or the right edge leaves view), so we preserve their exact
-      // window instead — a manual zoom is never reset. Pure geometry, no event
-      // guessing (the wheel/drag listeners proved unreliable). Reset-zoom snaps
-      // back to a 4h window, which then follows again.
-      const fitFrom = Math.max(0, saved.count - fourHrBars);
-      const fitW = (saved.count - 1 + RIGHT_MARGIN_BARS) - fitFrom; // width of a 4h fit at the saved count
-      const savedW = saved.logical ? saved.logical.to - saved.logical.from : 0;
-      const atEdge = saved.logical ? saved.logical.to >= saved.count - 1 : true;
-      const widthTol = Math.max(4, fitW * 0.05);
-      const isFollowing = !saved.logical || (atEdge && Math.abs(savedW - fitW) <= widthTol);
+      // Default view = fit ALL the data so the candles fill the full width (the
+      // 4h logic was removed per Partha 2026-08-18). We keep following the live
+      // edge while the view IS that full fit; once the user zooms or pans away
+      // from it, their exact window is preserved across rebuilds.
+      const isDefault = !saved.logical || (saved.logical.from <= 0.5 && saved.logical.to >= saved.count - 1);
       const fit = () => chart.timeScale().setVisibleLogicalRange({
-        from: Math.max(0, bars - fourHrBars),
+        from: 0,
         to: bars - 1 + RIGHT_MARGIN_BARS,
       });
-      fitRef.current = fit; // let the Reset-zoom button re-fit to the latest edge
-      if (!isFollowing && saved.logical) {
+      fitRef.current = fit; // let the Reset button re-fit to all data
+      if (!isDefault && saved.logical) {
         const want = { from: saved.logical.from, to: saved.logical.to };
         const assert = () => {
           if (disposed) return;
@@ -664,7 +689,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
@@ -772,8 +797,8 @@ export function TickChart({
         <div className="absolute bottom-7 left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded border border-border/60 bg-background/80 px-0.5 py-0.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
           <button
             type="button"
-            onClick={resetZoom}
-            title="Reset zoom — show the last 4 hours"
+            onClick={() => { onResetView?.(); resetZoom(); }}
+            title={onResetView ? "Reset — back to the active strike + fit the view" : "Reset — fit the whole chart"}
             className="rounded p-1 text-muted-foreground hover:text-foreground"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

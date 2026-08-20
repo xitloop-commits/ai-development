@@ -131,6 +131,12 @@ export interface TradeRecord {
    *  becomes the live stop (above entry it IS stopLossPrice). Transient — not
    *  persisted; recomputed from ticks. Absent outside candle-TSL mode. */
   dynTslLevel?: number | null;
+  /** T167 viz — bucket-start epoch-sec of the candle the candle-TSL is anchored
+   *  to (chart outlines it gold). Transient; absent outside candle-TSL mode. */
+  tslAnchorTime?: number | null;
+  /** T167 viz — bucket-start epoch-secs of the sideways candles the candle-TSL
+   *  IGNORED (chart dims them). Transient; bounded rolling list. */
+  tslIgnoredTimes?: number[];
   /** Highest (BUY) / lowest (SELL) LTP seen since entry — the trailing-stop
    *  ratchet anchor. Persisted via position_state so the trail survives a
    *  server restart; absent on trades that pre-date the field. */
@@ -1352,6 +1358,8 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
       dynTslLevel: t.dynTslLevel ?? undefined,
+      tslAnchorTime: t.tslAnchorTime ?? undefined,
+      tslIgnoredTimes: t.tslIgnoredTimes ?? undefined,
       breakevenPrice: t.breakevenPrice ?? undefined,
       slDistance: t.slDistance ?? undefined,
       stopLossDisabled: t.stopLossDisabled ?? undefined,

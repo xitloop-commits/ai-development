@@ -1814,6 +1814,8 @@ class PortfolioAgentImpl {
       if (live.stopLossPrice != null) r.stopLossPrice = live.stopLossPrice;
       if (live.targetPrice != null) r.targetPrice = live.targetPrice;
       if (live.dynTslLevel != null) r.dynTslLevel = live.dynTslLevel;
+      if (live.tslAnchorTime != null) r.tslAnchorTime = live.tslAnchorTime;
+      if (live.tslIgnoredTimes != null) r.tslIgnoredTimes = live.tslIgnoredTimes;
     }
   }
 

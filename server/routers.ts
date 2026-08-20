@@ -461,6 +461,9 @@ export const appRouter = router({
             pnl: t.pnl,
             cohort: t.cohort ?? null,
             contractSecurityId: t.contractSecurityId ?? null,
+            // T167 candle-TSL highlight — raw epoch-sec (client adds IST offset).
+            tslAnchorTime: t.tslAnchorTime ?? null,
+            tslIgnoredTimes: t.tslIgnoredTimes ?? null,
           }))
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
