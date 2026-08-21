@@ -28,51 +28,14 @@ import { useSignalEpoch } from "@/stores/liveSignals";
 // ── Local mirror of the server AiModeConfig (client has no router-output type) ──
 /** "percent" = % of premium; "rupees" = net ₹ P&L (after charges) on the position. */
 type ExitLevelMode = "percent" | "rupees";
-interface ExitCfg {
-  slMode: ExitLevelMode; tpMode: ExitLevelMode;
-  coolingSec: number; defaultSlPct: number; cooledSlPct: number;
-  breakevenAtFrac: number; nearTargetFrac: number; trailPct: number; defaultTargetPct: number;
-}
-interface SprintCfg {
-  slMode: ExitLevelMode; tpMode: ExitLevelMode;
-  defaultSL: number; defaultTP: number; dailyTargetPercent: number;
-  trailingStopEnabled: boolean; trailingStopPercent: number;
-  trailingDistanceSource: "config" | "signal";
-  trailingActivationGatePercent: number; trailingActivationHoldSeconds: number;
-  tpTrailPercent: number;
-}
-/** SHARED across paper / live / manual. */
-/** Glide has no trading levels — only the disaster stop. See GlideConfig. */
-interface GlideCfg {
-  disasterSlPct: number; giveBackArmPct: number; giveBackPct: number;
-  tpEnabled: boolean; tpMode: ExitLevelMode; tp: number;
-}
-/** T147 — Ladder: MSL/SL/TSL/MTP knobs (mirrors server LadderConfig). */
-interface LadderCfg {
-  mslEnabled: boolean; mslPct: number;
-  slMode: "stepping" | "fixed"; slFixedPct: number;
-  slStartPct: number; slFloorPct: number; slStepPct: number; slStepSec: number; slDelaySec: number; slLtpGapPct: number;
-  tslArmSec: number; tslTrailMode: "peak" | "giveback"; tslTrailPct: number;
-  ttpStartPct: number; ttpTrailPct: number;
-  mtpMode: "R" | "percent"; mtpR: number; mtpPct: number; esHonour: boolean;
-  esSlEnabled: boolean; esSlMode: "percent" | "rupees"; esSlPct: number; esSlValue: number;
-  esMtpEnabled: boolean; esMtpMode: "percent" | "rupees"; esMtpPct: number; esMtpValue: number;
-  esTslEnabled: boolean; esTslMode: "percent" | "rupees" | "candles"; esTslPct: number; esTslValue: number;
-  esTslCandles: number; esTslCandleSrc: "open" | "close"; esTslCandleHa: boolean; esTslFromEntry: boolean;
-}
-interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg; glide: GlideCfg; ladder: LadderCfg }
-/** Per-mode (per-book) config. */
+/** Per-mode (per-book) config. T171 — the per-cohort strategy race is gone; the
+ *  book carries only cohorts / sizing / order now. */
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; sma_model: boolean; swing: boolean };
-  strategies: { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean };
-  /** T144 — per-cohort strategy race: each cohort's enabled strategies (one
-   *  trade placed per enabled strategy on that cohort's signal). */
-  cohortStrategies: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", { sprint: boolean; runway: boolean; anchor: boolean; glide: boolean; ladder: boolean }>;
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent" | "amount"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
 /** T129 — system-wide settings; edited in the Settings menu, not here. */
-type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 interface CommonCfg {
   revPct: number;
   sma5ExitConfirm: number;
@@ -87,7 +50,6 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
   // T161 — session strike lock + per-instrument master switch (mirrors server).
   strikeLock: { paperEnabled: boolean; liveEnabled: boolean; perInstrument: Record<string, number> };
@@ -117,8 +79,8 @@ interface CommonCfg {
     smooth: boolean;
   };
 }
-/** T134 — each book carries its OWN strategy exits + an AI and a manual stream. */
-type BookCfg = { exits: ExitsCfg; ai: ModeCfg; manual: ModeCfg };
+/** Each book carries an AI and a manual config stream. */
+type BookCfg = { ai: ModeCfg; manual: ModeCfg };
 type AllCfg = { common: CommonCfg; paper: BookCfg; live: BookCfg; replay: BookCfg };
 type Mode = "paper" | "live";
 
@@ -466,14 +428,6 @@ const HELP = {
 /** Instruments with trained models (the two index books SEA runs). */
 const MODEL_INSTRUMENTS = ["nifty50", "banknifty"] as const;
 
-const STRATEGIES: { key: StratName; label: string }[] = [
-  { key: "sprint", label: "Sprint" },
-  { key: "runway", label: "Runway" },
-  { key: "anchor", label: "Anchor" },
-  { key: "glide", label: "Glide" },
-  { key: "ladder", label: "Ladder" },
-];
-
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
 
 export function AiControl({ replay = false }: { replay?: boolean } = {}) {
@@ -487,7 +441,6 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
   // menu edits the current tab's book. `book` is the config address either way.
   const book: "paper" | "live" | "replay" = replay ? "replay" : mode;
   const [draft, setDraft] = useState<ModeCfg | null>(null);
-  const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
   const sea = useSeaStatus();
   const utils = trpc.useUtils();
 
@@ -533,11 +486,6 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, hasCfg]);
 
-  useEffect(() => {
-    if (all) setExitsDraft(structuredClone(all[book].exits));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, open, hasCfg]);
-
   // Another panel applied a change → refetch so `dirty` compares against the
   // current server state. Drafts are left alone so your edits are never lost.
   const aiCfgEpoch = useSignalEpoch("aiConfig");
@@ -547,7 +495,7 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
   }, [aiCfgEpoch]);
 
   const applyMut = trpc.trading.updateAiConfig.useMutation({
-    onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
+    onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next),
   });
 
   const blockDirty = useMemo(
@@ -576,42 +524,22 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
     });
 
 
-  // Per-book strategy exits (T134).
-  const applyExitsMut = trpc.trading.updateExitConfig.useMutation({
-    onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
-  });
-  const exitsDirty = useMemo(
-    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all[book].exits)),
-    [exitsDraft, all, book],
-  );
-  const editExits = (fn: (e: ExitsCfg) => void) =>
-    setExitsDraft((prev) => {
-      if (!prev) return prev;
-      const n = structuredClone(prev);
-      fn(n);
-      return n;
-    });
-
-  // T134 — ONE Apply for the whole panel (cohorts/strategies/sizing/order AND
-  // strategy exits), both for the current book. Sequential await so the exits
-  // response — which reflects the block change already persisted — is the final
-  // cache write and nothing is clobbered.
-  const dirty = blockDirty || exitsDirty;
-  const applying = applyMut.isPending || applyExitsMut.isPending;
+  // T171 — the per-strategy exit config (Sprint/Runway/Anchor/Glide/Ladder) is
+  // gone; the AI menu now edits only cohorts / sizing / order for the book. The
+  // single exit model (Rider) lives in the Common Settings menu (masterExits).
+  const dirty = blockDirty;
+  const applying = applyMut.isPending;
   const apply = async () => {
     if (blockDirty && draft) await applyMut.mutateAsync({ book, kind: "ai", patch: draft });
-    if (exitsDirty && exitsDraft) await applyExitsMut.mutateAsync({ book, patch: exitsDraft });
   };
   const reset = () => {
     if (!all) return;
     setDraft(structuredClone(all[book].ai));
-    setExitsDraft(structuredClone(all[book].exits));
   };
 
   // T130 — the LABEL colour is the liveness indicator; no separate dot.
   const aliveTone = sea.anyAlive ? "text-bullish" : "text-muted-foreground";
   const d = draft;
-  const ed = exitsDraft;
 
   return (
     <div className="relative shrink-0 self-stretch flex" ref={ref}>
@@ -741,46 +669,6 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                 </Group>
                 )}
 
-                {/* ③ Strategy RACE per cohort (T144). For each cohort that's on,
-                    toggle which exit strategies to run — a signal places ONE trade
-                    per enabled strategy, so you can compare them on the same
-                    signal. The Common default is locked ON (can't be muted);
-                    Glide is MA-only. */}
-                <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                  <span className="flex items-center gap-1.5">
-                    <SectionLabel>Strategy race per cohort</SectionLabel>
-                    <InfoDot text="For each cohort, pick which exit strategies to run. A signal places ONE trade per enabled strategy — so Sprint / Runway / Anchor race on the SAME signal and you can see which handles that cohort best. The cohort's default (Settings → Cohort strategies) is locked ON so a cohort is never silenced. Glide is MA-only." />
-                  </span>
-                  <div className="flex flex-col gap-1">
-                    {COHORTS.filter((c) => d.cohorts[c.key]).map((c) => {
-                      const dflt = all?.common.cohortStrategy?.[c.key];
-                      const row = d.cohortStrategies?.[c.key];
-                      return (
-                        <div key={c.key} className="flex items-center justify-between gap-2">
-                          <span className="text-[0.625rem] text-muted-foreground w-12 shrink-0">{c.label}</span>
-                          <div className="flex gap-1 flex-wrap justify-end">
-                            {(["sprint", "runway", "anchor", "glide", "ladder"] as const).map((s) => {
-                              if (s === "glide" && c.key !== "ma") return null; // Glide is MA-Signal-only (sma5 rides on Ladder)
-                              const isDefault = dflt === s;
-                              return (
-                                <Pill
-                                  key={s}
-                                  label={s.charAt(0).toUpperCase() + s.slice(1)}
-                                  on={!!row?.[s]}
-                                  disabled={isDefault}
-                                  onClick={() => edit((x) => { x.cohortStrategies[c.key][s] = !x.cohortStrategies[c.key][s]; })}
-                                />
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!COHORTS.some((c) => d.cohorts[c.key]) && (
-                      <span className="text-[0.5625rem] text-muted-foreground">No cohorts on — nothing will trade.</span>
-                    )}
-                  </div>
-                </div>
 
                 {/* Sizing */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
@@ -821,229 +709,6 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
                     onChange={(v) => edit((x) => { x.order.productType = v; })} />
                 </div>
 
-                {/* Strategy exits — PER BOOK (T134). Paper and live can be tuned
-                    independently, so you can try a stop on paper without touching
-                    live. Applied together with the rest of the panel by the one
-                    footer button. */}
-                {ed && (
-                <div className="border-t-2 border-warning-amber/30 pt-2 mt-1 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <SectionLabel><span className="text-warning-amber">Strategy exits</span> · {replay ? "REPLAY" : mode === "live" ? "LIVE" : "PAPER"}</SectionLabel>
-                      <InfoDot text="Per book — paper and live each have their own exit tuning, so you can test on paper without changing live. Both hand-placed and AI trades on this book use these." />
-                    </span>
-                    {exitsDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
-                  </div>
-
-                  <Group title="Sprint" help={HELP.sprint} collapsible>
-                    <LevelNum help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} mode={ed.sprint.slMode} onValue={(v) => editExits((x) => { x.sprint.defaultSL = v; })} onMode={(m) => editExits((x) => { x.sprint.slMode = m; })} />
-                    <LevelNum help={HELP.sprintTP} label="Take-profit" value={ed.sprint.defaultTP} mode={ed.sprint.tpMode} onValue={(v) => editExits((x) => { x.sprint.defaultTP = v; })} onMode={(m) => editExits((x) => { x.sprint.tpMode = m; })} />
-                    <Num help={HELP.dailyTarget} label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
-                    <Row label="Trailing" help={HELP.trailingOn}>
-                      <Pill label={ed.sprint.trailingStopEnabled ? "ON" : "OFF"} on={ed.sprint.trailingStopEnabled}
-                        onClick={() => editExits((x) => { x.sprint.trailingStopEnabled = !x.sprint.trailingStopEnabled; })} />
-                    </Row>
-                    <Num help={HELP.sprintTrailPct} label="Trail %" value={ed.sprint.trailingStopPercent} step={0.5} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingStopPercent = v; })} />
-                    <Seg help={HELP.trailFrom} label="Trail from" value={ed.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => editExits((x) => { x.sprint.trailingDistanceSource = v; })} />
-                    <Num help={HELP.activationGate} label="Activation gate" value={ed.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingActivationGatePercent = v; })} />
-                    <Num help={HELP.activationHold} label="Activation hold" value={ed.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => editExits((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
-                    <Num help={HELP.tpTrail} label="TP trail %" value={ed.sprint.tpTrailPercent} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.tpTrailPercent = v; })} />
-                  </Group>
-
-                  <Group title="Runway" help={HELP.runway} collapsible>
-                    <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
-                    <LevelNum help={HELP.wideStop} label="Wide stop" value={ed.runway.defaultSlPct} mode={ed.runway.slMode} onValue={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} onMode={(m) => editExits((x) => { x.runway.slMode = m; })} />
-                    <Num help={HELP.cooledStop} label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
-                    <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.breakevenAtFrac = v; })} />
-                    <Num help={HELP.trailAt} label="Trail at" value={ed.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.nearTargetFrac = v; })} />
-                    <Num help={HELP.runwayTrailPct} label="Trail %" value={ed.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.trailPct = v; })} />
-                    <LevelNum help={HELP.target} label="Target" value={ed.runway.defaultTargetPct} mode={ed.runway.tpMode} onValue={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} onMode={(m) => editExits((x) => { x.runway.tpMode = m; })} />
-                  </Group>
-
-                  <Group title="Anchor" help={HELP.anchor} collapsible>
-                    <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
-                    <LevelNum help={HELP.wideStop} label="Wide stop" value={ed.anchor.defaultSlPct} mode={ed.anchor.slMode} onValue={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} onMode={(m) => editExits((x) => { x.anchor.slMode = m; })} />
-                    <Num help={HELP.cooledStop} label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
-                    <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
-                    <LevelNum help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} mode={ed.anchor.tpMode} onValue={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} onMode={(m) => editExits((x) => { x.anchor.tpMode = m; })} />
-                  </Group>
-
-                  <Group title="Glide" help={HELP.glide} collapsible>
-                    <Row label="Take-profit" help={HELP.glideTp}>
-                      <Pill label={ed.glide.tpEnabled ? "ON" : "OFF"} on={ed.glide.tpEnabled}
-                        onClick={() => editExits((x) => { x.glide.tpEnabled = !x.glide.tpEnabled; })} />
-                    </Row>
-                    {ed.glide.tpEnabled && (
-                      <LevelNum help={HELP.glideTp} label="TP level" value={ed.glide.tp} mode={ed.glide.tpMode} onValue={(v) => editExits((x) => { x.glide.tp = v; })} onMode={(m) => editExits((x) => { x.glide.tpMode = m; })} />
-                    )}
-                    <Num help={HELP.glideDisaster} label="Disaster stop" value={ed.glide.disasterSlPct} step={5} min={5} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.disasterSlPct = v; })} />
-                    <Num help={HELP.glideArm} label="Guard arms at" value={ed.glide.giveBackArmPct} step={1} min={0} max={200} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackArmPct = v; })} />
-                    <Num help={HELP.glideGiveBack} label="Give-back exit" value={ed.glide.giveBackPct} step={5} min={0} max={95} unit="%" onChange={(v) => editExits((x) => { x.glide.giveBackPct = v; })} />
-                    {ed.glide.giveBackPct === 0 && (
-                      <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                        Give-back guard OFF — a Glide trade will hand back the whole
-                        move if the MA EXIT is late. Only the disaster stop is left.
-                      </span>
-                    )}
-                  </Group>
-
-                  <Group title="Ladder" help={HELP.ladder} collapsible>
-                    {/* ES honour at the TOP — when ON, the ladder's own exits are
-                        OFF and everything below is inert (rides to the signal). */}
-                    <SubGroup>ES · model exit signal</SubGroup>
-                    <Row label="Honour exit signal" help={HELP.ladderEsHonour}>
-                      <Pill label={ed.ladder.esHonour ? "ON" : "OFF"} on={ed.ladder.esHonour}
-                        onClick={() => editExits((x) => { x.ladder.esHonour = !x.ladder.esHonour; })} />
-                    </Row>
-                    {ed.ladder.esHonour ? (
-                      <>
-                        <span className="text-[0.5625rem] text-warning-amber leading-snug">
-                          ON — the Ladder's own staged SL / TSL / MSL are DISABLED and
-                          the trade rides until SEA's exit signal fires, EXCEPT the
-                          caps below: a safety SL (down), an MTP (up), and a trailing SL.
-                        </span>
-                        <SubGroup>Caps · while riding to the signal</SubGroup>
-                        <CapRow
-                          label="Safety SL" help={HELP.ladderEsSl}
-                          enabled={ed.ladder.esSlEnabled}
-                          onToggle={() => editExits((x) => { x.ladder.esSlEnabled = !x.ladder.esSlEnabled; })}
-                          mode={ed.ladder.esSlMode}
-                          onMode={() => editExits((x) => { x.ladder.esSlMode = x.ladder.esSlMode === "percent" ? "rupees" : "percent"; })}
-                          value={ed.ladder.esSlMode === "percent" ? ed.ladder.esSlPct : ed.ladder.esSlValue}
-                          onValue={(v) => editExits((x) => { if (x.ladder.esSlMode === "percent") x.ladder.esSlPct = v; else x.ladder.esSlValue = v; })}
-                        />
-                        <CapRow
-                          label="MTP cap" help={HELP.ladderEsMtp}
-                          enabled={ed.ladder.esMtpEnabled}
-                          onToggle={() => editExits((x) => { x.ladder.esMtpEnabled = !x.ladder.esMtpEnabled; })}
-                          mode={ed.ladder.esMtpMode}
-                          onMode={() => editExits((x) => { x.ladder.esMtpMode = x.ladder.esMtpMode === "percent" ? "rupees" : "percent"; })}
-                          value={ed.ladder.esMtpMode === "percent" ? ed.ladder.esMtpPct : ed.ladder.esMtpValue}
-                          onValue={(v) => editExits((x) => { if (x.ladder.esMtpMode === "percent") x.ladder.esMtpPct = v; else x.ladder.esMtpValue = v; })}
-                        />
-                        <Row label="Trailing SL" help={HELP.ladderEsTsl}>
-                          <div className="flex items-center gap-1">
-                            <Pill label={ed.ladder.esTslEnabled ? "ON" : "OFF"} on={ed.ladder.esTslEnabled}
-                              onClick={() => editExits((x) => { x.ladder.esTslEnabled = !x.ladder.esTslEnabled; })} />
-                            {/* Basis cycles % → ₹ → Candles (dynamic HA-candle stop). */}
-                            <button
-                              type="button" disabled={!ed.ladder.esTslEnabled}
-                              onClick={() => editExits((x) => {
-                                x.ladder.esTslMode = x.ladder.esTslMode === "percent" ? "rupees"
-                                  : x.ladder.esTslMode === "rupees" ? "candles" : "percent";
-                              })}
-                              title="Switch % / ₹ / candle-based (dynamic)"
-                              className="min-w-[1.5rem] px-1 rounded border border-border bg-muted/30 py-0.5 text-[0.6875rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
-                            >
-                              {ed.ladder.esTslMode === "rupees" ? "₹" : ed.ladder.esTslMode === "candles" ? "🕯" : "%"}
-                            </button>
-                            {ed.ladder.esTslMode === "candles" ? (
-                              <>
-                                {/* X candles back + which HA value (open/close) of that candle. */}
-                                <input
-                                  type="number" disabled={!ed.ladder.esTslEnabled}
-                                  step={1} min={1} max={20} value={ed.ladder.esTslCandles}
-                                  title="Candles back (1 = the last completed candle)"
-                                  onChange={(e) => editExits((x) => { x.ladder.esTslCandles = e.target.value === "" ? 1 : Math.round(Number(e.target.value)); })}
-                                  className="w-12 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
-                                />
-                                <button
-                                  type="button" disabled={!ed.ladder.esTslEnabled}
-                                  onClick={() => editExits((x) => { x.ladder.esTslCandleSrc = x.ladder.esTslCandleSrc === "close" ? "open" : "close"; })}
-                                  title="Use the candle's open or close"
-                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
-                                >
-                                  {ed.ladder.esTslCandleSrc === "open" ? "OPEN" : "CLOSE"}
-                                </button>
-                                {/* Candle type: RAW (matches a raw chart) or HA (smoother). */}
-                                <button
-                                  type="button" disabled={!ed.ladder.esTslEnabled}
-                                  onClick={() => editExits((x) => { x.ladder.esTslCandleHa = !x.ladder.esTslCandleHa; })}
-                                  title="Candle type: RAW (matches a raw candlestick chart) or HA (Heikin-Ashi, smoother)"
-                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
-                                >
-                                  {ed.ladder.esTslCandleHa ? "HA" : "RAW"}
-                                </button>
-                                {/* Profit-only (safety SL cuts losses) vs From-entry (candle stop cuts losses too). */}
-                                <button
-                                  type="button" disabled={!ed.ladder.esTslEnabled}
-                                  onClick={() => editExits((x) => { x.ladder.esTslFromEntry = !x.ladder.esTslFromEntry; })}
-                                  title="PROFIT: candle stop protects gains only; the tick-based safety SL cuts losses (immediate). ENTRY: candle stop is active from entry and cuts losses too (waits for a candle close — can fill deep on a crash)."
-                                  className="px-1.5 rounded border border-border bg-muted/30 py-0.5 text-[0.625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/10 disabled:opacity-40"
-                                >
-                                  {ed.ladder.esTslFromEntry ? "ENTRY" : "PROFIT"}
-                                </button>
-                              </>
-                            ) : (
-                              <input
-                                type="number" disabled={!ed.ladder.esTslEnabled}
-                                step={ed.ladder.esTslMode === "rupees" ? 100 : 0.5}
-                                min={ed.ladder.esTslMode === "rupees" ? 50 : 0.1}
-                                max={ed.ladder.esTslMode === "rupees" ? 1000000 : 500}
-                                value={ed.ladder.esTslMode === "percent" ? ed.ladder.esTslPct : ed.ladder.esTslValue}
-                                onChange={(e) => editExits((x) => { const v = e.target.value === "" ? 0 : Number(e.target.value); if (x.ladder.esTslMode === "percent") x.ladder.esTslPct = v; else x.ladder.esTslValue = v; })}
-                                className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan disabled:opacity-40"
-                              />
-                            )}
-                          </div>
-                        </Row>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-[0.5625rem] text-muted-foreground leading-snug">
-                          OFF — the exit-signal marker is visual-only; the ladder's own stops run the trade.
-                        </span>
-                        <SubGroup>MSL · safety net</SubGroup>
-                        <Row label="Max stop (MSL)" help={HELP.ladderMslOn}>
-                          <Pill label={ed.ladder.mslEnabled ? "ON" : "OFF"} on={ed.ladder.mslEnabled}
-                            onClick={() => editExits((x) => { x.ladder.mslEnabled = !x.ladder.mslEnabled; })} />
-                        </Row>
-                        {ed.ladder.mslEnabled && (
-                          <Num help={HELP.ladderMslPct} label="MSL distance" value={ed.ladder.mslPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.mslPct = v; })} />
-                        )}
-                        <SubGroup>SL · stop mode</SubGroup>
-                        <Row label="SL mode" help={HELP.ladderSlMode}>
-                          <div className="flex gap-1">
-                            <Pill label="Current" on={ed.ladder.slMode === "stepping"} onClick={() => editExits((x) => { x.ladder.slMode = "stepping"; })} />
-                            <Pill label="Fixed" on={ed.ladder.slMode === "fixed"} onClick={() => editExits((x) => { x.ladder.slMode = "fixed"; })} />
-                          </div>
-                        </Row>
-                        {ed.ladder.slMode === "fixed" ? (
-                          <Num help={HELP.ladderSlFixed} label="Fixed SL" value={ed.ladder.slFixedPct} step={0.5} min={0.5} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFixedPct = v; })} />
-                        ) : (
-                          <>
-                            <Num help={HELP.ladderSlStart} label="SL start" value={ed.ladder.slStartPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStartPct = v; })} />
-                            <Num help={HELP.ladderSlFloor} label="SL floor" value={ed.ladder.slFloorPct} step={0.5} min={0.1} max={90} unit="%" onChange={(v) => editExits((x) => { x.ladder.slFloorPct = v; })} />
-                            <Num help={HELP.ladderSlStep} label="SL step" value={ed.ladder.slStepPct} step={0.1} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slStepPct = v; })} />
-                            <Num help={HELP.ladderSlStepSec} label="Step every" value={ed.ladder.slStepSec} step={5} min={1} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slStepSec = v; })} />
-                            <Num help={HELP.ladderSlDelay} label="Step delay" value={ed.ladder.slDelaySec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.slDelaySec = v; })} />
-                            <Num help={HELP.ladderSlGap} label="SL-to-LTP gap" value={ed.ladder.slLtpGapPct} step={0.5} min={0} max={20} unit="%" onChange={(v) => editExits((x) => { x.ladder.slLtpGapPct = v; })} />
-                            <SubGroup>TSL · trailing stop</SubGroup>
-                            <Num help={HELP.ladderTslArm} label="TSL arm after" value={ed.ladder.tslArmSec} step={5} min={0} max={600} unit="s" onChange={(v) => editExits((x) => { x.ladder.tslArmSec = v; })} />
-                            <Seg help={HELP.ladderTslMode} label="TSL mode" value={ed.ladder.tslTrailMode} options={["giveback", "peak"] as const} onChange={(v) => editExits((x) => { x.ladder.tslTrailMode = v; })} />
-                            <Num help={HELP.ladderTslPct} label="TSL trail %" value={ed.ladder.tslTrailPct} step={1} min={1} max={95} unit="%" onChange={(v) => editExits((x) => { x.ladder.tslTrailPct = v; })} />
-                          </>
-                        )}
-                        <SubGroup>TTP · trailing profit (visual)</SubGroup>
-                        <Num help={HELP.ladderTtpStart} label="TTP start" value={ed.ladder.ttpStartPct} step={0.5} min={0.5} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpStartPct = v; })} />
-                        <Num help={HELP.ladderTtpTrail} label="TTP trail" value={ed.ladder.ttpTrailPct} step={0.5} min={0.5} max={200} unit="%" onChange={(v) => editExits((x) => { x.ladder.ttpTrailPct = v; })} />
-                        <SubGroup>MTP · take-profit exit</SubGroup>
-                        <Row label="MTP (Max TP) basis" help={HELP.ladderMtpR}>
-                          <div className="flex gap-1">
-                            <Pill label="×risk" on={ed.ladder.mtpMode === "R"} onClick={() => editExits((x) => { x.ladder.mtpMode = "R"; })} />
-                            <Pill label="%" on={ed.ladder.mtpMode === "percent"} onClick={() => editExits((x) => { x.ladder.mtpMode = "percent"; })} />
-                          </div>
-                        </Row>
-                        {ed.ladder.mtpMode === "R" ? (
-                          <Num help={HELP.ladderMtpR} label="MTP ×risk" value={ed.ladder.mtpR} step={0.5} min={1} max={10} unit="×" onChange={(v) => editExits((x) => { x.ladder.mtpR = v; })} />
-                        ) : (
-                          <Num help={HELP.ladderMtpR} label="MTP %" value={ed.ladder.mtpPct} step={1} min={1} max={500} unit="%" onChange={(v) => editExits((x) => { x.ladder.mtpPct = v; })} />
-                        )}
-                      </>
-                    )}
-                  </Group>
-                </div>
-                )}
 
                 </div>
 
