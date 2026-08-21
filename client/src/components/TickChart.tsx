@@ -80,7 +80,19 @@ export function higherTfSma(
     dispToSig[i] = sig.length - 1;
   }
   const srcClose = useHa ? heikinAshi(sig).map((k) => k.close) : sig.map((k) => k.close);
-  const sigSma = sma(srcClose, period);
+  // min-periods=1: average whatever's available (up to `period`) from the first
+  // candle, so the SMA5 line draws immediately instead of waiting for the full
+  // window. It converges to the strict SMA once `period` candles exist.
+  const sigSma: (number | null)[] = srcClose.map((_, i) => {
+    const start = Math.max(0, i - period + 1);
+    let s = 0;
+    let cnt = 0;
+    for (let j = start; j <= i; j++) {
+      const v = srcClose[j];
+      if (v != null) { s += v; cnt++; }
+    }
+    return cnt ? s / cnt : null;
+  });
   const smaOut = new Array<number | null>(n);
   const closeOut = new Array<number | null>(n);
   for (let i = 0; i < n; i++) {

@@ -56,7 +56,9 @@ export const DEFAULT_TREND_ANGLE: TrendAngleOptions = {
 
 const GREEN = "#1a9850";
 const RED = "#d7301f";
-const GRAY = "#9CA3AF";
+// The "sideways/no-trend" zone — bright amber-yellow so it's clearly visible on
+// the dark theme (was a muted grey; Partha 2026-08-18). Distinct from up/down.
+const GRAY = "#facc15";
 
 export function trendAnalysis(
   candles: { time: number; close: number }[],
@@ -69,7 +71,7 @@ export function trendAnalysis(
   // minutes its bucket covers, so the per-minute readout/lookup stays intact.
   const BUCKET = Math.max(60, Math.round(o.bucketSec ?? 60));
   const perBucket = Math.max(1, Math.round(BUCKET / 60));
-  if (candles.length < 10) return undefined;
+  if (candles.length < 2) return undefined; // draw from the first candles (min-periods=1)
   const minuteClose = new Map<number, number>();
   for (const c of candles) minuteClose.set(Math.floor(c.time / BUCKET), c.close);
   const mins = Array.from(minuteClose.keys()).sort((a, b) => a - b);
@@ -82,14 +84,15 @@ export function trendAnalysis(
     let e = mClose[0];
     for (let i = 0; i < mClose.length; i++) {
       e = i === 0 ? mClose[0] : mClose[i] * k + e * (1 - k);
-      lineV.push(i < 5 ? null : e); // small warmup
+      lineV.push(e); // draw from candle 1 (the EMA seeds from the first close)
     }
   } else {
     for (let i = 0; i < mClose.length; i++) {
-      if (i < 4) { lineV.push(null); continue; }
+      // min-periods=1: average whatever's available (up to 5), from candle 1.
+      const start = Math.max(0, i - 4);
       let s = 0;
-      for (let j = 0; j < 5; j++) s += mClose[i - j];
-      lineV.push(s / 5);
+      for (let j = start; j <= i; j++) s += mClose[j];
+      lineV.push(s / (i - start + 1));
     }
   }
 
@@ -98,7 +101,7 @@ export function trendAnalysis(
   const allAbs: number[] = [];
   mins.forEach((m, i) => {
     const now = lineV[i];
-    const then = i >= LOOK ? lineV[i - LOOK] : null;
+    const then = i >= LOOK ? lineV[i - LOOK] : i > 0 ? lineV[0] : null; // shorter lookback early
     if (now == null || then == null || !(then > 0)) return;
     const pct = ((now - then) / then) * 100;
     pctOfMin.set(m, { pct, line: now });
