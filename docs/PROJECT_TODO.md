@@ -2,6 +2,24 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T171 [EXEC/UI/SEA] — "Rider" — collapse the 5 exit strategies into ONE unified exit — SPEC LOCKED 2026-08-21 🆕
+Partha: **remove Sprint / Runway / Anchor / Glide / Ladder** — replace all of them with a
+single exit strategy named **"Rider."** Every trade uses Rider; no per-cohort exit-strategy
+choice anymore.
+- **Rider = the locked stop redesign (T167) + Next-T TP (T169):**
+  - **Stop:** one marker (Red SL / Yellow TSL), SL xor TSL, **TSL default & always active** —
+    support-start (S1/S2/S3, fallback x-back candle low) → **x-back candle-low trail** from the
+    next candle, ratchet-up (xBack=1), **intra-candle exit** on a cross below.
+  - **Target:** **Next-T** (%/₹/next resistance), step up T1→T2→T3, **trend → ride** (no early
+    cap) + wide safety cap.
+- **Signal exits KEPT as additional triggers:** the MA/SMA5 **ribbon flip** and the ML
+  **exit_signal** still exit (trade closes on whichever fires first — signal *or* Rider's
+  stop/target). The 5 named *strategies* are what disappear.
+- **CLEANUP (per the standing rule):** rip out `exitStrategies.ts` (ladderDecide/runway/
+  anchor/glide), the `cohortStrategy`/`exitStrategy` selection + all per-strategy Settings-menu
+  rows, and the `exitStrategy` enum down to just Rider (or drop it). No orphan knobs/code.
+- Cohorts (scalp/trend/ma/sma5/swing — the *entry* signals) are unaffected.
+
 ### T170 [UI] — Re-entered trades look visually distinct in the desk row — SPEC 2026-08-21 🆕
 Partha: when a trade is **re-entered** (re-entry after a partial exit, or the T153 trend
 re-entry after a stop-out), its desk row should look **visually different** from a fresh
