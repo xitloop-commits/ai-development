@@ -37,7 +37,6 @@ import { istDateString } from "@/lib/signalChart";
 import {
   trendAnalysis,
   trendReadoutText,
-  steepLines,
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
@@ -228,14 +227,14 @@ function InstrumentPane({
     [c.candles, taOpts, indicators, sma5CandleSec],
   );
   const extraLines = useMemo(() => {
-    // Stack order: SMA5 ribbon + steep parallels below, MA ribbon ON TOP of all.
+    // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone parallels
+    // removed 2026-08-21.)
     const arr = [
       ...(trendS?.lines ?? []).map((l) => ({ ...l, order: 1000 })),
-      ...(trendA ? steepLines(trendA, c.candles as { time: number }[]).map((l) => ({ ...l, order: 1000 })) : []),
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ];
     return arr.length ? (arr as never) : undefined;
-  }, [trendA, trendS, c.candles]);
+  }, [trendA, trendS]);
   const trendReadout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();

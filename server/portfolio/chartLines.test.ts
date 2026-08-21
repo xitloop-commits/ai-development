@@ -5,8 +5,12 @@
  * this pins the maths the chart now draws.
  */
 import { describe, it, expect } from "vitest";
-import { bucketTicksToCandles } from "../../shared/candles";
+import { bucketTicksToCandles, type OhlcCandle } from "../../shared/candles";
+import { sma5SignalLine, maRibbonSignal } from "../../shared/chartLines";
 import { computeSwingLevels } from "./swingLevels";
+
+/** A flat OHLC candle at `close` on bucket `t` (open=high=low=close). */
+const K = (t: number, close: number): OhlcCandle => ({ t, open: close, high: close, low: close, close });
 
 describe("bucketTicksToCandles", () => {
   it("returns [] for empty input or a non-positive bucket", () => {
@@ -81,5 +85,41 @@ describe("chartSwingLevels pipeline (bucket → swing pivots)", () => {
     );
     expect(sw.highs.map((h) => h.price)).toContain(20);
     expect(sw.lows.map((l) => l.price)).toContain(3);
+  });
+});
+
+describe("sma5SignalLine (min-periods=1)", () => {
+  it("averages whatever is available up to `period`, from the first candle", () => {
+    const sig = [10, 12, 14, 16, 18, 20].map((c, i) => K(i * 60, c));
+    const line = sma5SignalLine(sig, 5, false);
+    expect(line.map((b) => b.sma)).toEqual([
+      10, // [10]
+      11, // [10,12]
+      12, // [10,12,14]
+      13, // [10,12,14,16]
+      14, // [10,12,14,16,18]  (full window)
+      16, // [12,14,16,18,20]  (slides)
+    ]);
+    // close is the (raw here) candle close the colour compares against.
+    expect(line.map((b) => b.close)).toEqual([10, 12, 14, 16, 18, 20]);
+  });
+});
+
+describe("maRibbonSignal (slope trend)", () => {
+  it("classifies a steadily RISING series as up-trend on the confirmed tail", () => {
+    const sig = Array.from({ length: 12 }, (_, i) => K(i * 60, 100 + i));
+    const r = maRibbonSignal(sig, { source: "ma" });
+    expect(r.length).toBeGreaterThan(0);
+    expect(r[r.length - 1].trend).toBe(1);
+  });
+
+  it("classifies a steadily FALLING series as down-trend on the confirmed tail", () => {
+    const sig = Array.from({ length: 12 }, (_, i) => K(i * 60, 200 - i));
+    const r = maRibbonSignal(sig, { source: "ma" });
+    expect(r[r.length - 1].trend).toBe(-1);
+  });
+
+  it("returns [] for fewer than 2 candles", () => {
+    expect(maRibbonSignal([K(0, 100)], { source: "ma" })).toEqual([]);
   });
 });

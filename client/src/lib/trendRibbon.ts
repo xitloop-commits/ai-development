@@ -13,6 +13,8 @@
  * lag returns at the right edge).
  */
 
+import { IST_OFFSET_SECONDS } from "./signalChart";
+
 export interface RibbonPoint { time: number; value?: number; color?: string }
 
 export interface MinuteState {
@@ -175,6 +177,33 @@ export function trendAnalysis(
   return finalize(candles, st);
 }
 
+/** T169-B — one server ribbon sample per SIGNAL candle (from shared/chartLines
+ *  maRibbonSignal). `t` is the RAW bucket-start epoch seconds. */
+export interface ServerRibbonBucket { t: number; line: number; trend: -1 | 0 | 1; deg: number }
+
+/**
+ * T169-B — build the client TrendAnalysis (ribbon line + readout state) from the
+ * SERVER's per-signal-candle ribbon, so the drawn ribbon is authoritative (no
+ * client recompute). Expands each server bucket to the display minutes it covers
+ * exactly like trendAnalysis's own perBucket step, then runs the SAME finalize.
+ */
+export function ribbonFromServerBuckets(
+  buckets: ServerRibbonBucket[],
+  candles: { time: number; close: number }[],
+  bucketSec: number,
+): TrendAnalysis {
+  const perBucket = Math.max(1, Math.round(Math.max(60, bucketSec) / 60));
+  const st = new Map<number, MinuteState>();
+  for (const b of buckets) {
+    // Raw bucket start -> IST bucket start (IST_OFFSET is a multiple of bucketSec).
+    const m0 = Math.floor((b.t + IST_OFFSET_SECONDS) / 60);
+    for (let j = 0; j < perBucket; j++) {
+      st.set(m0 + j, { trend: b.trend, deg: b.deg, line: b.line, runMin: 1 });
+    }
+  }
+  return finalize(candles, st);
+}
+
 /** Run-age stamping + ribbon line construction (shared by smooth/raw paths). */
 function finalize(
   candles: { time: number; close: number }[],
@@ -197,30 +226,6 @@ function finalize(
     line.push({ time: c.time, value: a.line * 0.9995, color });
   });
   return { lines: [{ data: line, color: GRAY }], minuteState: st };
-}
-
-/**
- * Steep-zone parallels derived from an analysis (the old MultiChartPage
- * steepMaLines, now on the SHARED self-calibrating engine): BLUE 1.5% below
- * the line while the angle exceeds +50°, PINK 1.5% ABOVE it while below −50°.
- * Whitespace points everywhere else, so each line stops when the slope leaves
- * its zone (TickChart renders one series per contiguous run).
- */
-export function steepLines(
-  a: TrendAnalysis,
-  candles: { time: number }[],
-): { data: RibbonPoint[]; color: string }[] {
-  const up: RibbonPoint[] = [];
-  const down: RibbonPoint[] = [];
-  for (const c of candles) {
-    const s = a.minuteState.get(Math.floor(c.time / 60));
-    up.push(s && s.deg > 50 ? { time: c.time, value: s.line * 0.985 } : { time: c.time });
-    down.push(s && s.deg < -50 ? { time: c.time, value: s.line * 1.015 } : { time: c.time });
-  }
-  return [
-    { data: up, color: "#3B82F6" },   // blue — steep climb
-    { data: down, color: "#F472B6" }, // pink — steep fall
-  ];
 }
 
 /** Bottom-readout text for one minute's state (or the latest). */

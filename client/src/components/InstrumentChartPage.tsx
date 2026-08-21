@@ -44,7 +44,7 @@ import { Sma5StatusStrip } from "./Sma5StatusStrip";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
-import { trendAnalysis, trendReadoutText, type TrendAngleOptions } from "@/lib/trendRibbon";
+import { trendAnalysis, trendReadoutText, ribbonFromServerBuckets, type TrendAngleOptions } from "@/lib/trendRibbon";
 
 const REPLAY_STEP_MS = 250;
 
@@ -502,6 +502,17 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   );
   const serverSwings = serverSwingsQuery.data;
 
+  // T169-B — SERVER-AUTHORITATIVE SMA5 line + MA/SMA5 ribbons on the signal
+  // timeframe. Only fetched when one of those indicators is on; the chart falls
+  // back to its own client compute while this is loading/empty.
+  const wantsServerLines =
+    indicators.has("sma5") || indicators.has("maRibbon") || indicators.has("sma5Ribbon");
+  const serverLinesQuery = trpc.trading.chartLines.useQuery(
+    { instrument: inst ?? "", date, timeframeSec: sma5CandleSec },
+    { enabled: !!inst && !!date && wantsServerLines, staleTime: 60_000, refetchOnWindowFocus: false },
+  );
+  const serverLines = serverLinesQuery.data;
+
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
     { instrument: inst ?? "" },
@@ -670,12 +681,17 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   // each toggleable from the indicator menu (2026-08-13).
   const trendA = useMemo(() => {
     if (!singlePane || !indicators.has("maRibbon")) return undefined;
+    // T169-B — prefer the server ribbon; client compute only as a fallback.
+    if (serverLines?.ma?.length)
+      return ribbonFromServerBuckets(serverLines.ma, baseCandles as { time: number; close: number }[], maCandleSec);
     return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec });
-  }, [singlePane, baseCandles, taOpts, indicators, maCandleSec]);
+  }, [singlePane, baseCandles, taOpts, indicators, maCandleSec, serverLines]);
   const trendS = useMemo(() => {
     if (!singlePane || !indicators.has("sma5Ribbon")) return undefined;
+    if (serverLines?.sma5Ribbon?.length)
+      return ribbonFromServerBuckets(serverLines.sma5Ribbon, baseCandles as { time: number; close: number }[], sma5CandleSec);
     return trendAnalysis(baseCandles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec });
-  }, [singlePane, baseCandles, taOpts, indicators, sma5CandleSec]);
+  }, [singlePane, baseCandles, taOpts, indicators, sma5CandleSec, serverLines]);
   const trendLines = useMemo(
     () => (trendA || trendS ? ([...(trendA?.lines ?? []), ...(trendS?.lines ?? [])] as never) : undefined),
     [trendA, trendS],
@@ -992,6 +1008,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               sma5Period={sma5Period}
               sma5CandleSec={sma5CandleSec}
               serverSwings={serverSwings}
+              serverSma5={serverLines?.sma5}
               loading={ticksLoading}
               className="h-full"
             />
@@ -1019,6 +1036,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             sma5Period={sma5Period}
             sma5CandleSec={sma5CandleSec}
             serverSwings={serverSwings}
+            serverSma5={serverLines?.sma5}
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
             trendReadout={trendReadout}

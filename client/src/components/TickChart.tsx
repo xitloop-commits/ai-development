@@ -151,6 +151,10 @@ export interface TickChartProps {
    *  timeframe from the recorded ticks). When present the "swings" indicator
    *  draws these instead of recomputing off the display candles. */
   serverSwings?: { highs: { price: number }[]; lows: { price: number }[] };
+  /** T169-B — server-authoritative SMA5 line, one sample per SIGNAL candle (t =
+   *  raw bucket-start epoch). When present the "sma5" indicator maps these onto
+   *  the display candles instead of recomputing. */
+  serverSma5?: { t: number; sma: number | null; close: number | null }[];
   /** Test-chart (2026-08-11): show the SMA5 line's angle at the HOVERED candle
    *  in a bottom strip — degrees + %/5c (0.2%/5c ≈ 45°, underlying scale). */
   hoverAngleStrip?: boolean;
@@ -195,6 +199,7 @@ export function TickChart({
   sma5Period = 5,
   sma5CandleSec = 60,
   serverSwings,
+  serverSma5,
   extraLines,
   tslAnchorTime,
   tslIgnoredTimes,
@@ -473,11 +478,28 @@ export function TickChart({
     // so the flips line up with the signals that actually fire — independent of
     // the chart's own candle style.
     if (indicators.has("sma5")) {
-      // Compute on the SIGNAL's timeframe (sma5CandleSec), not the display
-      // interval, so the line matches the fires even on a finer/coarser chart.
-      const htf = higherTfSma(rawCandles, sma5CandleSec, sma5Period, sma5Ha);
-      const sv = htf.sma;
-      const src = htf.close;
+      // T169-B — prefer the SERVER-AUTHORITATIVE SMA5 line (one sample per signal
+      // candle), mapping each display candle onto its signal bucket. Fall back to
+      // the client higherTfSma only while the server line is loading/empty.
+      let sv: (number | null)[];
+      let src: (number | null)[];
+      if (serverSma5 && serverSma5.length) {
+        const byBucket = new Map(serverSma5.map((b) => [b.t, b]));
+        const tf = Math.max(1, sma5CandleSec);
+        sv = new Array(candles.length).fill(null);
+        src = new Array(candles.length).fill(null);
+        for (let i = 0; i < candles.length; i++) {
+          // Display candle time is IST-shifted; server bucket t is raw epoch and
+          // IST_OFFSET is a multiple of tf, so this lands on the matching bucket.
+          const rawBucket = Math.floor(((candles[i].time as number) - IST_OFFSET_SECONDS) / tf) * tf;
+          const b = byBucket.get(rawBucket);
+          if (b) { sv[i] = b.sma; src[i] = b.close; }
+        }
+      } else {
+        const htf = higherTfSma(rawCandles, sma5CandleSec, sma5Period, sma5Ha);
+        sv = htf.sma;
+        src = htf.close;
+      }
       // Thin + BRIGHT (Partha, 2026-08-05): width 1 so candles stay readable
       // underneath, neon green/red so the state still pops at a glance.
       const SMA5_UP = "#00e676", SMA5_DOWN = "#ff1744";
@@ -735,7 +757,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

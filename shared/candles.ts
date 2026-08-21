@@ -51,3 +51,22 @@ export function bucketTicksToCandles(
   if (cur) out.push(cur);
   return out;
 }
+
+/** Heikin-Ashi transform of already-bucketed candles (times preserved). Mirrors
+ *  client/src/lib/instrumentChart.ts heikinAshi so client + server agree. */
+export function heikinAshi(candles: OhlcCandle[]): OhlcCandle[] {
+  const out: OhlcCandle[] = [];
+  let prevOpen = 0;
+  let prevClose = 0;
+  for (let i = 0; i < candles.length; i++) {
+    const { open: o, high: h, low: l, close: c, t } = candles[i];
+    const haClose = (o + h + l + c) / 4;
+    const haOpen = i === 0 ? (o + c) / 2 : (prevOpen + prevClose) / 2;
+    const haHigh = Math.max(h, haOpen, haClose);
+    const haLow = Math.min(l, haOpen, haClose);
+    out.push({ t, open: haOpen, high: haHigh, low: haLow, close: haClose });
+    prevOpen = haOpen;
+    prevClose = haClose;
+  }
+  return out;
+}

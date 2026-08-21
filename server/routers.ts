@@ -19,13 +19,14 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion, getSma5LineConfig } from "./seaControl";
 import { listModelVersions } from "./modelVersions";
-import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
+import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig, getCommonConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
 import { getTradesForDateWithCycleNo } from "./portfolio/state";
 import { portfolioAgent } from "./portfolio";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
 import { bucketTicksToCandles } from "../shared/candles";
+import { sma5SignalLine, maRibbonSignal } from "../shared/chartLines";
 import { computeSwingLevels } from "./portfolio/swingLevels";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
@@ -421,6 +422,30 @@ export const appRouter = router({
           input.strength ?? 2,
           input.count ?? 3,
         );
+      }),
+
+    // T169-B — SERVER-AUTHORITATIVE SMA5 line + MA/SMA5 slope ribbons. Buckets
+    // the recorded underlying ticks on the SIGNAL timeframe and computes the line
+    // values + trend state ONCE (per signal candle); the chart maps each onto its
+    // display candles (approach B), so the drawn lines match the server exactly.
+    chartLines: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          timeframeSec: z.number().int().positive(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const ticks = await readUnderlyingTicks(input.instrument, input.date);
+        const signal = bucketTicksToCandles(ticks.t, ticks.ltp, input.timeframeSec);
+        const cfg = getSma5LineConfig(input.instrument);
+        const ta = getCommonConfig().trendAngle;
+        return {
+          sma5: sma5SignalLine(signal, cfg.period, cfg.useHa),
+          ma: maRibbonSignal(signal, { ...ta, source: "ma" }),
+          sma5Ribbon: maRibbonSignal(signal, { ...ta, source: "sma5" }),
+        };
       }),
 
     // One option contract's recorded ticks for a date (filtered from the big
