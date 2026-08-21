@@ -493,6 +493,15 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     if (!intervalTouchedRef.current && sma5CfgQuery.data) setIntervalSec(sma5CandleSec);
   }, [sma5CandleSec, sma5CfgQuery.data]);
 
+  // T169-B — SERVER-AUTHORITATIVE swing levels on the SIGNAL timeframe. Only
+  // fetched when the "swings" indicator is on; the chart falls back to its own
+  // client compute while this is loading/empty.
+  const serverSwingsQuery = trpc.trading.chartSwingLevels.useQuery(
+    { instrument: inst ?? "", date, timeframeSec: sma5CandleSec },
+    { enabled: !!inst && !!date && indicators.has("swings"), staleTime: 60_000, refetchOnWindowFocus: false },
+  );
+  const serverSwings = serverSwingsQuery.data;
+
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
     { instrument: inst ?? "" },
@@ -982,6 +991,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               sma5Ha={sma5Ha}
               sma5Period={sma5Period}
               sma5CandleSec={sma5CandleSec}
+              serverSwings={serverSwings}
               loading={ticksLoading}
               className="h-full"
             />
@@ -1008,6 +1018,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             sma5Ha={sma5Ha}
             sma5Period={sma5Period}
             sma5CandleSec={sma5CandleSec}
+            serverSwings={serverSwings}
             loading={ticksLoading}
             hoverAngleStrip={singlePane}
             trendReadout={trendReadout}

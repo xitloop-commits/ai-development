@@ -147,6 +147,10 @@ export interface TickChartProps {
    *  300. When it differs from the chart's display interval, the line is a
    *  higher-timeframe step line so it matches the signals that fire. */
   sma5CandleSec?: number;
+  /** T169-B — server-authoritative swing S/R levels (computed on the signal
+   *  timeframe from the recorded ticks). When present the "swings" indicator
+   *  draws these instead of recomputing off the display candles. */
+  serverSwings?: { highs: { price: number }[]; lows: { price: number }[] };
   /** Test-chart (2026-08-11): show the SMA5 line's angle at the HOVERED candle
    *  in a bottom strip — degrees + %/5c (0.2%/5c ≈ 45°, underlying scale). */
   hoverAngleStrip?: boolean;
@@ -190,6 +194,7 @@ export function TickChart({
   sma5Ha = true,
   sma5Period = 5,
   sma5CandleSec = 60,
+  serverSwings,
   extraLines,
   tslAnchorTime,
   tslIgnoredTimes,
@@ -522,13 +527,16 @@ export function TickChart({
     // (green T1-3) + troughs (red S1-3). Pure price structure, independent of any
     // trade/entry. Configurable X/strength is a follow-up; defaults 3 / 2.
     if (indicators.has("swings")) {
-      const SWING_STRENGTH = 2;
-      const SWING_COUNT = 3;
-      const sw = computeSwingLevels(
-        candles.map((c) => ({ time: c.time as number, high: c.high, low: c.low })),
-        SWING_STRENGTH,
-        SWING_COUNT,
-      );
+      // T169-B — prefer the SERVER-AUTHORITATIVE levels (computed once on the
+      // SIGNAL timeframe from the recorded ticks). Fall back to a client compute
+      // off the display candles only while the server query is loading/empty.
+      const sw = serverSwings && (serverSwings.highs.length || serverSwings.lows.length)
+        ? serverSwings
+        : computeSwingLevels(
+            candles.map((c) => ({ time: c.time as number, high: c.high, low: c.low })),
+            2,
+            3,
+          );
       sw.highs.forEach((lv, i) =>
         series.createPriceLine({
           price: lv.price, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
@@ -727,7 +735,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

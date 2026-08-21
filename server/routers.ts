@@ -25,6 +25,8 @@ import { getTradesForDateWithCycleNo } from "./portfolio/state";
 import { portfolioAgent } from "./portfolio";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
+import { bucketTicksToCandles } from "../shared/candles";
+import { computeSwingLevels } from "./portfolio/swingLevels";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -395,6 +397,31 @@ export const appRouter = router({
         }),
       )
       .query(({ input }) => readUnderlyingTicks(input.instrument, input.date)),
+
+    // T169-B — SERVER-AUTHORITATIVE swing S/R levels. The chart used to compute
+    // swings itself off its display candles; now the server buckets the SAME
+    // recorded ticks on the SIGNAL timeframe and computes the pivots once, so the
+    // chart draws the authoritative levels (no client-vs-server drift). Returns
+    // the last 3 swing highs + lows as price levels.
+    chartSwingLevels: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          timeframeSec: z.number().int().positive(),
+          strength: z.number().int().positive().max(10).optional(),
+          count: z.number().int().positive().max(10).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const ticks = await readUnderlyingTicks(input.instrument, input.date);
+        const candles = bucketTicksToCandles(ticks.t, ticks.ltp, input.timeframeSec);
+        return computeSwingLevels(
+          candles.map((c) => ({ t: c.t, high: c.high, low: c.low })),
+          input.strength ?? 2,
+          input.count ?? 3,
+        );
+      }),
 
     // One option contract's recorded ticks for a date (filtered from the big
     // all-strikes option file). SLOW (~15–30s on a 0.2–1 GB gz) — used ONCE to
