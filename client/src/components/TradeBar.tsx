@@ -47,16 +47,6 @@ export interface TradeBarProps {
    *  Derived by the parent from the trade's actual stop price, so it follows
    *  edits and server-side trailing. Goes negative once the stop is in profit. */
   slPercent?: number;
-  /** T147 (Ladder) — the hard-floor MSL distance as a % of entry (the safety net
-   *  the stop can never cross). Drawn as a static tick on the loss side, further
-   *  out than the moving SL. Absent for every non-Ladder trade. */
-  mslPercent?: number;
-  /** Ladder honour-exit candle-TSL: the current candle level as a FAVOURABLE %
-   *  (signed — positive above entry, negative below). Drawn as a faint dashed
-   *  TSL line while it's still below entry (climbing toward becoming the live
-   *  stop); above entry it IS the stop, drawn as the solid yellow TSL instead so
-   *  this is only rendered on the loss side. Absent outside candle-TSL mode. */
-  dynTslPercent?: number;
   /** Take-profit %. TP = entry + tpPercent% (BUY). */
   tpPercent?: number;
   /** Label for the take-profit marker (default "TP"). Ladder passes "MTP" — its
@@ -67,11 +57,6 @@ export interface TradeBarProps {
    *  top-RIGHT once it has locked at/above entry. Independent of where the
    *  moving marker sits. */
   stopReadoutTop?: boolean;
-  /** T147 (Ladder) — the TTP (Trailing-TP) line as a favourable-% of entry. A
-   *  VISUAL-ONLY marker (never exits; MTP is the exit). The parent computes it as
-   *  max(startPct, peakFav + trailPct) so it floats above the running high.
-   *  Absent for non-Ladder trades. */
-  ttpPercent?: number;
   /** Trailing enabled (global). When on but the stop hasn't trailed into profit
    *  yet, a thin "pending" TSL marker is drawn at the activation gate. */
   trailingEnabled?: boolean;
@@ -91,7 +76,7 @@ export interface TradeBarProps {
    *  Anchor have one — pass null for Sprint (no cooling window). */
   coolingEndsAt?: number | null;
   /** Cumulative ms the LTP spent BELOW entry (red-zone timer, drawn just left of
-   *  the MSL) and ABOVE entry (green-zone timer, just right of the MTP). Tiny
+   *  the stop) and ABOVE entry (green-zone timer, just right of the MTP). Tiny
    *  MM:SS inside the track. Absent → not drawn. */
   msBelowEntry?: number | null;
   msAboveEntry?: number | null;
@@ -107,7 +92,7 @@ export interface TradeBarProps {
   roundTripCharges?: number;
   /** Compact mode (tight table cells): bar + ticks only, no text labels. */
   compact?: boolean;
-  /** Show the numeric price labels under the markers (SL / E / TP / MSL / TTP).
+  /** Show the numeric price labels under the markers (SL / E / TP).
    *  Default false — the bar reads cleaner as coloured markers; flip on to see
    *  the exact prices. */
   showPrices?: boolean;
@@ -152,11 +137,9 @@ const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → L
 const GREY = "rgba(148, 163, 184, 0.35)";
 
 const SL_COLOR = "#dc2626";
-const MSL_COLOR = "#7f1d1d"; // dark crimson — the Ladder hard-floor safety net (distinct from the bright SL red)
 const ENTRY_COLOR = "#2563eb"; // blue — visible on dark rows
 const TSL_COLOR = "#eab308"; // stop colour once it has trailed into profit
 const TP_COLOR = "#22c55e"; // green
-const TTP_COLOR = "#14b8a6"; // teal — Ladder's visual trailing-TP at the peak (distinct from the MTP green)
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
@@ -174,14 +157,11 @@ export function TradeBar({
   entryPrice,
   ltp,
   slPercent,
-  mslPercent,
-  dynTslPercent,
   tpPercent,
   tpLabel = "TP",
   stopReadoutTop = false,
   msBelowEntry,
   msAboveEntry,
-  ttpPercent,
   trailingEnabled = false,
   tslGatePrice,
   tslHoldSeconds,
@@ -215,10 +195,6 @@ export function TradeBar({
   const hasTp = tpPercent != null;
   const slPct = slPercent ?? 5; // scale-only fallback — never drawn as a marker
   const tpPct = tpPercent ?? 10; // scale-only fallback — never drawn as a marker
-  // Ladder hard floor (MSL): a static tick on the loss side, further out than SL.
-  const hasMsl = mslPercent != null && mslPercent > 0;
-  const mslFav = hasMsl ? -(mslPercent as number) : null; // below entry (loss side)
-
   // Favourable-% of the stop. Negative when the stop is below entry (at risk);
   // positive once it has trailed into profit ("locked").
   const stopFav = -slPct;
@@ -230,9 +206,8 @@ export function TradeBar({
   // Scale anchored to the trade's own levels: stop on the left (+ a little pad,
   // but never above entry) and TP on the right (+ headroom). The upper bound
   // auto-extends if price runs past TP.
-  // Upper bound covers the TP and the TTP (which floats above the peak, so it can
-  // sit past the MTP), plus headroom.
-  const baseMaxFav = Math.max(tpPct, ttpPercent ?? 0) + RIGHT_HEADROOM;
+  // Upper bound covers the TP, plus headroom.
+  const baseMaxFav = tpPct + RIGHT_HEADROOM;
 
   // ── State ───────────────────────────────────────────────────────────
   const [maxFav, setMaxFav] = useState(baseMaxFav);
@@ -306,14 +281,11 @@ export function TradeBar({
   // Lower plotted bound sits LEFT_PAD below the stop (or below entry, whichever
   // is lower), so entry stays visible even when the stop has trailed into profit.
   const EDGE = 4;
-  // Include the MSL floor in the lower bound so the safety-net tick stays on-scale
-  // even when it sits further out than the (tightening) SL.
-  const lowFav = Math.min(stopFav, mslFav ?? stopFav, 0) - LEFT_PAD;
+  const lowFav = Math.min(stopFav, 0) - LEFT_PAD;
   const span = maxFav - lowFav;
   const pos = (fav: number) => clamp(EDGE + ((fav - lowFav) / span) * (100 - 2 * EDGE));
 
   const stopPos = pos(stopFav);
-  const mslPos = mslFav != null ? pos(mslFav) : null;
   const entryPos = pos(0);
   const tpPos = pos(tpPct);
   const ltpPos = pos(ltpFav);
@@ -388,18 +360,6 @@ export function TradeBar({
   const stopText = trailingEnabled ? "TSL" : "SL";
   const stopProfit = profitAtFav(stopFav);
   const stopTip = `${trailingEnabled ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
-  const mslPrice = mslFav != null ? favToPrice(mslFav) : null;
-  const mslTip = mslFav != null
-    ? `Max stop-loss ${formatPrice(mslPrice as number)} (${fmtSign(mslFav)}) — the Ladder safety net; the stop can never cross it.`
-    : "";
-  // Candle-TSL informational line — only while it's still below entry (climbing
-  // up to become the live stop). Above entry it IS the stop (drawn yellow above).
-  const dynTslFav = dynTslPercent != null ? dynTslPercent : null;
-  const dynTslPos = dynTslFav != null && dynTslFav < 0 ? pos(dynTslFav) : null;
-  const dynTslPrice = dynTslFav != null ? favToPrice(dynTslFav) : null;
-  const dynTslTip = dynTslFav != null
-    ? `Candle TSL ${formatPrice(dynTslPrice as number)} (${fmtSign(dynTslFav)}) — the dynamic trailing stop is climbing; it goes live (yellow) once it rises above entry.`
-    : "";
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `${tpLabel} ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
@@ -415,16 +375,6 @@ export function TradeBar({
   const troughPos = troughFav != null ? pos(troughFav) : null;
   const peakTip = peakFav != null
     ? `Ran up to ${formatPrice(peakLtp as number)} (${fmtSign(peakFav)})${profitAtFav(peakFav) != null ? ` · best ${fmtMoney(profitAtFav(peakFav) as number)}` : ""}`
-    : "";
-  // TTP (Ladder): the trailing-TP LINE — visual only. Sits at ttpPercent, which
-  // the parent computes as max(start%, peakFav + trail%), so it floats a fixed
-  // gap above the running high.
-  const showTtpMarker = ttpPercent != null && ttpPercent > 0;
-  const ttpFav = ttpPercent ?? 0;
-  const ttpPos = showTtpMarker ? pos(ttpFav) : null;
-  const ttpPrice = favToPrice(ttpFav);
-  const ttpTip = showTtpMarker
-    ? `TTP (trailing TP) ${formatPrice(ttpPrice)} (${fmtSign(ttpFav)}) — floats above the high; visual only, never exits.`
     : "";
   const troughTip = troughFav != null
     ? `Dipped to ${formatPrice(troughLtp as number)} (${fmtSign(troughFav)})${profitAtFav(troughFav) != null ? ` · worst ${fmtMoney(profitAtFav(troughFav) as number)}` : ""}`
@@ -465,18 +415,15 @@ export function TradeBar({
     );
   };
 
-  // ── Measurement arrows (<—— x% ——>) — a fixed chain: stop → LTP → TTP → MTP.
+  // ── Measurement arrows (<—— x% ——>) — a fixed chain: stop → LTP → MTP.
   // ① stop→LTP  = cushion the price has above the stop
-  // ② LTP→TTP   = room left up to the trailing take-profit line
-  // ③ TTP→MTP   = gap from that line to the take-profit EXIT
-  // Points that don't exist for this trade (no TTP on non-Ladder, no stop / no
-  // TP) drop out and the chain closes up. Each gap is tinted by the point it runs
-  // UP TO: green→LTP, yellow→TTP, grey→MTP.
-  type ChainKind = 'stop' | 'LTP' | 'TTP' | 'MTP';
+  // ② LTP→MTP   = room left up to the take-profit EXIT
+  // Points that don't exist (no stop / no TP) drop out and the chain closes up.
+  // Each gap is tinted by the point it runs UP TO: green→LTP, grey→MTP.
+  type ChainKind = 'stop' | 'LTP' | 'MTP';
   const chainPts: Array<{ pos: number; fav: number; kind: ChainKind }> = [];
   if (hasStop) chainPts.push({ pos: stopPos, fav: stopFav, kind: 'stop' });
   chainPts.push({ pos: ltpPos, fav: ltpFav, kind: 'LTP' });
-  if (ttpPos != null) chainPts.push({ pos: ttpPos, fav: ttpFav, kind: 'TTP' });
   if (hasTp) chainPts.push({ pos: tpPos, fav: tpPct, kind: 'MTP' });
   const chainSegs = chainPts.slice(0, -1).map((a, i) => {
     const b = chainPts[i + 1];
@@ -485,7 +432,6 @@ export function TradeBar({
   const CHAIN_COLOR: Record<ChainKind, string> = {
     stop: '#fecaca',
     LTP: '#dcfce7',
-    TTP: '#fde68a',
     MTP: '#e5e7eb',
   };
 
@@ -569,8 +515,8 @@ export function TradeBar({
           </span>
         )
       )}
-      {/* Top tier: % chips for the measurement chain (① stop→LTP · ② LTP→TTP ·
-          ③ TTP→MTP). Skip a chip when its gap is too thin to read. */}
+      {/* Top tier: % chips for the measurement chain (① stop→LTP · ② LTP→MTP).
+          Skip a chip when its gap is too thin to read. */}
       <div className="relative w-full" style={{ height: "11px" }}>
         {chainSegs.map((s, i) => {
           if (Math.abs(s.toPos - s.fromPos) <= 6) return null; // too thin to read
@@ -630,7 +576,7 @@ export function TradeBar({
           })()}
         </div>
 
-        {/* Measurement arrows: the fixed chain stop→LTP→TTP→MTP. Tiny gaps
+        {/* Measurement arrows: the fixed chain stop→LTP→MTP. Tiny gaps
             self-skip inside GapLine. */}
         {chainSegs.map((s, i) => (
           <GapLine key={i} from={s.fromPos} to={s.toPos} color="rgba(220,252,231,0.9)" />
@@ -639,21 +585,8 @@ export function TradeBar({
         {/* Marker ticks — each its own hover tooltip. The stop/TSL marker is
             lifted above the gap arrows + bands so it's never obscured. */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Candle-TSL: faint dashed yellow line while it's still below entry,
-              climbing toward becoming the live (solid yellow) stop. */}
-          {dynTslPos != null && (
-            <div
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
-              style={{ left: `${dynTslPos}%`, width: "12px", height: "16px", zIndex: 8 }}
-              title={dynTslTip}
-            >
-              <div style={{ width: 0, height: "11px", borderLeft: `2px dashed ${TSL_COLOR}`, opacity: 0.55 }} />
-            </div>
-          )}
-          {mslPos != null && <Tick at={mslPos} color={MSL_COLOR} tip={mslTip} z={9} />}
           {hasStop && <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />}
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />
-          {ttpPos != null && <Tick at={ttpPos} color={TTP_COLOR} tip={ttpTip} z={8} />}
           {hasTp && <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />}
         </div>
 
@@ -683,12 +616,12 @@ export function TradeBar({
         )}
 
         {/* Zone timers (tiny MM:SS inside the track): time spent UNDERWATER (red,
-            just left of the MSL floor) and time IN PROFIT (green, just right of
+            just left of the stop) and time IN PROFIT (green, just right of
             the MTP). Show how long the trade sat each side of entry. */}
         {msBelowEntry != null && msBelowEntry > 0 && (
           <span
             className="absolute z-[12] text-[0.5rem] font-bold tabular-nums leading-none px-0.5 rounded pointer-events-none whitespace-nowrap"
-            style={{ left: `${clamp(mslPos ?? stopPos, 4, 94)}%`, top: "50%", transform: "translate(calc(-100% - 3px), -50%)", color: "#ff6b6b", background: "rgba(0,0,0,0.6)" }}
+            style={{ left: `${clamp(stopPos, 4, 94)}%`, top: "50%", transform: "translate(calc(-100% - 3px), -50%)", color: "#ff6b6b", background: "rgba(0,0,0,0.6)" }}
             title={`Time underwater (LTP below entry): ${fmtMMSS(msBelowEntry)}`}
           >
             {fmtMMSS(msBelowEntry)}
@@ -730,10 +663,8 @@ export function TradeBar({
         {/* Stop: SL centred; once trailed into profit (TSL) it crowds Entry, so
             its price sits to the RIGHT of the marker. Entry's price sits to the
             LEFT of its marker so the two never overlap. */}
-        {mslPos != null && <Label at={mslPos} color={MSL_COLOR} text="MSL" price={mslPrice ?? undefined} hideText={compact} align="left" />}
         {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopLocked ? undefined : stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
-        {ttpPos != null && <Label at={ttpPos} color={TTP_COLOR} text="TTP" price={ttpPrice} hideText={compact} align="left" />}
         {hasTp && <Label at={tpPos} color={TP_COLOR} text={tpLabel} price={tpPrice} hideText={compact} />}
 
         {/* Excursion readouts at the bottom corners — the trade's net ₹ P&L + %

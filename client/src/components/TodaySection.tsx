@@ -94,18 +94,6 @@ export function TodaySection({
     }),
     [aiConfigQuery.data, exitBook],
   );
-  // T147 — Ladder's hard-floor (MSL) %, so a Ladder row can draw the safety-net
-  // marker. null when MSL is switched off (then no marker is drawn).
-  const ladderMslPct = useMemo(() => {
-    const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
-    return l && l.mslEnabled ? (l.mslPct ?? null) : null;
-  }, [aiConfigQuery.data, exitBook]);
-  // T147 — Ladder's TTP (trailing-TP line) params: start % + trail %. The row
-  // draws the marker at max(start, peakFav + trail). null when unavailable.
-  const ladderTtp = useMemo(() => {
-    const l = (aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder;
-    return l ? { start: l.ttpStartPct ?? 5, trail: l.ttpTrailPct ?? 5 } : null;
-  }, [aiConfigQuery.data, exitBook]);
   // ES-honour ON → the ladder's own exits are off; its TSL + TTP markers are
   // hidden (the trade rides to the model's exit signal, not the ladder).
   const ladderEsHonour = useMemo(() => {
@@ -328,8 +316,6 @@ export function TodaySection({
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
           coolingSecByStrategy={coolingSecByStrategy}
-          ladderMslPct={ladderMslPct}
-          ladderTtp={ladderTtp}
           ladderEsHonour={ladderEsHonour}
           ladderEsTslEnabled={ladderEsTslEnabled}
           masterTslEnabled={masterTslEnabled}

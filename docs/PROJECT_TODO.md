@@ -58,10 +58,12 @@ timeframe to the signal timeframe + server-push.
 - **Depends on the T167 TSL give-back fixes** — the step-up + ride rely on the TSL actually
   protecting profit.
 
-**Bar-marker cleanup (this session) — ALL CONFIRMED, ready to build standalone.** Keep
-**E, LTP, SL/TSL, TP**. Remove: **candle-TSL faint line**, **TTP** (visual-only, never
-fires), **MSL** (redundant — the Master SL floor covers it). One TP only. This removal is
-self-contained (TradeBar + TodayTradeRow wiring) and can ship ahead of the rest of T169.
+**Bar-marker cleanup — ✅ SHIPPED 2026-08-21 (step 1 of the revamp).** Bar is now
+**E · LTP · SL/TSL · TP**. Removed the **candle-TSL faint line** (`dynTslPercent`), **TTP**
+(`ttpPercent` + measurement-chain point + `TTP_COLOR`), and **MSL** (`mslPercent` +
+`MSL_COLOR`) from TradeBar; dropped the `ladderMslPct`/`ladderTtp` wiring from TodayTradeRow
++ TodaySection; removed the 3 obsolete TradeBar tests. Verified: tsc clean, 12 TradeBar
+tests green.
 
 **Build note:** substantial — server-side swing computation + Next-T TP exit, the
 one-timeframe collapse, and the server-authoritative line push. Sequence after the T167 TSL

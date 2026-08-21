@@ -56,12 +56,6 @@ export interface TodayTradeRowProps {
   /** Cooling-window seconds per staged-exit strategy (Runway / Anchor), from the
    *  AI menu. Sprint has no cooling window and is absent. */
   coolingSecByStrategy?: { runway: number | null; anchor: number | null };
-  /** T147 — Ladder's hard-floor (MSL) % from entry, or null when MSL is off.
-   *  Drives the safety-net marker on a Ladder trade's bar. */
-  ladderMslPct?: number | null;
-  /** T147 — Ladder's TTP (trailing-TP line) start % + trail %. The row draws the
-   *  marker at max(start, peakFav + trail). null when unavailable. */
-  ladderTtp?: { start: number; trail: number } | null;
   /** ES-honour ON → the ladder's own exits are off; hide its TSL + TTP markers. */
   ladderEsHonour?: boolean;
   ladderEsTslEnabled?: boolean;
@@ -97,8 +91,6 @@ function _TodayTradeRow({
   tslGatePercent,
   tslHoldSeconds,
   coolingSecByStrategy,
-  ladderMslPct,
-  ladderTtp,
   ladderEsHonour,
   ladderEsTslEnabled,
   masterTslEnabled,
@@ -446,27 +438,8 @@ function _TodayTradeRow({
                   const g = tslGatePercent ?? 2;
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
-                mslPercent={trade.exitStrategy === "ladder" ? (ladderMslPct ?? undefined) : undefined}
-                dynTslPercent={
-                  // Candle-TSL informational line: the raw candle level as a
-                  // favourable % (positive above entry). Drawn faint on the loss
-                  // side; once above entry it's the live yellow stop instead.
-                  trade.dynTslLevel != null && trade.dynTslLevel > 0 && trade.entryPrice > 0
-                    ? ((isBuy ? trade.dynTslLevel - trade.entryPrice : trade.entryPrice - trade.dynTslLevel) /
-                        trade.entryPrice) * 100
-                    : undefined
-                }
                 tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
                 stopReadoutTop={trade.exitStrategy === "ladder"}
-                ttpPercent={
-                  trade.exitStrategy === "ladder" && !ladderEsHonour && ladderTtp && trade.entryPrice > 0
-                    ? (() => {
-                        const peak = trade.peakLtp ?? trade.entryPrice;
-                        const peakFav = Math.max(0, ((isBuy ? peak - trade.entryPrice : trade.entryPrice - peak) / trade.entryPrice) * 100);
-                        return Math.max(ladderTtp.start, peakFav + ladderTtp.trail); // float above the high
-                      })()
-                    : undefined
-                }
                 peakLtp={trade.peakLtp}
                 msBelowEntry={trade.msBelowEntry}
                 msAboveEntry={trade.msAboveEntry}
@@ -784,8 +757,6 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.globalTrailingEnabled === b.globalTrailingEnabled &&
     a.tslGatePercent === b.tslGatePercent &&
     a.tslHoldSeconds === b.tslHoldSeconds &&
-    a.ladderMslPct === b.ladderMslPct &&
-    a.ladderTtp === b.ladderTtp &&
     a.ladderEsHonour === b.ladderEsHonour &&
     a.ladderEsTslEnabled === b.ladderEsTslEnabled &&
     a.masterTslEnabled === b.masterTslEnabled &&
