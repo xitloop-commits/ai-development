@@ -181,10 +181,10 @@ export interface TradeRecord {
    *  external close (e.g. MA-Signal's own EXIT signal). Set for the ma_signal
    *  cohort; suppresses TP/SL here + age/stale/volatility/momentum in RcaMonitor. */
   manualExitOnly?: boolean;
-  /** `exitStrategy`: which pluggable exit strategy runs this trade (T84).
-   *  "sprint" = today's TP/SL/TSL/age + honours external EXIT signals;
-   *  "runway"/"anchor" = staged stops, ignore external signals. Default sprint. */
-  exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
+  /** `exitStrategy`: T171 collapsed the 5 strategies into one — every new trade
+   *  is "rider" (the Master exit block). Kept as a free string so historical
+   *  trades keep their original label (sprint/runway/…) for the audit trail. */
+  exitStrategy?: string;
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
   /** The target the SIGNAL supplied at open (null when it sent none). Kept
@@ -408,7 +408,7 @@ export const tradeRecordSchema = new Schema(
     stopLossDisabled: { type: Boolean, default: false },
     targetDisabled: { type: Boolean, default: false },
     manualExitOnly: { type: Boolean, default: false },
-    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor", "glide", "ladder"], default: "sprint" },
+    exitStrategy: { type: String, default: "rider" }, // T171 — free string; old docs keep their label
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     originalTargetPrice: { type: Number, default: null },

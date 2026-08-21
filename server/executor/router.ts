@@ -160,7 +160,7 @@ const placeTradeUiSchema = z.object({
    * "sprint", which made the AI menu's manual strategy pills decorative — a book
    * configured for Runway still ran every manual trade on Sprint.
    */
-  exitStrategy: z.enum(["sprint", "runway", "anchor", "glide", "ladder"]).optional(),
+  exitStrategy: z.enum(["sprint", "runway", "anchor", "glide", "ladder", "rider"]).optional(),
 });
 
 const updateTradeUiSchema = z.object({
@@ -628,7 +628,7 @@ export const executorRouter = router({
     .input(z.object({
       channel: channelSchema,
       tradeId: z.string().min(1),
-      exitStrategy: z.enum(["sprint", "runway", "anchor", "glide", "ladder"]),
+      exitStrategy: z.enum(["sprint", "runway", "anchor", "glide", "ladder", "rider"]),
     }))
     .mutation(async ({ input }) => {
       const day = await portfolioAgent.ensureCurrentDay(input.channel);

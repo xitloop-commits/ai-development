@@ -22,7 +22,10 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
-import { DEFAULT_EXIT_CFG, DEFAULT_LADDER_CFG, type ExitStrategyConfig, type LadderConfig } from "./exitStrategies";
+// T171 (Rider) — the 5-strategy framework is gone; `exitStrategy` is now always
+// "rider" and the only live exit config is the Master block (masterExits) plus
+// the `sprint` sub-config, which the Dhan-managed path still uses to drive the
+// broker-side trailing stop.
 import type { Channel } from "./state";
 
 /**
@@ -38,7 +41,8 @@ export type Book = "paper" | "live";
 /** Who placed the trade, collapsed to the two config streams. USER → manual;
  *  AI and RCA → ai. */
 export type OriginKind = "ai" | "manual";
-export type StrategyName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
+/** T171 — collapsed to a single exit model. Every trade is "rider". */
+export type StrategyName = "rider";
 
 export interface CohortsConfig {
   scalp: boolean;
@@ -153,11 +157,10 @@ export interface GlideConfig {
 }
 
 export interface SharedExitConfig {
+  /** The Dhan-managed path's broker-side trailing-stop knobs. The Lubas-managed
+   *  exit is the Master block (CommonConfig.masterExits); this remains only for
+   *  the case where Dhan holds the SL/TP legs (lubasManagedExit off). */
   sprint: SprintConfig;
-  runway: ExitStrategyConfig;
-  anchor: ExitStrategyConfig;
-  glide: GlideConfig;
-  ladder: LadderConfig; // T147 — cut-losers/ride-winners racer (own staged engine)
   // T129 — `lubasManagedExit` moved to CommonConfig (one live book, one owner).
 }
 
@@ -167,17 +170,6 @@ export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
-  /** Legacy flat race toggle — kept for back-compat; superseded by
-   *  cohortStrategies (T144). Not read by placement any more. */
-  strategies: Record<StrategyName, boolean>;
-  /**
-   * T144 — per-cohort strategy RACE. Each cohort can enable multiple strategies;
-   * an AI signal for that cohort places ONE trade per enabled strategy, so you
-   * can compare (e.g.) Sprint vs Runway on the SAME scalp signal. The cohort's
-   * Common default (cohortStrategy) is always ON — sanitize forces it, so a
-   * cohort can never be silently muted. Glide is only allowed on `ma`.
-   */
-  cohortStrategies: Record<CohortKey, Record<StrategyName, boolean>>;
   sizing: SizingConfig;
   order: OrderConfig;
 }
@@ -302,19 +294,6 @@ export interface CommonConfig {
   lubasManagedExit: boolean;
   masterExits: MasterExitsConfig;
   /**
-   * T139 — the default exit strategy each cohort trades with. One signal → one
-   * trade, using its cohort's strategy. This replaced the per-book "race" (N
-   * strategies on = N trades), which could be left with zero enabled and
-   * silently pause a book. A cohort always brings a strategy, so a routed signal
-   * always places.
-   *
-   * System-wide (not per book): a strategy suits a cohort the same way whichever
-   * book runs it. `ma` should stay Glide-family — Glide relies on the MA leg-end
-   * EXIT and would never close on any other cohort (resolveExitStrategy guards
-   * this and falls back to Sprint).
-   */
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing", StrategyName>;
-  /**
    * Re-enter a signal-cohort trade that got stopped out (SL / MTP / TSL) while
    * the trend was still running. The cohort detectors (SMA5, MA-Signal) fire
    * only on the candle-close cross, then go silent while price rides the line —
@@ -384,10 +363,6 @@ function baseExits(): SharedExitConfig {
       trailingActivationHoldSeconds: 10,
       tpTrailPercent: 1.5,
     },
-    glide: { disasterSlPct: 50, giveBackArmPct: 10, giveBackPct: 50, tpEnabled: false, tpMode: "percent", tp: 25 },
-    runway: { ...DEFAULT_EXIT_CFG },
-    anchor: { ...DEFAULT_EXIT_CFG },
-    ladder: { ...DEFAULT_LADDER_CFG },
   };
 }
 
@@ -412,9 +387,6 @@ function baseCommon(): CommonConfig {
     // Lubas owns live exits by default — the staged strategies + Glide only work
     // this way. Flip to false in Settings to hand SL/TP back to Dhan legs.
     lubasManagedExit: true,
-    // Default strategy per cohort (T139): scalps want a tight fixed stop, trends
-    // want to run, MA rides to its own EXIT, swing banks at target.
-    cohortStrategy: { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", sma_model: "ladder", swing: "anchor" },
     // Re-enter on a stop-out while the trend runs — on by default, 30s window,
     // 3 re-entries max per leg. See CommonConfig.reentryOnTrend.
     reentryOnTrend: { enabled: true, windowSec: 30, maxReentries: 3 },
@@ -443,21 +415,6 @@ function baseCommon(): CommonConfig {
 function baseMode(): AiModeConfig {
   return {
     cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, swing: false },
-    // Glide defaults OFF: it is MA-Signal-only and rides with no stop,
-    // so it must be chosen deliberately, never inherited from a default.
-    strategies: { sprint: true, runway: true, anchor: true, glide: false, ladder: false },
-    // T144 — per-cohort race. Each cohort starts with ONLY its Common default on
-    // (scalp→sprint, trend→runway, ma→glide, swing→anchor); the operator turns on
-    // extra strategies per cohort to race them on the same signal. Ladder (T147)
-    // is a new racer — OFF everywhere until deliberately turned on for a cohort.
-    cohortStrategies: {
-      scalp: { sprint: true, runway: false, anchor: false, glide: false, ladder: false },
-      trend: { sprint: false, runway: true, anchor: false, glide: false, ladder: false },
-      ma: { sprint: false, runway: false, anchor: false, glide: true, ladder: false },
-      sma5: { sprint: false, runway: false, anchor: false, glide: false, ladder: true },
-      sma_model: { sprint: false, runway: false, anchor: false, glide: false, ladder: true },
-      swing: { sprint: false, runway: false, anchor: true, glide: false, ladder: false },
-    },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -481,19 +438,14 @@ function baseMode(): AiModeConfig {
 function baseManual(): AiModeConfig {
   const m = baseMode();
   m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, swing: false };
-  m.strategies = { sprint: false, runway: false, anchor: false, glide: true, ladder: false };
   return m;
 }
 
-/** paper·ai races all three (today's paper behaviour); live·ai is Sprint-only
- *  (today's live behaviour); both manual blocks default to MA-Signal + Glide. */
+/** Every book uses the single Rider exit now; the blocks differ only in cohorts /
+ *  sizing. Replay defaults to a copy of paper's AI setup. */
 function defaultAll(): AllAiConfig {
   const paperAi = baseMode();
   const liveAi = baseMode();
-  liveAi.strategies = { sprint: true, runway: false, anchor: false, glide: false, ladder: false };
-  // Replay defaults to a copy of paper's AI setup (races all four, 1 lot elsewhere
-  // — but whatever paper ships with), so a fresh install replays like paper until
-  // the operator diverges it.
   const replayAi = baseMode();
   return {
     common: baseCommon(),
@@ -585,76 +537,6 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   e.sprint.trailingActivationGatePercent = clampNum(e.sprint.trailingActivationGatePercent, 0, 50, 2);
   e.sprint.trailingActivationHoldSeconds = Math.round(clampNum(e.sprint.trailingActivationHoldSeconds, 0, 120, 10));
   e.sprint.tpTrailPercent = clampNum(e.sprint.tpTrailPercent, 0.1, 50, 1.5);
-  // Glide was never clamped at all — a hand-edited config could put the disaster
-  // stop at 0 (instant exit) and nothing would have caught it.
-  e.glide.disasterSlPct = clampNum(e.glide.disasterSlPct, 5, 95, 50);
-  e.glide.giveBackArmPct = clampNum(e.glide.giveBackArmPct, 0, 200, 10);
-  // 0 = guard OFF. Anything above 0 is clamped into a usable band rather than
-  // silently becoming a hair-trigger.
-  e.glide.giveBackPct = e.glide.giveBackPct === 0 ? 0 : clampNum(e.glide.giveBackPct, 10, 95, 50);
-  e.glide.tpEnabled = !!e.glide.tpEnabled;
-  e.glide.tpMode = exitMode(e.glide.tpMode);
-  e.glide.tp = clampLevel(e.glide.tp, e.glide.tpMode, 500, 25, 3000);
-  for (const st of [e.runway, e.anchor]) {
-    st.slMode = exitMode(st.slMode);
-    st.tpMode = exitMode(st.tpMode);
-    st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
-    // In rupees mode defaultSlPct / defaultTargetPct hold a net ₹ figure, not a %.
-    st.defaultSlPct = clampLevel(st.defaultSlPct, st.slMode, 90, 25, 2000);
-    st.cooledSlPct = clampNum(st.cooledSlPct, 1, 90, 12.5);
-    st.breakevenAtFrac = clampNum(st.breakevenAtFrac, 0, 1, 0.5);
-    // MIN 0.5, not 0: Runway's trailing floor sits at entry + 0.5×target
-    // (runwayDecide). If trailing arms before the peak reaches that floor
-    // (nearTargetFrac < 0.5), the floor is already ABOVE the price, so the trade
-    // "banks" half the target on the FIRST tick without the price ever moving —
-    // a fake instant win (paper Runway did exactly this, 2026-07-30). Keep
-    // activation at or past the floor.
-    st.nearTargetFrac = clampNum(st.nearTargetFrac, 0.5, 1, 0.9);
-    st.trailPct = clampNum(st.trailPct, 1, 90, 15);
-    st.defaultTargetPct = clampLevel(st.defaultTargetPct, st.tpMode, 50, 2.3, 3000);
-  }
-  // T147 — Ladder. Back-fill for a config that predates it, then clamp.
-  if (!e.ladder) (e as SharedExitConfig).ladder = { ...DEFAULT_LADDER_CFG };
-  const l = e.ladder;
-  l.mslEnabled = l.mslEnabled !== false; // safety net ON by default
-  l.mslPct = clampNum(l.mslPct, 1, 90, 8);
-  // SL mode: "fixed" (classical flat stop) vs "stepping" (default, the staged SL + TSL).
-  l.slMode = l.slMode === "fixed" ? "fixed" : "stepping";
-  l.slFixedPct = clampNum(l.slFixedPct, 0.5, 90, 5);
-  l.slStartPct = clampNum(l.slStartPct, 1, 90, 5);
-  // Floor can never be wider than the start (SL only tightens toward entry).
-  l.slFloorPct = clampNum(l.slFloorPct, 0.1, l.slStartPct, Math.min(1, l.slStartPct));
-  l.slStepPct = clampNum(l.slStepPct, 0, 20, 0.5);
-  l.slStepSec = Math.round(clampNum(l.slStepSec, 1, 600, 30));
-  l.slDelaySec = Math.round(clampNum(l.slDelaySec, 0, 600, 0));
-  l.slLtpGapPct = clampNum(l.slLtpGapPct, 0, 20, 1);
-  l.tslArmSec = Math.round(clampNum(l.tslArmSec, 0, 600, 30));
-  l.tslTrailMode = l.tslTrailMode === "peak" ? "peak" : "giveback";
-  l.tslTrailPct = clampNum(l.tslTrailPct, 1, 95, 50);
-  l.ttpStartPct = clampNum(l.ttpStartPct, 0.5, 500, 5);
-  l.ttpTrailPct = clampNum(l.ttpTrailPct, 0.5, 200, 5);
-  l.mtpMode = l.mtpMode === "percent" ? "percent" : "R";
-  l.mtpR = clampNum(l.mtpR, 1, 10, 2);
-  l.mtpPct = clampNum(l.mtpPct, 1, 500, 25);
-  l.esHonour = !!l.esHonour;
-  // ES safety SL (kept while riding to the exit signal). Enabled defaults ON for
-  // a config that predates the toggle (back-fill via `!== false`).
-  l.esSlEnabled = l.esSlEnabled !== false;
-  l.esSlMode = l.esSlMode === "rupees" ? "rupees" : "percent";
-  l.esSlPct = clampNum(l.esSlPct, 0.1, 90, 1);
-  l.esSlValue = clampNum(l.esSlValue, 50, 1_000_000, 1000);
-  l.esMtpEnabled = l.esMtpEnabled !== false;
-  l.esMtpMode = l.esMtpMode === "rupees" ? "rupees" : "percent";
-  l.esMtpPct = clampNum(l.esMtpPct, 1, 500, 10);
-  l.esMtpValue = clampNum(l.esMtpValue, 50, 1_000_000, 5000);
-  l.esTslEnabled = l.esTslEnabled !== false;
-  l.esTslMode = l.esTslMode === "rupees" ? "rupees" : l.esTslMode === "candles" ? "candles" : "percent";
-  l.esTslPct = clampNum(l.esTslPct, 0.1, 90, 2.5);
-  l.esTslValue = clampNum(l.esTslValue, 50, 1_000_000, 2500);
-  l.esTslCandles = Math.round(clampNum(l.esTslCandles, 1, 20, 2));
-  l.esTslCandleSrc = l.esTslCandleSrc === "open" ? "open" : "close";
-  l.esTslCandleHa = l.esTslCandleHa === true; // default raw (matches the raw chart)
-  l.esTslFromEntry = l.esTslFromEntry === true; // default profit-only (tick SL cuts losses)
   return e;
 }
 
@@ -685,14 +567,8 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   if (!isHHmm(c.squareoff.nseTime)) c.squareoff.nseTime = "15:25";
   if (!isHHmm(c.squareoff.mcxTime)) c.squareoff.mcxTime = "23:25";
   c.lubasManagedExit = !!c.lubasManagedExit;
-  // T139 — every cohort must map to a real strategy. Back-fill from defaults for
-  // an old config that predates the map, and coerce any bad value.
-  const dflt = { scalp: "sprint", trend: "runway", ma: "glide", sma5: "ladder", sma_model: "ladder", swing: "anchor" } as const;
-  if (!c.cohortStrategy) (c as CommonConfig).cohortStrategy = { ...dflt };
-  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) {
-    const v = c.cohortStrategy[k];
-    c.cohortStrategy[k] = (["sprint", "runway", "anchor", "glide", "ladder"] as const).includes(v) ? v : dflt[k];
-  }
+  // T171 — drop the legacy cohort→strategy map if an old config still carries it.
+  delete (c as { cohortStrategy?: unknown }).cohortStrategy;
   // T141 — master exits. Back-fill for an old config, then clamp each level by
   // its own mode (% band vs net-₹ band). TSL % caps at 90 (a >90% giveback is
   // meaningless); TP/SL % use the usual bands.
@@ -774,19 +650,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
   for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
-  for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) c.strategies[s] = !!c.strategies[s];
-  // T144 — per-cohort strategy toggles. Back-fill for an old config, coerce
-  // booleans, drop Glide off every cohort but `ma`, and FORCE each cohort's
-  // Common default ON so a cohort can never be muted (the T139 lesson).
-  const dfltMap = getCommonConfig().cohortStrategy;
-  if (!c.cohortStrategies) (c as AiModeConfig).cohortStrategies = {} as AiModeConfig["cohortStrategies"];
-  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) {
-    const row = c.cohortStrategies[k] ?? (c.cohortStrategies[k] = {} as Record<StrategyName, boolean>);
-    for (const s of ["sprint", "runway", "anchor", "glide", "ladder"] as const) row[s] = !!row[s];
-    if (k !== "ma") row.glide = false; // Glide is MA-Signal-only (sma5 rides on Ladder, closed on its cross)
-    const dflt = dfltMap?.[k];
-    if (dflt && (dflt !== "glide" || k === "ma")) row[dflt] = true; // default locked on
-  }
+  // T171 — drop the legacy per-cohort strategy race if an old config carries it.
+  delete (c as { strategies?: unknown }).strategies;
+  delete (c as { cohortStrategies?: unknown }).cohortStrategies;
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
     s.mode = s.mode === "percent" ? "percent" : s.mode === "amount" ? "amount" : "lots";
@@ -908,69 +774,23 @@ export function getAllAiConfig(): AllAiConfig {
   return state;
 }
 
-/** The active strategies for a book+origin block, in a stable order. */
-export function getActiveStrategies(book: EffBook, kind: OriginKind): StrategyName[] {
-  const s = state[book][kind].strategies;
-  return (["sprint", "runway", "anchor", "glide", "ladder"] as StrategyName[]).filter((k) => s[k]);
+/** T171 — every trade is "rider" now (the 5-strategy race is gone). */
+export function getActiveStrategies(_book: EffBook, _kind: OriginKind): StrategyName[] {
+  return ["rider"];
 }
 
 /**
- * Drop Glide from a strategy list unless the signal is MA-Signal.
- *
- * Glide has no auto-exit — it rides until the MA leg-end EXIT closes it. On any
- * other cohort no EXIT ever comes (a Scalp/Trend signal has no leg-end), so a
- * Glide twin would ride forever. The RCA fan-out races every active strategy
- * without checking cohort, so this guard is applied there. Same rule as
- * resolveExitStrategy, for the multi-strategy race.
- */
-export function strategiesForCohort(
-  strategies: StrategyName[],
-  cohort: string | null | undefined,
-): StrategyName[] {
-  return strategies.filter((s) => s !== "glide" || cohort === "ma_signal");
-}
-
-/**
- * The exit strategy a trade runs — ONE per cohort, from the common map (T139).
- *
- * A signal carries its cohort; that cohort's default strategy (Settings →
- * "Cohort strategies") is what the trade uses. This replaced the per-book race
- * (N strategies on = N trades), whose worst failure was leaving a book with zero
- * enabled — a silent pause where routed signals were rejected, which is exactly
- * why the live book placed nothing. A cohort always maps to a strategy, so a
- * routed signal always places.
- *
- * ⚠️ GLIDE IS MA-ONLY. Glide has no stop and relies on MA-Signal's leg-end EXIT;
- * mapped to any other cohort nothing would ever close it, so it falls back to
- * Sprint there.
- *
- * ⚠️ EQUITY IS PINNED TO SPRINT. Runway/Anchor use a 25% staged stop — ordinary
- * for an option premium, meaningless for a stock (never moves 25% intraday), so
- * the staged stop would never trigger. Stocks keep Sprint's fixed stop.
+ * T171 — the exit strategy a trade runs is always "rider" now (the single
+ * unified exit = the Master block). Kept as a shim so placement/executor call
+ * sites need not change; cohort still drives the ENTRY signal, not the exit.
  */
 export function resolveExitStrategy(
   _channel: Channel,
   _origin: "RCA" | "AI" | "USER",
-  isEquity: boolean,
-  cohort?: string | null,
+  _isEquity: boolean,
+  _cohort?: string | null,
 ): StrategyName {
-  if (isEquity) return "sprint";
-  const map = getCommonConfig().cohortStrategy;
-  const key =
-    cohort === "ma_signal" ? "ma"
-    : cohort === "sma5_signal" ? "sma5"
-    // T154 sma-model (learned SMA5 rider) — its own key; default ladder so
-    // rule-vs-model compare on identical exit management. Paper-only cohort —
-    // see the pin in discipline/routes.ts.
-    : cohort === "sma_model" ? "sma_model"
-    : cohort === "scalp" ? "scalp"
-    : cohort === "trend" ? "trend"
-    : cohort === "swing" ? "swing"
-    : null;
-  const strat = key ? map[key] : "sprint";
-  // Glide only ever makes sense on MA-Signal (see above).
-  if (strat === "glide" && cohort !== "ma_signal") return "sprint";
-  return strat ?? "sprint";
+  return "rider";
 }
 
 /** Signal cohort ("ma_signal"/"scalp"/…) → config key ("ma"/"scalp"/…), or null. */
@@ -985,30 +805,16 @@ export function cohortKey(cohort: string | null | undefined): CohortKey | null {
 }
 
 /**
- * T144 — the strategies an AI signal should RACE for its cohort: one trade each.
- *
- * Reads the book's per-cohort toggles (AI menu). Glide is dropped off any cohort
- * but MA; the cohort's Common default is always included (sanitize forces it on,
- * this is belt-and-suspenders). Equity is pinned to a single Sprint trade — the
- * staged strategies' 25% stop is meaningless on a stock. Unknown cohort or an
- * empty set falls back to the single `resolveExitStrategy`, so a signal always
- * places at least one trade.
+ * T171 — one signal now places ONE "rider" trade (the per-cohort strategy race
+ * is gone). Kept as a shim so the RCA fan-out call site needs no change.
  */
 export function enabledStrategiesForCohort(
-  channel: Channel,
-  origin: "RCA" | "AI" | "USER",
-  isEquity: boolean,
-  cohort?: string | null,
+  _channel: Channel,
+  _origin: "RCA" | "AI" | "USER",
+  _isEquity: boolean,
+  _cohort?: string | null,
 ): StrategyName[] {
-  if (isEquity) return ["sprint"];
-  const key = cohortKey(cohort);
-  if (!key) return [resolveExitStrategy(channel, origin, isEquity, cohort)];
-  const row = getAiConfig(resolveBook(channel), "ai").cohortStrategies?.[key];
-  const all: StrategyName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
-  let list = strategiesForCohort(row ? all.filter((s) => row[s]) : [], cohort);
-  const dflt = getCommonConfig().cohortStrategy[key];
-  if (dflt && (dflt !== "glide" || cohort === "ma_signal") && !list.includes(dflt)) list = [dflt, ...list];
-  return list.length ? list : [resolveExitStrategy(channel, origin, isEquity, cohort)];
+  return ["rider"];
 }
 
 /** Deep-merge a patch into one BOOK's exit config; clamp, persist, return it. */

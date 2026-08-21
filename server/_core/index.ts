@@ -246,10 +246,6 @@ async function startServer() {
   // SEA cohort control: dedicated /ws/sea-control channel + config hydrate.
   initSeaControl(server);
 
-  // T84 exit-strategy race: hydrate live cooling override (config/exit_strategy.json).
-  const { initExitConfig } = await import("../portfolio/exitConfig");
-  initExitConfig();
-
       // T97 — a replay run left RUNNING by a crash can never receive more
       // trades, but it would still read as the active sink. Mark stale runs
       // aborted at boot so nothing routes into a dead experiment.

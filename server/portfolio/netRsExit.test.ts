@@ -14,70 +14,11 @@ vi.mock("fs", () => ({
 }));
 
 import { initAiConfig, updateExitConfig, sprintOpeningLevels, getExitConfig, getCommonConfig, updateCommonConfig } from "./aiModeConfig";
-import { resolveNetRsExit, netPnlAtPrice } from "./netRsExit";
+import { netPnlAtPrice } from "./netRsExit";
 import type { TradeRecord } from "./state";
 import type { ChargeRate } from "./charges";
 
 beforeEach(() => initAiConfig());
-
-describe("resolveNetRsExit — reads the ₹-mode config per strategy", () => {
-  it("returns null when both sides are percent (the default)", () => {
-    expect(resolveNetRsExit("sprint", "live")).toBeNull();
-    expect(resolveNetRsExit("runway", "live")).toBeNull();
-    expect(resolveNetRsExit("anchor", "live")).toBeNull();
-  });
-
-  it("returns null for glide and unknown strategies (they have no SL/TP)", () => {
-    expect(resolveNetRsExit("glide", "live")).toBeNull();
-    expect(resolveNetRsExit(null, "live")).toBeNull();
-    expect(resolveNetRsExit(undefined, "live")).toBeNull();
-  });
-
-  it("surfaces Sprint's ₹ figures when a side is flipped to rupees", () => {
-    updateExitConfig("live", { sprint: { slMode: "rupees", defaultSL: 2000, tpMode: "rupees", defaultTP: 3000 } });
-    expect(resolveNetRsExit("sprint", "live")).toEqual({
-      slMode: "rupees", tpMode: "rupees", slRs: 2000, tpRs: 3000,
-    });
-  });
-
-  it("supports a MIXED trade — ₹ stop, % target", () => {
-    updateExitConfig("live", { sprint: { slMode: "rupees", defaultSL: 1500, tpMode: "percent" } });
-    const r = resolveNetRsExit("sprint", "live");
-    expect(r?.slMode).toBe("rupees");
-    expect(r?.tpMode).toBe("percent");
-    expect(r?.slRs).toBe(1500);
-  });
-
-  it("reads Runway/Anchor ₹ figures from defaultSlPct / defaultTargetPct", () => {
-    updateExitConfig("live", { runway: { slMode: "rupees", defaultSlPct: 2500, tpMode: "rupees", defaultTargetPct: 4000 } });
-    expect(resolveNetRsExit("runway", "live")).toEqual({
-      slMode: "rupees", tpMode: "rupees", slRs: 2500, tpRs: 4000,
-    });
-  });
-
-  it("never handles glide — its optional TP is owned by the glide branch, not resolveNetRsExit", () => {
-    updateExitConfig("live", { glide: { tpEnabled: true, tpMode: "rupees", tp: 5000 } });
-    expect(resolveNetRsExit("glide", "live")).toBeNull();
-  });
-});
-
-describe("glide optional TP config (default off)", () => {
-  it("defaults to off, percent, and survives an old config", () => {
-    initAiConfig();
-    const g = getExitConfig("live").glide;
-    expect(g.tpEnabled).toBe(false);
-    expect(g.tpMode).toBe("percent");
-    expect(typeof g.tp).toBe("number");
-  });
-
-  it("stores an enabled ₹ TP and clamps it into the net-₹ band", () => {
-    updateExitConfig("live", { glide: { tpEnabled: true, tpMode: "rupees", tp: 5000 } });
-    const g = getExitConfig("live").glide;
-    expect(g.tpEnabled).toBe(true);
-    expect(g.tpMode).toBe("rupees");
-    expect(g.tp).toBe(5000);
-  });
-});
 
 describe("master exits (common block, T141)", () => {
   it("default (Rider): Next-T TP on, candle TSL on, hard SL off", () => {

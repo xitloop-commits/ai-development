@@ -131,16 +131,16 @@ beforeEach(() => {
 // ─── evaluateTrade ───────────────────────────────────────────────
 
 describe("rcaMonitor.evaluateTrade", () => {
-  it("APPROVE on TEA success — ONE trade, strategy from the cohort map (T139)", async () => {
+  it("APPROVE on TEA success — ONE Rider trade (T171)", async () => {
     const result = await rcaMonitor.evaluateTrade(sampleEvalReq);
     expect(result.decision).toBe("APPROVE");
-    // T139 — one trade per signal now (the race is gone). This request carries no
-    // cohort, so it falls back to Sprint; executionId is used as-is (no twins).
+    // T171 — one trade per signal, always the single "rider" exit; executionId
+    // used as-is (no twins).
     expect(tradeExecutor.submitTrade).toHaveBeenCalledTimes(1);
     const req = (tradeExecutor.submitTrade as any).mock.calls[0][0];
     expect(req).toMatchObject({
       instrument: "NIFTY_50", origin: "AI",
-      exitStrategy: "sprint", executionId: "test-1",
+      exitStrategy: "rider", executionId: "test-1",
     });
   });
 

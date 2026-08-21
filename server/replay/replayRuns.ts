@@ -261,7 +261,7 @@ export function summariseRun(run: ReplayRun) {
       ? Math.round((closed.filter((t) => (t.pnl ?? 0) <= 0).reduce((s, t) => s + (t.pnl ?? 0), 0) / (closed.length - wins.length)) * 100) / 100
       : 0,
     byCohort: by((t) => t.cohort ?? ""),
-    byStrategy: by((t) => t.exitStrategy ?? "sprint"),
+    byStrategy: by((t) => t.exitStrategy ?? "rider"),
     byExitReason: by((t) => t.exitReason ?? ""),
   };
 }

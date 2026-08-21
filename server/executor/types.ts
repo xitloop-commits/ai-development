@@ -61,9 +61,8 @@ export interface SubmitTradeRequest {
    *  stamped onto the TradeRecord so P&L can be grouped by strategy. */
   cohort?: string;
 
-  /** Which pluggable exit strategy manages this trade (T84): sprint/runway/anchor.
-   *  Set per-twin by the RCA fan-out; defaults to "sprint" in buildTradeRecord. */
-  exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
+  /** T171 — collapsed to one exit ("rider"). Free string; old data keeps its label. */
+  exitStrategy?: string;
 
   /** T84 multi-strategy twin: skip TEA's per-submit discipline re-check. The
    *  signal already passed the DA gate once (discipline/routes.ts) before the

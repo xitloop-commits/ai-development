@@ -89,8 +89,8 @@ export interface PositionStateDoc {
   trailingStopEnabled?: boolean;
   /** Ride to its own exit — RcaMonitor skips age/stale/vol/momentum for these. */
   manualExitOnly?: boolean;
-  /** Which pluggable exit strategy runs this trade (T84): sprint/runway/anchor. */
-  exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
+  /** T171 — collapsed to one exit ("rider"); free string so old docs keep their label. */
+  exitStrategy?: string;
 
   /**
    * Wave 1: peak ltp seen since entry — used by tickHandler's TSL
@@ -272,7 +272,7 @@ const positionStateSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
     manualExitOnly: { type: Boolean, default: false },
-    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor", "glide", "ladder"], default: "sprint" },
+    exitStrategy: { type: String, default: "rider" }, // T171 — free string; old docs keep their label
 
     // Wave 1: peak ltp persisted for restart-safe TSL ratchet.
     peakLtp: { type: Number, default: null },
@@ -549,7 +549,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     msAboveEntry: doc.msAboveEntry ?? undefined,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
     manualExitOnly: doc.manualExitOnly ?? false,
-    exitStrategy: doc.exitStrategy ?? "sprint",
+    exitStrategy: doc.exitStrategy ?? "rider",
     brokerOrderId: doc.brokerOrderId ?? null,
     brokerId: doc.brokerId ?? null,
     cohort: doc.cohort ?? null,

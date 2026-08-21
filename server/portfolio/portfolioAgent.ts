@@ -537,7 +537,7 @@ class PortfolioAgentImpl {
       msAboveEntry: trade.msAboveEntry,
       trailingStopEnabled: trade.trailingStopEnabled,
       manualExitOnly: trade.manualExitOnly ?? false,
-      exitStrategy: trade.exitStrategy ?? "sprint",
+      exitStrategy: trade.exitStrategy ?? "rider",
       brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
       cohort: trade.cohort ?? null,
@@ -976,8 +976,8 @@ class PortfolioAgentImpl {
       targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
       manualExitOnly?: boolean;
-      /** Roll the exit strategy on an OPEN trade (the desk's strategy pill). */
-      exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
+      /** T171 — collapsed to "rider"; kept for back-compat on the update path. */
+      exitStrategy?: string;
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
     const day = await this.ensureCurrentDay(channel);
@@ -2106,7 +2106,7 @@ function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
     brokerId: p.brokerId,
     cohort: p.cohort ?? null,
     manualExitOnly: p.manualExitOnly ?? false,
-    exitStrategy: p.exitStrategy ?? "sprint",
+    exitStrategy: p.exitStrategy ?? "rider",
     openedAt: p.openedAt,
     closedAt: p.closedAt,
     exitReason: p.exitReason,

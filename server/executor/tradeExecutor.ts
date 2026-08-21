@@ -55,7 +55,6 @@ import {
   resolveManualCohort,
   sprintOpeningLevels,
 } from "../portfolio/aiModeConfig";
-import type { ExitStrategyName } from "../portfolio/exitStrategies";
 import { armReentryOnTrend } from "../portfolio/reentryOnTrend";
 import type {
   SubmitTradeRequest,
@@ -1274,29 +1273,18 @@ export function resolveOpenExitFlags(
   _cohort: string | null | undefined,
   trailingEnabled: boolean,
   _source?: "ai" | "my",
-  strategy?: ExitStrategyName,
+  strategy?: string,
 ): {
   manualExitOnly: boolean;
   stopLossDisabled: boolean;
   targetDisabled: boolean;
   tslMode: "auto" | "manual";
 } {
-  // Glide rides until MA-Signal's own leg-end EXIT closes it: no SL, no TP, no
-  // trailing. `manualExitOnly` is the existing master switch for that — the
-  // tick engine and RcaMonitor both already honour it.
-  //
-  // Note this keys off the STRATEGY, not the cohort. T85 deliberately stopped
-  // cohorts suppressing exits ("the attached strategy governs every trade"), and
-  // that principle still holds — MA-Signal only rides now when it is explicitly
-  // given Glide, rather than because of what cohort it belongs to.
-  if (strategy === "glide") {
-    return {
-      manualExitOnly: true,
-      stopLossDisabled: true,
-      targetDisabled: true,
-      tslMode: "manual",
-    };
-  }
+  // T171 (Rider) — every trade carries an always-active stop now, so no trade
+  // is "ride until the signal, no stop" any more. The SEA/leg-end EXIT still
+  // closes a trade when it fires first; the Rider stop/target close it otherwise
+  // (whichever comes first). `manualExitOnly` is therefore always false.
+  void strategy;
   return {
     manualExitOnly: false,
     stopLossDisabled: false,

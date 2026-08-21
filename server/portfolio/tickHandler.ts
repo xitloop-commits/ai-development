@@ -23,11 +23,10 @@ import {
 } from "./state";
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates, createDayRecord } from "./compounding";
-import { decideExit, ladderDecide } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig, getCommonConfig, type CandleAnchor, type SidewaysMode } from "./aiModeConfig";
 import { nearestSupportBelow, computeSwingLevels } from "./swingLevels";
-import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
+import { netPnlAtPrice, loadChargeRates } from "./netRsExit";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -532,9 +531,8 @@ class TickHandler extends EventEmitter {
       targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
       manualExitOnly?: boolean;
-      /** Operator rolled the strategy on an OPEN trade. Must be mirrored here or
-       *  the per-tick persist writes the cached trade back and reverts it. */
-      exitStrategy?: "sprint" | "runway" | "anchor" | "glide" | "ladder";
+      /** T171 — collapsed to "rider"; mirrored here so a per-tick persist keeps it. */
+      exitStrategy?: string;
     },
   ): void {
     const cached = this.stateCache.get(channel);
@@ -696,8 +694,9 @@ class TickHandler extends EventEmitter {
       });
     }
 
-    // Sprint trailing config — SHARED across paper / live / manual (a strategy's
-    // exit behaviour is intrinsic to the strategy, not the book).
+    // Dhan-managed trailing config (the `sprint` sub-config) — only used on the
+    // Dhan-managed path below to arm the broker-side super-order TSL. The
+    // Lubas-managed exit is the Master block (Rider).
     const sprintCfg = getExitConfig(channel).sprint;
     const trailingStopEnabled = sprintCfg.trailingStopEnabled;
     const trailingStopPercent = sprintCfg.trailingStopPercent;
@@ -707,11 +706,9 @@ class TickHandler extends EventEmitter {
     const tslGatePercent = sprintCfg.trailingActivationGatePercent;
     const tslHoldMs = sprintCfg.trailingActivationHoldSeconds * 1000;
 
-    // Net-₹ exits (charge-aware) need the user's charge-rate table. Loaded once
-    // per batch (cached ~60s inside), not per tick, and only when some open
-    // trade actually uses a ₹-mode SL/TP — no cost for the all-% common case.
-    // T141 — master SL/TP/TSL (common block). When a switch is on it OVERRIDES
-    // every strategy's own level of that kind for EVERY trade on this channel.
+    // T141 — master SL/TP/TSL (Rider, common block): the ONLY exit model now.
+    // The charge-rate table (net-₹ math) is loaded once per batch (cached ~60s),
+    // only when a master ₹-mode side is on — no cost for the all-% common case.
     const cc = getCommonConfig();
     const master = cc.masterExits;
     const mTP = master.tp.enabled, mSL = master.sl.enabled, mTSL = master.tsl.enabled;
@@ -722,21 +719,7 @@ class TickHandler extends EventEmitter {
       // price-based; % mode is premium-based).
       (mTSL && master.tsl.trailMode === "peak" && master.tsl.mode === "rupees");
 
-    const anyNetRs = masterNeedsRates || openTrades.some((t) => {
-      if (resolveNetRsExit(t.exitStrategy, channel) !== null) return true;
-      // Glide's optional TP can also be in ₹ mode (its own on/off switch).
-      if (t.exitStrategy === "glide") {
-        const g = getExitConfig(channel).glide;
-        return g.tpEnabled && g.tpMode === "rupees";
-      }
-      // Ladder honour-exit MTP cap in ₹ mode = a NET-₹ take-profit (charge-aware).
-      if (t.exitStrategy === "ladder") {
-        const l = getExitConfig(channel).ladder;
-        return l.esHonour && l.esMtpEnabled && l.esMtpMode === "rupees";
-      }
-      return false;
-    });
-    const chargeRates = anyNetRs ? await loadChargeRates() : [];
+    const chargeRates = masterNeedsRates ? await loadChargeRates() : [];
 
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT" | "TSL_HIT"; exitPrice: number }> = [];

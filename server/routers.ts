@@ -19,7 +19,6 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig, setModelVersion, getSma5LineConfig } from "./seaControl";
 import { listModelVersions } from "./modelVersions";
-import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig, updateCommonConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
 import { getTradesForDateWithCycleNo } from "./portfolio/state";
@@ -268,13 +267,6 @@ export const appRouter = router({
         }
         return { success: true, tradeId: body?.tradeId ?? null };
       }),
-
-    // T84 exit-strategy race config (Runway/Anchor). Read the effective config;
-    // set the cooling window live from the SEA panel (applied on the next tick).
-    exitStrategyConfig: publicProcedure.query(() => getExitCfg()),
-    setExitCooling: publicProcedure
-      .input(z.object({ coolingSec: z.number() }))
-      .mutation(({ input }) => setCoolingSec(input.coolingSec)),
 
     // Per-mode AI config (paper / live independent) — the AI menu's single store.
     // `aiConfig` returns both modes; `updateAiConfig` deep-merges a patch into one
