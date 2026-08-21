@@ -2,42 +2,12 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-### T171 [EXEC/UI/SEA] — "Rider" — collapse the 5 exit strategies into ONE unified exit — SPEC LOCKED 2026-08-21 🆕
-Partha: **remove Sprint / Runway / Anchor / Glide / Ladder** — replace all of them with a
-single exit strategy named **"Rider."** Every trade uses Rider; no per-cohort exit-strategy
-choice anymore.
-- **Rider = the locked stop redesign (T167) + Next-T TP (T169):**
-  - **Stop:** one marker (Red SL / Yellow TSL), SL xor TSL, **TSL default & always active** —
-    support-start (S1/S2/S3, fallback x-back candle low) → **x-back candle-low trail** from the
-    next candle, ratchet-up (xBack=1), **intra-candle exit** on a cross below.
-  - **Target:** **Next-T** (%/₹/next resistance), step up T1→T2→T3, **trend → ride** (no early
-    cap) + wide safety cap.
-- **Signal exits KEPT as additional triggers:** the MA/SMA5 **ribbon flip** and the ML
-  **exit_signal** still exit (trade closes on whichever fires first — signal *or* Rider's
-  stop/target). The 5 named *strategies* are what disappear.
-- **CLEANUP (per the standing rule):** rip out `exitStrategies.ts` (ladderDecide/runway/
-  anchor/glide), the `cohortStrategy`/`exitStrategy` selection + all per-strategy Settings-menu
-  rows, and the `exitStrategy` enum down to just Rider (or drop it). No orphan knobs/code.
-- Cohorts (scalp/trend/ma/sma5/swing — the *entry* signals) are unaffected.
+### T169-B [UI/SEA] — Server-authoritative chart lines (no drift) — ONLY REMAINING PIECE of the T169/T171 revamp
+_T171 (Rider collapse), T170 (re-entry row styling), and T169 parts A (single candle
+timeframe) + C (Next-T TP) all ✅ SHIPPED 2026-08-21 — see git history. This is the one
+open item left from the revamp._
 
-### T170 [UI] — Re-entered trades look visually distinct in the desk row — SPEC 2026-08-21 🆕
-Partha: when a trade is **re-entered** (re-entry after a partial exit, or the T153 trend
-re-entry after a stop-out), its desk row should look **visually different** from a fresh
-entry — a re-entry badge (e.g. **↻ RE / RE-2** counting the re-entry number) + a subtle row
-tint, so re-entries read at a glance. Data likely already on the trade (re-entry count /
-parent link); confirm the field, then style the row. Visual form pending Partha confirm.
-
-### T169 [EXEC/UI/SEA] — "Next-T" resistance TP + single candle timeframe + server-authoritative lines — SPEC LOCKED 2026-08-21 🆕
-Partha spec (design locked, brainstorm). Three coupled pieces + a bar-marker cleanup.
-
-**A. Single candle timeframe (one source of truth).** Collapse the two Common knobs
-(`sma5CandleSec` + `maCandleSec`) into ONE "candle timeframe." SEA signals, chart,
-tradebar, and the server backend ALL read it; changing it hot-swaps SEA live (already
-wired via `/ws/sea-control` → `syncCohortsFromAiConfig`). Signals fire on THIS timeframe
-regardless of the chart's display interval (display interval = just a view; e.g. signals
-are 5-min even on a 1-min chart).
-
-**B. Server-authoritative lines (no drift).** Today the chart RE-COMPUTES the SMA5/MA
+**Server-authoritative lines (no drift).** Today the chart RE-COMPUTES the SMA5/MA
 ribbon in TS from its own candle feed — a *mirror* of the Python SEA that can drift
 (different code, different tick stream; the "draw from candle 1" change widened the early
 gap). Move to: compute the SMA5/MA lines + swing levels ONCE on the server (authoritative)
@@ -45,35 +15,11 @@ and PUSH to the chart (like the T167 candle-TSL highlight already does) → char
 = server = signal, guaranteed in sync. Switch the T168 swing lines from the chart-display
 timeframe to the signal timeframe + server-push.
 
-**C. "Next-T" resistance TP.** TP modes: **% · ₹ · Next-T** (swing high).
-→ **✅ SERVER SHIPPED 2026-08-21:** `MasterTpLevel` (tpMode fixed/nextT + minYieldPct
-default 5 + safetyCapPct default 40) + migration; `dynTslSwingHighs` reuses
-`computeSwingLevels` on the ~120-bar candle history; the master TP eval targets the nearest
-swing high above price that clears minYield, rides in a trend, and fires the wide safety cap.
-**✅ UI SHIPPED 2026-08-21:** SettingsMenu `MasterTpRow` — Fixed / Next-T toggle; Next-T
-exposes Min-yield % (default 5) + Safety-cap % (default 40). Fully selectable now.
-- Next-T targets the **nearest swing high (T) ABOVE the current price** that clears **≥ X%
-  above entry** (X configurable, default **5%**).
-- **Stepping (b):** as each T is cleared the target steps up **T1→T2→T3**, **shown moving on
-  the bar**.
-- **Trend / no T above price → NO early cap: ride with the TSL** (the candle-TSL is the exit
-  on the reversal). The market structure (T-levels) self-selects "bank at resistance" (range)
-  vs "ride" (trend).
-- **Wide safety cap:** configurable %, default **~40%** — only fires on an extreme spike
-  (insurance while the TSL give-back is unfixed; remove later if desired).
-- **Depends on the T167 TSL give-back fixes** — the step-up + ride rely on the TSL actually
-  protecting profit.
-
-**Bar-marker cleanup — ✅ SHIPPED 2026-08-21 (step 1 of the revamp).** Bar is now
-**E · LTP · SL/TSL · TP**. Removed the **candle-TSL faint line** (`dynTslPercent`), **TTP**
-(`ttpPercent` + measurement-chain point + `TTP_COLOR`), and **MSL** (`mslPercent` +
-`MSL_COLOR`) from TradeBar; dropped the `ladderMslPct`/`ladderTtp` wiring from TodayTradeRow
-+ TodaySection; removed the 3 obsolete TradeBar tests. Verified: tsc clean, 12 TradeBar
-tests green.
-
-**Build note:** substantial — server-side swing computation + Next-T TP exit, the
-one-timeframe collapse, and the server-authoritative line push. Sequence after the T167 TSL
-fixes.
+**Build note:** this is a visual, architecture-touching feature — needs SEA to publish its
+per-candle SMA5/MA line values + detected swings, a store/endpoint to expose them, and a
+TickChart rewire to draw the pushed values instead of recomputing. Best done as a focused
+pass with the running chart in front of you to eyeball the sync. Everything it depends on
+(single timeframe, swing computation, candle-TSL push channel) is already shipped.
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
