@@ -2,6 +2,13 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T170 [UI] — Re-entered trades look visually distinct in the desk row — SPEC 2026-08-21 🆕
+Partha: when a trade is **re-entered** (re-entry after a partial exit, or the T153 trend
+re-entry after a stop-out), its desk row should look **visually different** from a fresh
+entry — a re-entry badge (e.g. **↻ RE / RE-2** counting the re-entry number) + a subtle row
+tint, so re-entries read at a glance. Data likely already on the trade (re-entry count /
+parent link); confirm the field, then style the row. Visual form pending Partha confirm.
+
 ### T169 [EXEC/UI/SEA] — "Next-T" resistance TP + single candle timeframe + server-authoritative lines — SPEC LOCKED 2026-08-21 🆕
 Partha spec (design locked, brainstorm). Three coupled pieces + a bar-marker cleanup.
 
@@ -91,6 +98,14 @@ SL *or* TSL, never both** (TP stays separate/orthogonal).
     so **no separate SL floor / quick-cut needed** — that replaces the earlier a/b question.
   - Note: reverts the "SL + TSL coexist floor" — back to xor with TSL as the always-on
     default; the TSL itself is the protection.
+  - **CLEANUP (Partha 2026-08-21): the revamp must REMOVE the now-dead code + Settings-menu
+    knobs, not just add new.** Removal candidates as each piece lands: **TTP** (marker +
+    `ttpStartPct`/`ttpTrailPct` config), **MSL** (marker + config), the **candle-TSL faint
+    line** (`dynTslPercent`), the **SL-floor-coexist** branch + the SL-xor migration,
+    **`maxGapPct`** (obsolete under intra-candle exit — confirm), one of the **two candle
+    timeframes** (collapse to one), and any **peak-clamp TSL mode / Sprint TSL
+    activation-gate** settings the new candle/support TSL supersedes. Goal: no orphan knobs
+    in the Settings menu, no dead exit code left behind.
 - **🔎 OPEN THREADS (Partha "many issues around this — we'll fix all, keep understanding", 2026-08-20).**
   Foundation: every option position is a BUY → **long premium**; an UP premium candle
   = profit for the held leg (CE *or* PE), so the TSL always trails BELOW the premium
