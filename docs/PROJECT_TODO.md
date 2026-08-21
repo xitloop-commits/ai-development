@@ -33,9 +33,10 @@ timeframe to the signal timeframe + server-push.
 - **Depends on the T167 TSL give-back fixes** — the step-up + ride rely on the TSL actually
   protecting profit.
 
-**Bar-marker cleanup (this session).** Keep **E, LTP, SL/TSL, TP**. Remove: **candle-TSL
-faint line** (confirmed), **TTP** (confirmed — visual-only, never fires), **MSL**
-(recommended — the Master SL floor covers it). One TP only.
+**Bar-marker cleanup (this session) — ALL CONFIRMED, ready to build standalone.** Keep
+**E, LTP, SL/TSL, TP**. Remove: **candle-TSL faint line**, **TTP** (visual-only, never
+fires), **MSL** (redundant — the Master SL floor covers it). One TP only. This removal is
+self-contained (TradeBar + TodayTradeRow wiring) and can ship ahead of the rest of T169.
 
 **Build note:** substantial — server-side swing computation + Next-T TP exit, the
 one-timeframe collapse, and the server-authoritative line push. Sequence after the T167 TSL
