@@ -347,13 +347,16 @@ function TradePane({
   );
 }
 
-export default function InstrumentChartPage({ instOverride, singlePane, dateOverride }: {
+export default function InstrumentChartPage({ instOverride, singlePane, dateOverride, archiveBatch }: {
   /** Test-chart embed (2026-08-11): instrument from the host page's dropdown
    *  instead of the URL, and the layout pinned to the single underlying pane. */
   instOverride?: string;
   singlePane?: boolean;
   /** Test-chart date dropdown drives the embedded page's date (2026-08-13). */
   dateOverride?: string;
+  /** Archive mode (2026-08-19): trades come from the archive collections
+   *  (this clear-batch) instead of the live book. View-only analysis. */
+  archiveBatch?: number;
 } = {}) {
   const inst = useMemo(() => instOverride ?? chartInstrumentFromUrl(), [instOverride]);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -369,7 +372,8 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   // are no longer drawn as chart markers (trades only).
   // Test chart (singlePane): clean view — trades + MA off, SMA5 + the
   // tri-colour angle line carry the story (Partha 2026-08-11).
-  const [showTrades, setShowTrades] = useState(!singlePane);
+  // Archive mode exists to LOOK at trades — default them on there.
+  const [showTrades, setShowTrades] = useState(!singlePane || archiveBatch != null);
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
     () => new Set<IndicatorKey>(singlePane ? ["sma5", "maRibbon", "sma5Ribbon"] : ["ma", "sma5"]),
   );
@@ -462,10 +466,17 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     { instrument: inst ?? "", date },
     { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday || isReplay ? 15000 : false },
   );
-  const tradesQuery = trpc.trading.tradesForChart.useQuery(
+  const liveTradesQuery = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: inst ?? "", date },
-    { enabled: !!inst && !!date && showTrades, refetchOnWindowFocus: false, refetchInterval: (isToday || isReplay) && showTrades ? 10000 : false },
+    { enabled: !!inst && !!date && showTrades && archiveBatch == null, refetchOnWindowFocus: false, refetchInterval: (isToday || isReplay) && showTrades ? 10000 : false },
   );
+  // Archive mode (2026-08-19): the same row shape, read from the archive
+  // collections for this clear-batch. Static data — no polling.
+  const archTradesQuery = trpc.trading.archivedTradesForChart.useQuery(
+    { instrument: inst ?? "", date, archiveBatch: archiveBatch ?? 0 },
+    { enabled: !!inst && !!date && showTrades && archiveBatch != null, refetchOnWindowFocus: false, staleTime: Infinity },
+  );
+  const tradesQuery = archiveBatch != null ? archTradesQuery : liveTradesQuery;
 
   // SMA5 line mode (HA vs raw) + period — read from the SEA detector config so
   // the chart's SMA5 line matches the signals that actually fire.

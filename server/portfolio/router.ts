@@ -728,6 +728,14 @@ export const portfolioRouter = router({
       const now = Date.now();
       const today = new Date().toISOString().slice(0, 10);
 
+      // Archive BEFORE the wipe (Partha 2026-08-19): every CLOSED trade (all
+      // days) + today's signals are copied to the archive collections so the
+      // clear resets the book without destroying analysis history. OPEN
+      // trades are NOT archived (their lifecycle never completed). A failed
+      // archive aborts the clear — never delete what wasn't preserved.
+      const { archiveBeforeClear } = await import("./tradeArchive");
+      const archived = await archiveBeforeClear(input.channel);
+
       const deleted = await deleteAllDayRecords(input.channel);
       // Also wipe position_state — otherwise a still-OPEN position lingers here
       // (RCA reads it) and fires endless "Trade not found" age exits after clear.
@@ -765,7 +773,7 @@ export const portfolioRouter = router({
       // upsertDayRecord — resurrecting every trade the clear just removed.
       tickHandler.clearStateCache();
 
-      return { success: true, deletedDayRecords: deleted, clearedSignals, newState };
+      return { success: true, deletedDayRecords: deleted, clearedSignals, newState, archived };
     }),
 
   // ─── Portfolio Agent Spec §7.1 — Query APIs ────────────────────

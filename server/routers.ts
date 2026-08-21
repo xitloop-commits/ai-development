@@ -468,6 +468,28 @@ export const appRouter = router({
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
 
+    // ── Trade archive (2026-08-19) — cleared books live on for analysis ──
+    // Every Clear copies its CLOSED trades (+ today's signals) into the
+    // archive collections first. These read-only queries feed the chart's
+    // "Archived" source: batches for the picker, then trades in the exact
+    // tradesForChart row shape (batch omitted = newest batch for the date).
+    archiveBatches: publicProcedure.query(async () => {
+      const { listArchiveBatches } = await import("./portfolio/tradeArchive");
+      return listArchiveBatches();
+    }),
+    archivedTradesForChart: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          archiveBatch: z.number().optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const { archivedTradesForChart } = await import("./portfolio/tradeArchive");
+        return archivedTradesForChart(input);
+      }),
+
     // Get active instruments list
     activeInstruments: publicProcedure.query(() => {
       return { instruments: getActiveInstruments() };

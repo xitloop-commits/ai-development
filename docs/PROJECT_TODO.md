@@ -142,6 +142,21 @@ Crude/NatGas stay exactly as-is (protected).
   [03](systems/03_model_training.md) / [04](systems/04_signal_engine.md) as built.
   Related: T29 (head-type routing), T71 (nifty/bank gate audit), T73 (retrain launcher item).
 
+### T168 [PA/UI] — Clear archives instead of destroying ✅ BUILT 2026-08-19
+Partha spec: the paper Clear CTA now copies everything it deletes into
+mirror collections first — `archived_day_records` (CLOSED trades only, per
+Partha: open trades are NOT archived) + `archived_sea_signals` (today's,
+matching the clear's scope). Each clear = one `archiveBatch` (epoch ms)
+because tradeNo/signalSeq restart at #1 per clear — batches never merge;
+identity joins use the globally-unique trade id (T<ms>-<rand>). View-only:
+nothing restores into the live book. UI: TEST CHART gains a Source picker
+(Live book / 🗄 date · cleared HH:mm · N trades) — an archive batch pins
+the date and routes the underlying pane's trade markers to the archive.
+Server: `server/portfolio/tradeArchive.ts`, wired into clearWorkspace
+(archive failure ABORTS the clear — never delete what wasn't preserved);
+tRPC `archiveBatches` + `archivedTradesForChart`. Chart replay of archived
+dates depends on data/raw/<date> tick retention.
+
 ### T163 [SEA] — sma5/ma cohorts rewritten to LOCKED-PREMIUM trend ribbons ✅ BUILT 2026-08-13 (validate next session)
 Partha spec: each leg follows the trend ribbon of the SESSION-LOCKED option
 contract's OWN premium — CE ribbon UP → LONG_CE, DOWN → EXIT_CE; PE likewise;

@@ -171,7 +171,18 @@ export default function TestChartPage() {
     { staleTime: 300_000, refetchOnWindowFocus: false },
   );
   const recorded = (datesQ.data as string[] | undefined) ?? [];
-  const effDate = date || recorded[recorded.length - 1] || istDateString();
+  // ── Archive source (2026-08-19) ────────────────────────────────────────
+  // Cleared books live in the archive; each Clear = one batch. "" = live.
+  // A batch pins the DATE (its trades' day) and routes the embedded chart's
+  // trades to the archive collections. Batch labels carry the clear time
+  // because tradeNo restarts at #1 per clear — batches never merge.
+  const [archSel, setArchSel] = useState<string>("");
+  const archQ = trpc.trading.archiveBatches.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
+  const archBatches = archQ.data ?? [];
+  const arch = archSel
+    ? archBatches.find((b) => `${b.date}|${b.archiveBatch}` === archSel) ?? null
+    : null;
+  const effDate = arch?.date || date || recorded[recorded.length - 1] || istDateString();
   // Refresh: bump remounts the active pane (fresh seed + queries).
   const [refreshNonce, setRefreshNonce] = useState(0);
   const utils = trpc.useUtils();
@@ -206,11 +217,26 @@ export default function TestChartPage() {
             <option key={k} value={k}>{INSTRUMENT_CHART_META[k]?.displayName ?? k}</option>
           ))}
         </select>
-        {/* Date — every recorded day, newest last (defaults to the latest) */}
-        <select value={effDate} onChange={(e) => setDate(e.target.value)}
-          className="rounded border border-border bg-secondary px-2 py-0.5 text-xs font-bold tabular-nums">
-          {(recorded.length ? recorded : [effDate]).map((d2) => (
+        {/* Date — every recorded day, newest last (defaults to the latest).
+            Disabled while an archive batch is selected (the batch pins it). */}
+        <select value={effDate} onChange={(e) => setDate(e.target.value)} disabled={!!arch}
+          className="rounded border border-border bg-secondary px-2 py-0.5 text-xs font-bold tabular-nums disabled:opacity-50">
+          {(recorded.includes(effDate) ? recorded : [...recorded, effDate]).map((d2) => (
             <option key={d2} value={d2}>{d2}</option>
+          ))}
+        </select>
+        {/* Source — Live, or one archived clear-batch (🗄 date · clear time) */}
+        <select
+          value={archSel}
+          onChange={(e) => setArchSel(e.target.value)}
+          title="Trades source: the live book, or a cleared book preserved in the archive"
+          className={`rounded border px-2 py-0.5 text-xs font-bold ${archSel ? "border-amber-500/60 bg-amber-500/10 text-amber-500" : "border-border bg-secondary"}`}
+        >
+          <option value="">Live book</option>
+          {archBatches.map((b) => (
+            <option key={`${b.date}|${b.archiveBatch}`} value={`${b.date}|${b.archiveBatch}`}>
+              🗄 {b.date} · cleared {new Date(b.archivedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · {b.trades} trades
+            </option>
           ))}
         </select>
         {/* Side filter — Underlying | CE | PE */}
@@ -249,7 +275,7 @@ export default function TestChartPage() {
       </div>
       <div className="min-h-0 flex-1">
         {side === "UND" ? (
-          <InstrumentChartPage key={`${inst}:${effDate}:${refreshNonce}`} instOverride={inst} singlePane dateOverride={effDate} />
+          <InstrumentChartPage key={`${inst}:${effDate}:${arch?.archiveBatch ?? "live"}:${refreshNonce}`} instOverride={inst} singlePane dateOverride={effDate} archiveBatch={arch?.archiveBatch} />
         ) : effStrike != null ? (
           <OptionTestPane key={`${inst}:${effStrike}:${side}:${effDate}:${refreshNonce}`} instKey={inst} strike={effStrike} side={side} date={effDate} />
         ) : (
