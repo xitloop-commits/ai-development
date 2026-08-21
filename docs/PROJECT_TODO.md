@@ -5,6 +5,14 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
+- **🗑️ MARKER CLEANUP (Partha, 2026-08-21).** TradeBar has 7 markers (E, LTP,
+  SL/TSL, TP, MSL, TTP, candle-TSL faint dashed line). **CONFIRMED to remove: the
+  candle-TSL faint dashed line** (`dynTslPercent` — its window "candle stop anchored
+  AND still below entry" almost never occurs, so it's effectively never visible, and
+  the SL/TSL marker already covers it). Keep E, LTP, SL/TSL, TP. Proposed (not yet
+  confirmed): also drop **MSL** (Ladder safety floor — redundant now the Master SL is
+  the floor) and **TTP** (Ladder trailing-TP). When implementing, remove the
+  `dynTslPercent`/`dynTsl*` render + prop from TradeBar + TodayTradeRow wiring.
 - **🔎 OPEN THREADS (Partha "many issues around this — we'll fix all, keep understanding", 2026-08-20).**
   Foundation: every option position is a BUY → **long premium**; an UP premium candle
   = profit for the held leg (CE *or* PE), so the TSL always trails BELOW the premium
