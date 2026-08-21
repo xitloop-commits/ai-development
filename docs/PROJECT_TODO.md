@@ -110,6 +110,9 @@ SL *or* TSL, never both** (TP stays separate/orthogonal).
   - **Per trade: SL xor TSL** (one at a time). **Default = TSL, always active.**
   - **TSL initial placement (entry candle):** the **nearest support (S1/S2/S3 swing low)
     below entry**; **fallback = x-back candle low** if no support exists yet.
+    → **✅ SHIPPED 2026-08-21:** `server/portfolio/swingLevels.ts` (`computeSwingLevels` +
+    `nearestSupportBelow`, unit-tested) + the seed now sets the initial stop to the nearest
+    swing low below entry, falling back to x-back. Reused later by the Next-T TP.
   - **From the next candle on:** follows the **x-back candle low**, ratcheting UP (xBack=1,
     never loosens) — always **below the current price**, **can climb above entry to lock
     profit**.

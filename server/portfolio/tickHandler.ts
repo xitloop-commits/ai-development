@@ -26,6 +26,7 @@ import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit, ladderDecide } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig, getCommonConfig, type CandleAnchor, type SidewaysMode } from "./aiModeConfig";
+import { nearestSupportBelow } from "./swingLevels";
 import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
@@ -286,7 +287,7 @@ class TickHandler extends EventEmitter {
       // use them, so the x-back trail is live from the first tick.
       if (instrument && securityId) {
         st.seed = "pending";
-        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, xBack, src, useHa, cs, sideways);
+        void this.seedDynTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, xBack, src, useHa, cs, sideways, ltp);
       }
     }
     const minute = Math.floor(lttSec / cs);
@@ -385,6 +386,7 @@ class TickHandler extends EventEmitter {
     useHa: boolean,
     candleSec: number,
     sideways: SidewaysMode = "count",
+    entry: number = 0,
   ): Promise<void> {
     try {
       const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
@@ -459,10 +461,21 @@ class TickHandler extends EventEmitter {
       // later at a lower price got a stop far above its own entry/peak (phantom
       // "Secured" profit, exit on candle 1). Fixed 2026-08-18. Ratcheting forward
       // is the live path's job; here we only set the starting level.
+      // Rider support-start (T171): place the INITIAL stop at the nearest swing LOW
+      // below entry (a real support). Fall back to the x-back candle low if no
+      // swing support exists yet. From the next candle on, the live path trails
+      // the x-back candle low as usual.
+      const support = isBuy && entry > 0
+        ? nearestSupportBelow(st.completed.map((c) => ({ t: c.t ?? 0, high: c.high, low: c.low })), entry, 2)
+        : null;
       const back = Math.max(1, xBack);
       const seedArr = sideways === "ignore" ? st.progress : st.completed;
       const idx = seedArr.length - back; // the x-back candle at the entry boundary
-      if (idx >= 0) {
+      if (support != null) {
+        st.stop = st.stop === null ? support : isBuy ? Math.max(st.stop, support) : Math.min(st.stop, support);
+        const supCandle = st.completed.find((c) => c.low === support);
+        st.anchorTime = supCandle?.t ?? null; // viz — pin to the support candle
+      } else if (idx >= 0) {
         const c0 = seedArr[idx];
         st.anchorTime = c0.t ?? null; // viz — the candle the seeded stop is pinned to
         const cand = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
