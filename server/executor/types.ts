@@ -74,6 +74,10 @@ export interface SubmitTradeRequest {
    *  it matches its originating tray signal card. */
   signalSeq?: number;
 
+  /** T170 — trend re-entry number (#N of the leg) when this placement is a
+   *  reentryOnTrend re-fire; absent for a fresh signal/manual trade. */
+  reentryNo?: number;
+
   timestamp: number;
 }
 

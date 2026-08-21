@@ -390,6 +390,7 @@ class RcaMonitor {
     capitalPercent?: number;
     cohort?: string;
     signalSeq?: number;
+    reentryNo?: number;
     origin: "RCA" | "AI" | "USER";
   }): Promise<{
     decision: "APPROVE" | "REJECT" | "SIZE_ADJUST";
@@ -436,6 +437,7 @@ class RcaMonitor {
         capitalPercent: input.capitalPercent,
         cohort: input.cohort,
         signalSeq: input.signalSeq,
+        reentryNo: input.reentryNo,
         exitStrategy: strategy,
         timestamp: Date.now(),
       });

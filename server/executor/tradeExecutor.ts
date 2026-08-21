@@ -1392,6 +1392,7 @@ function buildTradeRecord(
     capitalPercent: req.capitalPercent ?? 0,
     cohort,
     signalSeq: req.signalSeq ?? null,
+    reentryNo: req.reentryNo ?? null,
     source,
     pnl: 0,
     unrealizedPnl: 0,

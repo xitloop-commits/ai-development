@@ -116,6 +116,9 @@ export interface TradeRecord {
   /** Global daily signal sequence (server-assigned) — shown on the row so it
    *  matches its originating SEA tray-signal card. Null for manual trades. */
   signalSeq?: number | null;
+  /** T170 — trend re-entry number (#N of the leg) when reentryOnTrend re-fired
+   *  this trade after a mid-trend stop-out. The desk row badges + tints it. */
+  reentryNo?: number | null;
   /** AI-vs-My attribution (T87) — display/filter only. Persisted server-side so
    *  it survives the paper-channel merge; the desk filters trades by source. */
   source?: 'ai' | 'my';
@@ -181,7 +184,7 @@ export interface TradeRecord {
    *  togglable. The trade still exits on EOD square-off or a manual ✕. */
   manualExitOnly?: boolean;
   /** Which pluggable exit strategy runs this trade (T84): sprint/runway/anchor. */
-  exitStrategy?: 'sprint' | 'runway' | 'anchor' | 'glide' | 'ladder';
+  exitStrategy?: string; // T171 — collapsed to "rider"; historical trades keep their label
   openedAt: number;
   closedAt: number | null;
   /**

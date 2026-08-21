@@ -75,6 +75,9 @@ const validateTradeSchema = z
     /** SEA per-signal uuid — links this trade to its tray signal so the server
      *  can stamp the shared global signalSeq onto the trade. */
     correlationId: z.string().optional(),
+    /** T170 — this placement is a trend re-entry (#N of the leg), set by
+     *  reentryOnTrend. Stamped onto the trade so the desk row shows a RE badge. */
+    reentryNo: z.number().int().positive().optional(),
 
     stopLoss: z.number().nullable(),
     takeProfit: z.number().nullable(),
@@ -469,6 +472,7 @@ export function registerDisciplineRoutes(app: Express): void {
           capitalPercent: body.capitalPercent,
           cohort: body.cohort,
           signalSeq: signalSeq ?? undefined,
+          reentryNo: body.reentryNo,
           origin: body.origin,
         });
 

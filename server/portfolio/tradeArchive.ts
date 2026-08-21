@@ -151,6 +151,7 @@ export async function archivedTradesForChart(opts: {
       out.push({
         id: t.id,
         signalSeq: t.signalSeq ?? null,
+        reentryNo: t.reentryNo ?? null,
         tradeNo: i + 1,
         side: (t.type?.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
         strike: t.strike ?? null,

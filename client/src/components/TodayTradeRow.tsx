@@ -196,9 +196,16 @@ function _TodayTradeRow({
       ref={attachRow}
       onClick={trade.signalSeq != null ? () => selectSignalSeq(trade.signalSeq ?? null) : undefined}
       className={`border-b border-border transition-colors text-foreground border-l-2 ${
-        isFirst ? theme.borderStrong : theme.borderSoft
+        (trade.reentryNo ?? 0) > 0 ? '' : (isFirst ? theme.borderStrong : theme.borderSoft)
       } ${isOpen ? '' : 'opacity-60'} ${trade.signalSeq != null ? 'cursor-pointer' : ''} ${isSelected ? 'outline outline-2 -outline-offset-2 outline-info-cyan' : ''}`}
-      style={{ backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08) }}
+      style={{
+        backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08),
+        // T170 — a trend re-entry gets a distinct violet left rail + faint wash so
+        // it reads apart from a fresh signal trade at a glance.
+        ...((trade.reentryNo ?? 0) > 0
+          ? { borderLeftColor: '#a855f7', borderLeftWidth: '3px', boxShadow: 'inset 3px 0 0 0 rgba(168,85,247,0.18)' }
+          : {}),
+      }}
       title={trade.signalSeq != null ? 'Click to highlight the matching signal in the tray' : undefined}
     >
       {/* Trade identity, packed into the five FIXED day-level columns (Day, Date,
@@ -330,6 +337,18 @@ function _TodayTradeRow({
                   title={`Signal cohort: ${trade.cohort}`}
                 >
                   {cohortLabel(trade.cohort)}
+                </span>
+              )}
+              {/* T170 — trend re-entry badge: this trade re-fired the same leg
+                  after a mid-trend stop-out (reentryOnTrend). Violet, matching the
+                  row's left rail. */}
+              {(trade.reentryNo ?? 0) > 0 && (
+                <span
+                  className="text-[0.5rem] font-bold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                  style={{ color: '#a855f7', backgroundColor: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)' }}
+                  title={`Trend re-entry #${trade.reentryNo} — re-fired the same leg after a mid-trend stop-out`}
+                >
+                  ↻ RE{(trade.reentryNo ?? 0) > 1 ? `-${trade.reentryNo}` : ''}
                 </span>
               )}
         </div>

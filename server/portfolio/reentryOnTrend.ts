@@ -164,6 +164,9 @@ async function fire(
       contractSecurityId: closed.contractSecurityId ?? undefined,
       entryPrice: closed.entryPrice > 0 ? closed.entryPrice : 1, // re-priced to live LTP on submit
       cohort,
+      // T170 — mark this placement as a trend re-entry (#N of this leg) so the
+      // desk row can badge + tint it distinctly from a fresh signal trade.
+      reentryNo: (leg?.count ?? 0) + 1,
       stopLoss: null,
       takeProfit: null,
     };

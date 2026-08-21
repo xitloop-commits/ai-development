@@ -222,6 +222,10 @@ export interface TradeRecord {
    *  this trade to its originating SEA tray-signal card. Shown on the trade row
    *  in place of the old positional index. Null for manual / non-AI trades. */
   signalSeq?: number | null;
+  /** T170 — trend re-entry number (#N of the leg) when reentryOnTrend re-fired
+   *  this trade after a mid-trend stop-out. Null/absent for a fresh trade. The
+   *  desk row shows a RE / RE-N badge + tint when set. */
+  reentryNo?: number | null;
   /** AI-vs-My attribution (T87). Stamped at placement from the channel prefix
    *  and persisted, so it survives the paper-channel merge where the channel no
    *  longer carries ai/my. Display/filter only — does NOT drive capital/routing.
@@ -420,6 +424,7 @@ export const tradeRecordSchema = new Schema(
     brokerId: { type: String, default: null },
     cohort: { type: String, default: null },
     signalSeq: { type: Number, default: null },
+    reentryNo: { type: Number, default: null }, // T170 — trend re-entry #N
     source: { type: String, enum: ["ai", "my"], default: null },
     durationMs: { type: Number, default: null },
     superOrderId: { type: String, default: null },
@@ -1379,6 +1384,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       brokerId: t.brokerId ?? null,
       cohort: t.cohort ?? null,
       signalSeq: t.signalSeq ?? null,
+      reentryNo: t.reentryNo ?? null,
       source: t.source ?? channelToSource(doc.channel),
       durationMs: t.durationMs ?? null,
       superOrderId: t.superOrderId ?? null,
