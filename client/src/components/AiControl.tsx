@@ -93,7 +93,11 @@ interface CommonCfg {
   strikeLock: { paperEnabled: boolean; liveEnabled: boolean; perInstrument: Record<string, number> };
   instrumentEnabled: Record<string, boolean>;
   masterExits: {
-    tp: { enabled: boolean; mode: ExitLevelMode; value: number };
+    // T171 — TP gained tpMode (fixed / nextT) + Next-T params.
+    tp: {
+      enabled: boolean; tpMode: "fixed" | "nextT"; mode: ExitLevelMode; value: number;
+      minYieldPct: number; safetyCapPct: number;
+    };
     sl: { enabled: boolean; mode: ExitLevelMode; value: number };
     // T167 — TSL gained trailMode + candle params (armed at entry).
     tsl: {

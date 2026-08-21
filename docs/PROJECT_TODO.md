@@ -50,8 +50,8 @@ timeframe to the signal timeframe + server-push.
 default 5 + safetyCapPct default 40) + migration; `dynTslSwingHighs` reuses
 `computeSwingLevels` on the ~120-bar candle history; the master TP eval targets the nearest
 swing high above price that clears minYield, rides in a trend, and fires the wide safety cap.
-**UI to SELECT nextT mode (SettingsMenu MasterTpRow) still pending** — until then it's
-config-only (defaults to "fixed" = existing %/₹).
+**✅ UI SHIPPED 2026-08-21:** SettingsMenu `MasterTpRow` — Fixed / Next-T toggle; Next-T
+exposes Min-yield % (default 5) + Safety-cap % (default 40). Fully selectable now.
 - Next-T targets the **nearest swing high (T) ABOVE the current price** that clears **≥ X%
   above entry** (X configurable, default **5%**).
 - **Stepping (b):** as each T is cleared the target steps up **T1→T2→T3**, **shown moving on

@@ -23,6 +23,17 @@ import { InfoDot } from "./InfoDot";
 type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 type ExitLevelMode = "percent" | "rupees";
 interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
+// T171 — Master TP. "fixed" = %/₹ target; "nextT" = target the nearest swing high
+// above price that clears >= minYieldPct, stepping up (trend → ride, safety cap only).
+type TpMode = "fixed" | "nextT";
+interface MasterTpLevel {
+  enabled: boolean;
+  tpMode: TpMode;
+  mode: ExitLevelMode;   // fixed: % / ₹
+  value: number;         // fixed: target
+  minYieldPct: number;   // nextT: min % above entry for a swing high to qualify
+  safetyCapPct: number;  // nextT: wide safety cap %
+}
 // T167 — Master TSL (armed at entry). "peak" = Mode A (trail % / ₹ below the peak);
 // "candle" = Mode B (trail to the O/H/L/C of the candle x bars back).
 type TslTrailMode = "peak" | "candle";
@@ -54,7 +65,7 @@ interface CommonCfg {
   lubasManagedExit: boolean;
   cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
-  masterExits: { tp: MasterLevel; sl: MasterLevel; tsl: MasterTslLevel };
+  masterExits: { tp: MasterTpLevel; sl: MasterLevel; tsl: MasterTslLevel };
   // T162 — trend-angle ribbon/readout tunables (display/measurement only).
   trendAngle: {
     source: "ma" | "sma5";
@@ -281,6 +292,69 @@ function MasterTslRow({ level, onToggle, onPatch, candleSecLabel, help }: {
   );
 }
 
+/** T171 — Master Take-profit row. Fixed (% / ₹ target) or Next-T (nearest swing
+ *  high above price; trend → ride, safety cap only). */
+function MasterTpRow({ level, onToggle, onPatch, help }: {
+  level: MasterTpLevel;
+  onToggle: () => void;
+  onPatch: (fn: (t: MasterTpLevel) => void) => void;
+  help?: string;
+}) {
+  const off = !level.enabled;
+  const nextT = level.tpMode === "nextT";
+  const rs = level.mode === "rupees";
+  const Seg = <T extends string>(opts: readonly T[], cur: T, set: (v: T) => void, fmt?: (v: T) => string) => (
+    <div className={`flex rounded border border-border overflow-hidden ${off ? "opacity-40" : ""}`}>
+      {opts.map((o) => (
+        <button key={o} type="button" disabled={off} onClick={() => set(o)}
+          className={`px-1.5 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+            cur === o ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+          }`}>{fmt ? fmt(o) : o}</button>
+      ))}
+    </div>
+  );
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Check2 checked={level.enabled} onChange={onToggle} title={level.enabled ? "Disable" : "Enable"} />
+          <span className={`text-[0.625rem] ${off ? "text-muted-foreground/50 line-through" : "text-muted-foreground"}`}>Take-profit</span>
+          {help && <InfoDot text={help} />}
+        </span>
+        {Seg(["fixed", "nextT"] as const, level.tpMode, (v) => onPatch((t) => { t.tpMode = v; }),
+          (v) => (v === "fixed" ? "Fixed" : "Next-T"))}
+      </div>
+      {!off && !nextT && (
+        <div className="flex items-center justify-end gap-1 pl-5">
+          {Seg(["percent", "rupees"] as const, level.mode, (v) => onPatch((t) => { t.mode = v; }), (v) => (v === "percent" ? "%" : "₹"))}
+          <input type="number" step={rs ? 100 : 0.5} min={rs ? 1 : 0} max={rs ? 3000000 : 100} value={level.value}
+            onChange={(e) => onPatch((t) => { t.value = e.target.value === "" ? 0 : Number(e.target.value); })}
+            className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          <span className="text-[0.5625rem] text-muted-foreground w-4">{rs ? "₹" : "%"}</span>
+        </div>
+      )}
+      {!off && nextT && (
+        <div className="flex flex-col gap-1.5 pl-5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Min yield %
+              <InfoDot text="A swing high must be at least this far above entry to be picked as the target; closer highs are skipped." /></span>
+            <input type="number" step={0.5} min={0} max={100} value={level.minYieldPct}
+              onChange={(e) => onPatch((t) => { t.minYieldPct = e.target.value === "" ? 0 : Math.max(0, Math.min(100, Number(e.target.value))); })}
+              className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground">Safety cap %
+              <InfoDot text="Wide ceiling for a trend (no resistance ahead → ride with the TSL). Only fires on an extreme spike. 0 = off." /></span>
+            <input type="number" step={1} min={0} max={500} value={level.safetyCapPct}
+              onChange={(e) => onPatch((t) => { t.safetyCapPct = e.target.value === "" ? 0 : Math.max(0, Math.min(500, Math.round(Number(e.target.value)))); })}
+              className="w-20 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<CommonCfg | null>(null);
@@ -343,11 +417,10 @@ export function SettingsMenu() {
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
                 <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. Stop-loss and Trailing stop can BOTH be on: the SL is the hard catastrophe floor (cuts immediately), the TSL trails above it. % = of premium; ₹ = NET P&L after charges. Glide's disaster stop always stays on as a last-resort backstop.">
-                  <MasterRow label="Take-profit" level={d.masterExits.tp}
-                    help="Bank the trade at this profit, overriding every strategy's own TP. % = premium this far above entry; ₹ = net P&L (after charges) reaches this."
+                  <MasterTpRow level={d.masterExits.tp}
+                    help="Bank the trade at profit. Fixed: a % (of premium) / ₹ (net P&L) target. Next-T: aim at the nearest swing-high resistance above price that clears the min-yield, stepping up T1→T2→T3; in a trend (no resistance ahead) it rides with the TSL and only the wide safety cap fires."
                     onToggle={() => edit((x) => { x.masterExits.tp.enabled = !x.masterExits.tp.enabled; })}
-                    onMode={(m) => edit((x) => { x.masterExits.tp.mode = m; })}
-                    onValue={(v) => edit((x) => { x.masterExits.tp.value = v; })} />
+                    onPatch={(fn) => edit((x) => fn(x.masterExits.tp))} />
                   <MasterRow label="Stop-loss" level={d.masterExits.sl}
                     help="The hard FLOOR. Cut the trade at this loss no matter what — checked first, cuts immediately. Keep this on as the catastrophe backstop even when the Trailing stop is on (the TSL trails above it). % = premium this far below entry; ₹ = net loss reaches this."
                     onToggle={() => edit((x) => { x.masterExits.sl.enabled = !x.masterExits.sl.enabled; })}
