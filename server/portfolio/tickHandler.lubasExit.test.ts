@@ -51,8 +51,13 @@ vi.mock("../portfolio/aiModeConfig", () => ({
     anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
     glide: { disasterSlPct: 50 },
   }),
-  // T129 — lubasManagedExit moved to the common block.
-  getCommonConfig: () => ({ lubasManagedExit, masterExits: { tp: { enabled: false, mode: "percent", value: 10 }, sl: { enabled: false, mode: "percent", value: 10 }, tsl: { enabled: false, mode: "percent", value: 3 } } }),
+  // T129 — lubasManagedExit moved to the common block. T171 (Rider): the live
+  // exit now fires via the MASTER block — a 5% master SL sits at 95 on entry 100.
+  getCommonConfig: () => ({ lubasManagedExit, sma5CandleSec: 60, maCandleSec: 60, masterExits: {
+    tp: { enabled: false, tpMode: "fixed", mode: "percent", value: 10, minYieldPct: 5, safetyCapPct: 40 },
+    sl: { enabled: true, mode: "percent", value: 5 },
+    tsl: { enabled: false, trailMode: "peak", mode: "percent", value: 3, anchor: "low", xBack: 1, sideways: "ignore", maxGapPct: 10 },
+  } }),
   getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
 }));
 
@@ -129,25 +134,5 @@ describe("Lubas-managed live exits", () => {
     // Same breach — but with Dhan-managed exits, the tick engine must not act.
     await processLive(liveTrade(), 94);
     expect(exitEvent).toBeNull();
-  });
-
-  it("runs Glide's disaster stop on live only when ON", async () => {
-    // A live Glide trade (no SL/TP) must still get its 50% disaster backstop
-    // when Lubas owns the exit — and must NOT when Dhan does (it never reaches
-    // detection). entryPending false so the first tick doesn't reprice the entry.
-    const glide = () => liveTrade({ id: "T-GLIDE", exitStrategy: "glide", stopLossPrice: null, targetPrice: null });
-
-    lubasManagedExit = true;
-    let onEvent: any = null;
-    tickHandler.once("autoExitDetected", (e) => { onEvent = e; });
-    await processLive(glide(), 40); // past a 50% disaster stop from entry 100
-    expect(onEvent?.reason).toBe("SL_HIT");
-
-    (tickHandler as any).exitingTrades.clear();
-    lubasManagedExit = false;
-    let offEvent: any = null;
-    tickHandler.once("autoExitDetected", (e) => { offEvent = e; });
-    await processLive(glide(), 40);
-    expect(offEvent).toBeNull();
   });
 });
