@@ -722,6 +722,10 @@ export const portfolioRouter = router({
     .input(z.object({
       channel: z.enum(['paper']),
       initialFunding: z.number().positive().default(100000),
+      // ARCHIVE (default) preserves closed trades + today's signals before the
+      // wipe; false = the DELETE CTA — hard reset, nothing preserved
+      // (Partha 2026-08-21: two buttons, Archive and Delete).
+      archive: z.boolean().default(true),
     }))
     .mutation(async ({ input }) => {
       const targetPercent = await getDailyTargetPercent();
@@ -733,8 +737,11 @@ export const portfolioRouter = router({
       // clear resets the book without destroying analysis history. OPEN
       // trades are NOT archived (their lifecycle never completed). A failed
       // archive aborts the clear — never delete what wasn't preserved.
-      const { archiveBeforeClear } = await import("./tradeArchive");
-      const archived = await archiveBeforeClear(input.channel);
+      let archived = null;
+      if (input.archive) {
+        const { archiveBeforeClear } = await import("./tradeArchive");
+        archived = await archiveBeforeClear(input.channel);
+      }
 
       const deleted = await deleteAllDayRecords(input.channel);
       // Also wipe position_state — otherwise a still-OPEN position lingers here

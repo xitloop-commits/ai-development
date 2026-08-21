@@ -123,6 +123,8 @@ export default function TradingDesk({
     },
   });
   const canClear = channel === 'paper' && !run;
+  // DELETE (no-archive clear) is two-click armed — see the CTA below.
+  const [deleteArmed, setDeleteArmed] = useState(false);
 
   /**
    * What the table actually renders. Normally the live book; with a run selected,
@@ -430,14 +432,38 @@ export default function TradingDesk({
               </button>
             ))}
             {canClear && (
-              <button
-                onClick={() => clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })}
-                disabled={clearWorkspaceMutation.isPending}
-                className="px-2 py-0.5 rounded font-bold bg-card/90 border border-destructive/40 text-destructive hover:bg-destructive/15 transition-colors backdrop-blur-sm disabled:opacity-50"
-                title="Reset the paper pool to its opening funding"
-              >
-                {clearWorkspaceMutation.isPending ? '…' : 'CLEAR'}
-              </button>
+              <>
+                {/* ARCHIVE (2026-08-21, was CLEAR) — closed trades + today's
+                    signals are preserved in the archive, then the pool resets. */}
+                <button
+                  onClick={() => clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000, archive: true })}
+                  disabled={clearWorkspaceMutation.isPending}
+                  className="px-2 py-0.5 rounded font-bold bg-card/90 border border-warning-amber/40 text-warning-amber hover:bg-warning-amber/15 transition-colors backdrop-blur-sm disabled:opacity-50"
+                  title="Archive closed trades + today's signals, then reset the paper pool (view them later via the Test chart's Source picker)"
+                >
+                  {clearWorkspaceMutation.isPending ? '…' : 'ARCHIVE'}
+                </button>
+                {/* DELETE — the old destructive clear: nothing preserved.
+                    Two-click arm so a stray hover-bar click can't wipe history. */}
+                <button
+                  onClick={() => {
+                    if (!deleteArmed) {
+                      setDeleteArmed(true);
+                      window.setTimeout(() => setDeleteArmed(false), 3000);
+                      return;
+                    }
+                    setDeleteArmed(false);
+                    clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000, archive: false });
+                  }}
+                  disabled={clearWorkspaceMutation.isPending}
+                  className={`px-2 py-0.5 rounded font-bold bg-card/90 border transition-colors backdrop-blur-sm disabled:opacity-50 ${
+                    deleteArmed ? 'border-destructive bg-destructive/25 text-destructive' : 'border-destructive/40 text-destructive hover:bg-destructive/15'
+                  }`}
+                  title="Delete ALL trades WITHOUT archiving and reset the pool — gone forever. First click arms, second click executes."
+                >
+                  {clearWorkspaceMutation.isPending ? '…' : deleteArmed ? 'SURE?' : 'DELETE'}
+                </button>
+              </>
             )}
           </div>
         )}
