@@ -20,7 +20,7 @@ import {
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
 import { copyContract } from '@/lib/copyContract';
-import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strategyPillStyle, strategyLabel, canExitTrades } from '@/lib/tradeThemes';
+import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, canExitTrades } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { postChartFocus } from '@/lib/chartFocusBus';
 import { useSelectedSignalSeq, selectSignalSeq } from '@/lib/selectionStore';
@@ -53,14 +53,8 @@ export interface TodayTradeRowProps {
   tslGatePercent?: number;
   /** Seconds price must hold past the gate before the server arms the TSL. */
   tslHoldSeconds?: number;
-  /** Cooling-window seconds per staged-exit strategy (Runway / Anchor), from the
-   *  AI menu. Sprint has no cooling window and is absent. */
-  coolingSecByStrategy?: { runway: number | null; anchor: number | null };
-  /** ES-honour ON → the ladder's own exits are off; hide its TSL + TTP markers. */
-  ladderEsHonour?: boolean;
-  ladderEsTslEnabled?: boolean;
   /** T167 — Master TSL on (common block). Labels the bar's stop "TSL" for every
-   *  trade it manages, regardless of the trade's own strategy. */
+   *  trade (Rider manages them all). */
   masterTslEnabled?: boolean;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
@@ -90,9 +84,6 @@ function _TodayTradeRow({
   globalTrailingEnabled = false,
   tslGatePercent,
   tslHoldSeconds,
-  coolingSecByStrategy,
-  ladderEsHonour,
-  ladderEsTslEnabled,
   masterTslEnabled,
   tradeNo,
   liveLtp,
@@ -122,22 +113,8 @@ function _TodayTradeRow({
     return () => clearInterval(id);
   }, [isOpen]);
 
-  // Roll the exit strategy by clicking the pill. Glide is offered ONLY on an
-  // MA-Signal trade — it has no stop of its own and waits for MA's leg-end EXIT,
-  // so on any other cohort nothing would ever close the trade. The server
-  // enforces the same rule; this just keeps it out of the cycle.
-  const utils = trpc.useUtils();
-  const rollStrategy = trpc.executor.setExitStrategy.useMutation({
-    onSuccess: () => { void utils.portfolio.invalidate(); },
-    onError: (e) => window.alert(`Could not change strategy: ${e.message}`),
-  });
-  const STRATEGY_CYCLE = (['sprint', 'runway', 'anchor', 'glide', 'ladder'] as const)
-    .filter((x) => x !== 'glide' || trade.cohort === 'ma_signal');
-  const nextStrategy = () => {
-    const cur = (trade.exitStrategy ?? 'sprint') as typeof STRATEGY_CYCLE[number];
-    const i = STRATEGY_CYCLE.indexOf(cur);
-    return STRATEGY_CYCLE[(i + 1) % STRATEGY_CYCLE.length];
-  };
+  // T171 — one exit model (Rider) now, so there is no strategy to roll; the pill
+  // is gone.
   // Whether THIS trade is actively trailing: paper-only (the live exit engine is
   // skipped — see T60 / gap #4) and only when its per-trade TSL mode is "auto".
   // Independent of the global trailing switch, which only SEEDS the mode at open.
@@ -355,29 +332,6 @@ function _TodayTradeRow({
                   {cohortLabel(trade.cohort)}
                 </span>
               )}
-              {/* Every strategy gets a pill (Sprint included) so the row always
-                  says which exit engine is managing the trade. */}
-              {trade.exitStrategy && (
-                <button
-                  type="button"
-                  disabled={!isOpen || rollStrategy.isPending}
-                  onClick={() => {
-                    if (!isOpen) return;
-                    rollStrategy.mutate({ channel, tradeId: trade.id, exitStrategy: nextStrategy() });
-                  }}
-                  className={`text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0 ${
-                    isOpen ? 'cursor-pointer hover:brightness-125' : 'cursor-default'
-                  } disabled:opacity-60`}
-                  style={strategyPillStyle(trade.exitStrategy)}
-                  title={
-                    isOpen
-                      ? `Exit strategy: ${strategyLabel(trade.exitStrategy)} — click to switch to ${strategyLabel(nextStrategy())}`
-                      : `Exit strategy: ${strategyLabel(trade.exitStrategy)}`
-                  }
-                >
-                  {strategyLabel(trade.exitStrategy)}
-                </button>
-              )}
         </div>
       </td>
 
@@ -411,35 +365,18 @@ function _TodayTradeRow({
                     : undefined
                 }
                 trailingEnabled={
-                  // T167 — the Master TSL (common block) manages + trails EVERY
-                  // trade, so the stop marker reads "TSL" whenever it's on. Else
-                  // fall back to the per-strategy label: under ES-honour it's the
-                  // honour-exit TSL cap; otherwise the classic server-trail flag.
-                  masterTslEnabled
-                    ? true
-                    : trade.exitStrategy === "ladder" && ladderEsHonour
-                      ? !!ladderEsTslEnabled
-                      : serverTrails
+                  // T171 (Rider) — the Master TSL manages/trails every trade, so the
+                  // stop marker reads "TSL" (gold) whenever the TSL is on. In the SL
+                  // xor alternative it falls back to the classic server-trail flag.
+                  masterTslEnabled ? true : serverTrails
                 }
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
-                coolingEndsAt={(() => {
-                  // Runway/Anchor hold a deliberately wide stop for coolingSec
-                  // after entry, then tighten. Turn that into an absolute end
-                  // time so the bar can count down to it. Sprint has none.
-                  const strat = trade.exitStrategy;
-                  if (strat !== "runway" && strat !== "anchor") return null;
-                  const sec = coolingSecByStrategy?.[strat];
-                  if (!sec || !trade.openedAt) return null;
-                  return trade.openedAt + sec * 1000;
-                })()}
                 tslGatePrice={(() => {
                   const be = trade.breakevenPrice ?? trade.entryPrice;
                   const g = tslGatePercent ?? 2;
                   return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
                 })()}
-                tpLabel={trade.exitStrategy === "ladder" ? "MTP" : undefined}
-                stopReadoutTop={trade.exitStrategy === "ladder"}
                 peakLtp={trade.peakLtp}
                 msBelowEntry={trade.msBelowEntry}
                 msAboveEntry={trade.msAboveEntry}
@@ -757,8 +694,6 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.globalTrailingEnabled === b.globalTrailingEnabled &&
     a.tslGatePercent === b.tslGatePercent &&
     a.tslHoldSeconds === b.tslHoldSeconds &&
-    a.ladderEsHonour === b.ladderEsHonour &&
-    a.ladderEsTslEnabled === b.ladderEsTslEnabled &&
     a.masterTslEnabled === b.masterTslEnabled &&
     a.tradeNo === b.tradeNo &&
     a.todayRef === b.todayRef &&

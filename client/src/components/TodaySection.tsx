@@ -81,30 +81,7 @@ export function TodaySection({
   const tslGatePercent = brokerConfigQuery.data?.settings?.trailingActivationGatePercent ?? 2;
   // Seconds price must hold past the gate before the server arms the TSL.
   const tslHoldSeconds = brokerConfigQuery.data?.settings?.trailingActivationHoldSeconds ?? 10;
-  // Cooling window per staged-exit strategy (Runway / Anchor). Fetched once here
-  // rather than per row; each row turns it into an absolute end time from its own
-  // openedAt. Sprint has no cooling window, so it isn't in this map.
   const aiConfigQuery = trpc.trading.aiConfig.useQuery(undefined);
-  // T134 — exits are per book now; read the book this desk is showing.
-  const exitBook = channel === "paper" ? "paper" : "live";
-  const coolingSecByStrategy = useMemo(
-    () => ({
-      runway: (aiConfigQuery.data as any)?.[exitBook]?.exits?.runway?.coolingSec ?? null,
-      anchor: (aiConfigQuery.data as any)?.[exitBook]?.exits?.anchor?.coolingSec ?? null,
-    }),
-    [aiConfigQuery.data, exitBook],
-  );
-  // ES-honour ON → the ladder's own exits are off; its TSL + TTP markers are
-  // hidden (the trade rides to the model's exit signal, not the ladder).
-  const ladderEsHonour = useMemo(() => {
-    return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esHonour;
-  }, [aiConfigQuery.data, exitBook]);
-  // Under ES-honour, the trailing stop is the honour-exit TSL cap. When it's on,
-  // the bar should LABEL the stop "TSL" (it's what manages + exits the trade),
-  // not "SL". Off → only the safety SL governs, so "SL" is correct.
-  const ladderEsTslEnabled = useMemo(() => {
-    return !!(aiConfigQuery.data as any)?.[exitBook]?.exits?.ladder?.esTslEnabled;
-  }, [aiConfigQuery.data, exitBook]);
 
   // T167 — Master TSL on (common block, spans every book). When on it manages +
   // trails EVERY trade, so the bar's stop marker should read "TSL" regardless of
@@ -315,9 +292,6 @@ export function TodaySection({
           globalTrailingEnabled={globalTrailingEnabled}
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
-          coolingSecByStrategy={coolingSecByStrategy}
-          ladderEsHonour={ladderEsHonour}
-          ladderEsTslEnabled={ladderEsTslEnabled}
           masterTslEnabled={masterTslEnabled}
           tradeNo={trades.indexOf(trade) + 1}
           onGoLive={channel === 'paper' ? handleGoLive : undefined}

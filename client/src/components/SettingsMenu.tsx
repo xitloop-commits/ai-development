@@ -20,7 +20,6 @@ import { Settings, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { InfoDot } from "./InfoDot";
 
-type StratName = "sprint" | "runway" | "anchor" | "glide" | "ladder";
 type ExitLevelMode = "percent" | "rupees";
 interface MasterLevel { enabled: boolean; mode: ExitLevelMode; value: number }
 // T171 — Master TP. "fixed" = %/₹ target; "nextT" = target the nearest swing high
@@ -63,7 +62,6 @@ interface CommonCfg {
   };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
   lubasManagedExit: boolean;
-  cohortStrategy: Record<"scalp" | "trend" | "ma" | "sma5" | "swing", StratName>;
   reentryOnTrend: { enabled: boolean; windowSec: number; maxReentries: number };
   masterExits: { tp: MasterTpLevel; sl: MasterLevel; tsl: MasterTslLevel };
   // T162 — trend-angle ribbon/readout tunables (display/measurement only).
@@ -77,14 +75,6 @@ interface CommonCfg {
   };
 }
 
-const COHORT_ROWS: { key: "scalp" | "trend" | "ma" | "sma5" | "swing"; label: string }[] = [
-  { key: "scalp", label: "Scalp" },
-  { key: "trend", label: "Trend" },
-  { key: "ma", label: "MA-Signal" },
-  { key: "sma5", label: "SMA5" },
-  { key: "swing", label: "Swing" },
-];
-const STRATS: StratName[] = ["sprint", "runway", "anchor", "glide", "ladder"];
 
 // Candle-timeframe seconds ↔ label (detector candle size: 1m/2m/3m/5m).
 type TfLabel = "1m" | "2m" | "3m" | "5m";
@@ -416,43 +406,21 @@ export function SettingsMenu() {
           ) : (
             <>
               <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
-                <Group title="Master exits · override every strategy" info="When a switch is ON it applies to EVERY trade and overrides that strategy's own level of the same kind. Stop-loss and Trailing stop can BOTH be on: the SL is the hard catastrophe floor (cuts immediately), the TSL trails above it. % = of premium; ₹ = NET P&L after charges. Glide's disaster stop always stays on as a last-resort backstop.">
+                <Group title="Rider exit" info="The single exit model for every trade. Take-profit + ONE downside stop — Stop-loss XOR Trailing stop (turning one on turns the other off; TSL is the default). The SEA / leg-end EXIT signal still closes a trade if it fires first. % = of premium; ₹ = NET P&L after charges.">
                   <MasterTpRow level={d.masterExits.tp}
                     help="Bank the trade at profit. Fixed: a % (of premium) / ₹ (net P&L) target. Next-T: aim at the nearest swing-high resistance above price that clears the min-yield, stepping up T1→T2→T3; in a trend (no resistance ahead) it rides with the TSL and only the wide safety cap fires."
                     onToggle={() => edit((x) => { x.masterExits.tp.enabled = !x.masterExits.tp.enabled; })}
                     onPatch={(fn) => edit((x) => fn(x.masterExits.tp))} />
                   <MasterRow label="Stop-loss" level={d.masterExits.sl}
-                    help="The hard FLOOR. Cut the trade at this loss no matter what — checked first, cuts immediately. Keep this on as the catastrophe backstop even when the Trailing stop is on (the TSL trails above it). % = premium this far below entry; ₹ = net loss reaches this."
-                    onToggle={() => edit((x) => { x.masterExits.sl.enabled = !x.masterExits.sl.enabled; })}
+                    help="A FIXED hard stop — cut the trade at this loss. The xor alternative to the Trailing stop: turning this on turns the TSL off. % = premium this far below entry; ₹ = net loss reaches this."
+                    onToggle={() => edit((x) => { const on = !x.masterExits.sl.enabled; x.masterExits.sl.enabled = on; if (on) x.masterExits.tsl.enabled = false; else x.masterExits.tsl.enabled = true; })}
                     onMode={(m) => edit((x) => { x.masterExits.sl.mode = m; })}
                     onValue={(v) => edit((x) => { x.masterExits.sl.value = v; })} />
                   <MasterTslRow level={d.masterExits.tsl}
                     candleSecLabel={TF_LABEL(d.sma5CandleSec)}
-                    help="A MOVING stop, armed at entry, trailing above the hard SL floor. Peak: trail % / ₹ below the running peak. Candle: trail to the O/H/L/C of the candle x bars back, ratchet up, holding through sideways candles. Keep the Stop-loss on too so a loose TSL still has a floor."
-                    onToggle={() => edit((x) => { x.masterExits.tsl.enabled = !x.masterExits.tsl.enabled; })}
+                    help="The DEFAULT downside stop — a MOVING stop, armed at entry. Peak: trail % / ₹ below the running peak. Candle: trail to the O/H/L/C of the candle x bars back, ratchet up, holding through sideways candles. The xor alternative to the fixed Stop-loss: turning this on turns the SL off."
+                    onToggle={() => edit((x) => { const on = !x.masterExits.tsl.enabled; x.masterExits.tsl.enabled = on; if (on) x.masterExits.sl.enabled = false; else x.masterExits.sl.enabled = true; })}
                     onPatch={(fn) => edit((x) => fn(x.masterExits.tsl))} />
-                </Group>
-
-                <Group title="Cohort strategies" info="Each cohort trades with one strategy. A signal places one trade using its cohort's strategy — this is where you choose which. Glide is MA-Signal only (it rides to the MA leg-end EXIT). SMA5 rides on Ladder and is closed on its price↔line cross.">
-                  {COHORT_ROWS.map((c) => (
-                    <div key={c.key} className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">{c.label}<InfoDot text={`Exit strategy for ${c.label} trades. Sprint = fixed TP/SL/TSL; Runway/Anchor = staged; Ladder = stepping SL + trail; Glide = ride to the MA leg-end (MA-Signal only).`} /></span>
-                      <select
-                        value={d.cohortStrategy?.[c.key] ?? "sprint"}
-                        onChange={(e) => edit((x) => { x.cohortStrategy[c.key] = e.target.value as StratName; })}
-                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.625rem] font-semibold capitalize focus:outline-none focus:ring-1 focus:ring-info-cyan"
-                      >
-                        {STRATS.map((s) => {
-                          const glideBlocked = s === "glide" && c.key !== "ma";
-                          return (
-                            <option key={s} value={s} disabled={glideBlocked}>
-                              {s}{glideBlocked ? " (MA only)" : ""}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  ))}
                 </Group>
 
                 <Group
@@ -628,9 +596,9 @@ export function SettingsMenu() {
                   </div>
                 </Group>
 
-                <Group title="Lubas exit · live" info="Lubas: the app watches ticks and places the exit — enables Runway / Anchor / Glide / trailing on live, but there is no stop at the exchange if the app is down. Dhan: the broker holds SL/TP legs at the exchange (survives an app crash), but only fixed SL/TP — staged strategies do not run.">
+                <Group title="Lubas exit · live" info="Lubas: the app watches ticks and places the exit — this is what runs the Rider stop/target (trailing, Next-T) on live, but there is no stop at the exchange if the app is down. Dhan: the broker holds SL/TP legs at the exchange (survives an app crash), but only a fixed SL/TP — Rider's trailing does not run.">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Manages live exits<InfoDot text="Lubas = the app watches ticks and places exits (Runway/Anchor/Glide/trailing work, but no stop at the exchange if the app is down). Dhan = the broker holds fixed SL/TP at the exchange (survives a crash, but staged strategies don't run)." /></span>
+                    <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">Manages live exits<InfoDot text="Lubas = the app watches ticks and places exits (Rider's trailing / Next-T run, but no stop at the exchange if the app is down). Dhan = the broker holds a fixed SL/TP at the exchange (survives a crash, but Rider's trailing doesn't run)." /></span>
                     <button type="button"
                       onClick={() => edit((x) => { x.lubasManagedExit = !x.lubasManagedExit; })}
                       className={`px-2 py-1 rounded text-[0.625rem] font-bold tracking-wide border transition-colors ${
