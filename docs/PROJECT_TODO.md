@@ -7,8 +7,8 @@ Partha spec (design locked, brainstorm). A **market-structure overlay** on the c
 **independent of any trade/entry** — pure price structure, rolling with the current candle.
 - **Definition (b) SWING PIVOTS:** a higher high = a local **peak** (candle higher than its
   neighbours, dip after); a lower low = a local **trough**. NOT running new-highs (too noisy).
-- **Higher highs → green**, labeled **T1/T2/T3…**; **lower lows → red**, labeled **B1/B2/B3…**
-  (labels default; changeable).
+- **Higher highs → green**, labeled **T1/T2/T3…**; **lower lows → red**, labeled **S1/S2/S3…**
+  (T = top, S = support).
 - **Show the last X of each** — default **X = 3**, **configurable**.
 - **Pivot strength ~1–2** (candles each side to confirm; configurable later). Note the small
   confirmation lag (newest pivot appears a couple candles after the peak).
