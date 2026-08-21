@@ -38,8 +38,8 @@
     "thr_lo": 0.006,
     "rev_pct": 0,
     "sl_pct": 12,
-    "candle_sec": 120,
-    "ribbon_lookback": 4,
+    "candle_sec": 300,
+    "ribbon_lookback": 3,
     "ribbon_gray_pctile": 10
   },
   "trend": {
@@ -51,16 +51,16 @@
     "min_seconds_between_signals": 600
   },
   "sma5_signal": {
-    "enabled": true,
+    "enabled": false,
     "period": 5,
     "buffer_pct": 0,
     "use_ha": true,
     "sl_pct": 12,
     "confirm_candles": 1,
-    "entry_watch": 0,
-    "entry_gate": false,
-    "candle_sec": 120,
-    "ribbon_lookback": 4,
+    "entry_watch": 3,
+    "entry_gate": true,
+    "candle_sec": 300,
+    "ribbon_lookback": 3,
     "ribbon_gray_pctile": 0
   }
 }

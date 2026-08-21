@@ -1,0 +1,62 @@
+{
+  "naturalgas": {
+    "date": "2026-08-21",
+    "expiry": "2026-08-24",
+    "atmAtLock": 270,
+    "offset": 2,
+    "ce": {
+      "strike": 260,
+      "securityId": "574331"
+    },
+    "pe": {
+      "strike": 280,
+      "securityId": "574407"
+    },
+    "lockedAt": 1787250618653
+  },
+  "nifty50": {
+    "date": "2026-08-21",
+    "expiry": "2026-08-25",
+    "atmAtLock": 24250,
+    "offset": 2,
+    "ce": {
+      "strike": 24150,
+      "securityId": "61623"
+    },
+    "pe": {
+      "strike": 24350,
+      "securityId": "61719"
+    },
+    "lockedAt": 1787250613651
+  },
+  "banknifty": {
+    "date": "2026-08-21",
+    "expiry": "2026-08-25",
+    "atmAtLock": 57700,
+    "offset": 2,
+    "ce": {
+      "strike": 57500,
+      "securityId": "59090"
+    },
+    "pe": {
+      "strike": 57900,
+      "securityId": "59099"
+    },
+    "lockedAt": 1787287413111
+  },
+  "crudeoil": {
+    "date": "2026-08-21",
+    "expiry": "2026-09-17",
+    "atmAtLock": 8300,
+    "offset": 2,
+    "ce": {
+      "strike": 8200,
+      "securityId": "576372"
+    },
+    "pe": {
+      "strike": 8400,
+      "securityId": "576529"
+    },
+    "lockedAt": 1787325731775
+  }
+}

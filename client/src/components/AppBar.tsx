@@ -48,25 +48,24 @@ import { toast } from 'sonner';
  * first chart. We detect the blocked ones (window.open returns null) and toast a
  * one-time instruction, so it never fails silently.
  */
-function openChartGroup(group: 'NSE' | 'MCX', groupLabel: string) {
-  // ONE window per exchange with the 2×2 ATM grid (2026-08-11) — the old
-  // per-instrument windows remain reachable via instrumentChartUrl elsewhere.
+function openCharts() {
+  // ONE window, 2×2 — one pane per instrument (Crude · Nifty50 / NatGas ·
+  // BankNifty), each following its active side (2026-08-18, merges the old
+  // per-exchange NSE/MCX windows).
   const w = Math.round((window.screen.availWidth || 1280) * 0.95);
   const h = Math.round((window.screen.availHeight || 800) * 0.95);
   const win = window.open(
-    `${window.location.origin}/?view=multichart&group=${group}`,
-    `lubas-multichart-${group}`,
+    `${window.location.origin}/?view=multichart`,
+    'lubas-multichart',
     `popup=yes,width=${w},height=${h},left=0,top=0`,
   );
   if (!win) {
     toast.error(
-      `Pop-up blocked: the ${groupLabel} window didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click ${groupLabel} again.`,
+      'Pop-up blocked: the chart window didn’t open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click CHARTS again.',
       { duration: 9000 },
     );
   }
 }
-const openNseCharts = () => openChartGroup('NSE', 'NSE CHART');
-const openMcxCharts = () => openChartGroup('MCX', 'MCX CHART');
 
 // ── Right-side status cluster (API · FEED · AI · Discipline) ──
 // All four indicators consolidated into a single component so AppBar
@@ -579,20 +578,13 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Open pop-out instrument charts, grouped by exchange (2 CTAs) */}
+        {/* Open the single pop-out chart window — 2×2, one pane per instrument. */}
         <button
-          onClick={openNseCharts}
+          onClick={openCharts}
           className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
-          title="One window, 4 panes — NIFTY (top) + BANK (bottom), ATM call left / put right"
+          title="Chart window — 2×2: Crude · Nifty50 (top), NatGas · BankNifty (bottom); each pane follows its active side"
         >
-          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">NSE CHART</span>
-        </button>
-        <button
-          onClick={openMcxCharts}
-          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
-          title="One window, 4 panes — CRUDE OIL (top) + NATURAL GAS (bottom), ATM call left / put right"
-        >
-          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">MCX CHART</span>
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">CHARTS</span>
         </button>
 
         <div className="w-px self-stretch bg-border shrink-0" />

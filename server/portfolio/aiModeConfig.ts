@@ -426,12 +426,14 @@ function baseCommon(): CommonConfig {
     },
     instrumentEnabled: { nifty50: true, banknifty: true, crudeoil: true, naturalgas: true },
     trendAngle: { source: "ma", lookbackMin: 5, scaleMode: "auto", fixedPctPer45: 0.2, grayPctile: 40, smooth: true },
-    // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
+    // T171 (Rider) — the Master block is the ONLY exit model. Default ON: Next-T
+    // take-profit + a candle-trailing stop (TSL is the default downside, always
+    // active). Hard SL OFF (the xor alternative — operator switches to it).
     masterExits: {
-      tp: { enabled: false, tpMode: "fixed", mode: "percent", value: 10, minYieldPct: 5, safetyCapPct: 40 },
+      tp: { enabled: true, tpMode: "nextT", mode: "percent", value: 10, minYieldPct: 5, safetyCapPct: 40 },
       sl: { enabled: false, mode: "percent", value: 10 },
       tsl: {
-        enabled: false, trailMode: "peak", mode: "percent", value: 3,
+        enabled: true, trailMode: "candle", mode: "percent", value: 3,
         anchor: "low", xBack: 1, sideways: "ignore", maxGapPct: 10,
       },
     },
@@ -723,9 +725,13 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   m.tsl.xBack = Math.round(clampNum(m.tsl.xBack, 1, 20, 1));
   m.tsl.sideways = m.tsl.sideways === "count" ? "count" : "ignore";
   m.tsl.maxGapPct = clampNum(m.tsl.maxGapPct, 0, 100, 10); // 0 = off
-  // T167 (rev 2026-08-20): SL + TSL may COEXIST. The SL is the hard catastrophe
-  // floor (checked first, cuts immediately); the TSL trails above it. No mutual
-  // exclusivity — a loose candle TSL with no floor let a trade bleed past 11%.
+  // T171 (Rider, spec-locked 2026-08-21) — SL xor TSL: exactly ONE downside stop.
+  // TSL is the default and is always active unless the operator explicitly picks
+  // the hard SL. (Supersedes the 2026-08-20 coexist note.) Both on → TSL wins;
+  // both off → force TSL, so a trade is never left with no downside stop (the
+  // Master block is now the only exit — there is no legacy fall-through).
+  if (m.sl.enabled && m.tsl.enabled) m.sl.enabled = false;
+  if (!m.sl.enabled && !m.tsl.enabled) m.tsl.enabled = true;
   // Re-entry-on-trend — back-fill for an old config, then coerce + clamp.
   if (!c.reentryOnTrend) (c as CommonConfig).reentryOnTrend = { enabled: true, windowSec: 30, maxReentries: 3 };
   const r = c.reentryOnTrend;

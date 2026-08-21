@@ -80,33 +80,38 @@ describe("glide optional TP config (default off)", () => {
 });
 
 describe("master exits (common block, T141)", () => {
-  it("default: all three off, percent, back-filled on an old config", () => {
+  it("default (Rider): Next-T TP on, candle TSL on, hard SL off", () => {
     initAiConfig();
     const m = getCommonConfig().masterExits;
-    expect(m.tp.enabled).toBe(false);
-    expect(m.sl.enabled).toBe(false);
-    expect(m.tsl.enabled).toBe(false);
-    expect(m.tp.mode).toBe("percent");
+    expect(m.tp.enabled).toBe(true);
+    expect(m.tp.tpMode).toBe("nextT");
+    expect(m.tsl.enabled).toBe(true);
+    expect(m.tsl.trailMode).toBe("candle");
+    expect(m.sl.enabled).toBe(false); // xor alternative — operator opts into it
   });
 
   it("stores enabled ₹ master levels and clamps into the net-₹ band", () => {
+    // SL xor TSL — enable the ₹ TSL (sl stays off) so the xor doesn't disable it.
     updateCommonConfig({ masterExits: {
       tp: { enabled: true, mode: "rupees", value: 3000 },
-      sl: { enabled: true, mode: "rupees", value: 2000 },
+      sl: { enabled: false, mode: "rupees", value: 2000 },
       tsl: { enabled: true, mode: "rupees", value: 1000 },
     } });
     const m = getCommonConfig().masterExits;
-    expect(m.tp).toEqual({ enabled: true, mode: "rupees", value: 3000 });
-    expect(m.sl.value).toBe(2000);
+    expect(m.tp).toMatchObject({ enabled: true, mode: "rupees", value: 3000 });
+    expect(m.sl.value).toBe(2000); // value preserved even while disabled
     expect(m.tsl.value).toBe(1000);
   });
 
-  it("a partial patch leaves the other master levels intact", () => {
-    updateCommonConfig({ masterExits: { sl: { enabled: true, mode: "percent", value: 8 } } as any });
+  it("SL xor TSL — enabling the hard SL disables the TSL", () => {
+    updateCommonConfig({ masterExits: {
+      sl: { enabled: true, mode: "percent", value: 8 },
+      tsl: { enabled: false, mode: "percent", value: 3 },
+    } as any });
     const m = getCommonConfig().masterExits;
     expect(m.sl.enabled).toBe(true);
+    expect(m.tsl.enabled).toBe(false); // xor: only one downside stop
     expect(m.tp).toBeDefined(); // not wiped by the partial patch
-    expect(m.tsl).toBeDefined();
   });
 });
 

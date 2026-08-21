@@ -451,10 +451,11 @@ describe("tickHandler — entry-pending first-tick fill", () => {
 
     expect(trade.entryPending).toBe(false);
     expect(trade.entryPrice).toBe(130);      // filled at the live tick, not 100
-    expect(trade.targetPrice).toBe(140);     // 110 + 30 delta
-    expect(trade.stopLossPrice).toBe(125);   // 95 + 30 delta
     expect(trade.breakevenPrice).toBe(131);  // 101 + 30 delta
     expect(trade.ltp).toBe(130);
+    // targetPrice / stopLossPrice are now Rider (Master) owned — rewritten each
+    // tick from the live entry — so the fill's delta-shift on them is superseded;
+    // asserted in the Master-exit tests, not here.
   });
 
   it("does NOT re-fill a trade whose entry is already confirmed (entryPending false)", async () => {
@@ -471,8 +472,8 @@ describe("tickHandler — entry-pending first-tick fill", () => {
     handler.pendingUpdates.set("NSE:OPT2", makeTick({ securityId: "OPT2", ltp: 130 }));
     await handler.processPendingUpdates();
 
-    expect(trade.entryPrice).toBe(100);      // untouched
-    expect(trade.targetPrice).toBe(110);     // untouched
+    expect(trade.entryPrice).toBe(100);      // untouched (no re-fill)
+    expect(trade.entryPending).toBe(false);  // stays confirmed
     expect(trade.ltp).toBe(130);             // ltp still marks normally
   });
 
