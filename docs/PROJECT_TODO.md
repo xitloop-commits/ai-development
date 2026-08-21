@@ -174,6 +174,17 @@ Crude/NatGas stay exactly as-is (protected).
   [03](systems/03_model_training.md) / [04](systems/04_signal_engine.md) as built.
   Related: T29 (head-type routing), T71 (nifty/bank gate audit), T73 (retrain launcher item).
 
+### T169 [DATA] — corruption-tolerant tick readers ✅ BUILT 2026-08-21 (mid-session, third strike)
+A recorder restart mid-day leaves the gz day file with a truncated member +
+a fresh appended stream; readers froze at the seam (power cut 08-13 killed
+the evening; fleet double-start 08-21 starved 3/4 instruments' signals for
+an hour). `feedChunkResilient` (server/chartData.ts) resyncs at the next
+gzip member header on error OR silent-mute, applied to the option-day
+index, per-contract scans and the underlying cache. Verified on 08-21's
+real seamed crude file: full recovery through the seam. STILL OPEN from
+this trio: fast cold-start warm-up (evening restart shouldn't chew the
+whole day file to feed 2 contracts).
+
 ### T168 [PA/UI] — Clear archives instead of destroying ✅ BUILT 2026-08-19
 Partha spec: the paper Clear CTA now copies everything it deletes into
 mirror collections first — `archived_day_records` (CLOSED trades only, per
