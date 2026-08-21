@@ -670,7 +670,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   c.sma5EntryWatch = Math.round(clampNum(c.sma5EntryWatch, 0, 10, 0));
   c.sma5EntryGate = c.sma5EntryGate === true;
   c.sma5CandleSec = [60, 120, 180, 300].includes(Math.round(c.sma5CandleSec)) ? Math.round(c.sma5CandleSec) : 60;
-  c.maCandleSec = [60, 120, 180, 300].includes(Math.round(c.maCandleSec)) ? Math.round(c.maCandleSec) : 60;
+  // T171 — ONE candle timeframe platform-wide: MA follows the (canonical) SMA5
+  // timeframe, so signals, chart, tradebar and server all use a single number.
+  c.maCandleSec = c.sma5CandleSec;
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

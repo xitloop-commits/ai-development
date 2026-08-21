@@ -523,9 +523,9 @@ export function SettingsMenu() {
                 </Group>
 
                 <Group title="SMA5 detector" info="Entry gate (premium confirm): when ON, a CE/PE entry only fires if THAT option's premium is above its own SMA5 at the cross (the premium confirms the underlying move); otherwise the entry is skipped. OFF = fire on the underlying cross regardless (original). Exits are never gated. Entry watch (candles): after a cross, entry waits this many 1-min candles that each close FURTHER in the trade's direction (above the prior candle for CE, below for PE) before entering; 0 = enter on the cross (original). Avoids buying a spike that reverts. Exit confirm (candles): a reversal only exits the current side after the close holds the new side for this many 1-min candles. 1 = exit on the first cross (original); 2+ stops a single candle that pokes across the line and recovers next bar from exiting early (first entry from flat stays immediate). Buffer: a deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line; 0 = exact cross. All live — the running SEA applies them on the next candle.">
-                  <TfRow label="Timeframe" sec={d.sma5CandleSec}
-                    onChange={(s) => edit((x) => { x.sma5CandleSec = s; })}
-                    help="Candle size the SMA5 runs on. The 5-SMA is 5 candles of this size (3m → a 15-min line). Changing it live re-warms the SMA over ~5 candles." />
+                  <TfRow label="Candle timeframe (shared)" sec={d.sma5CandleSec}
+                    onChange={(s) => edit((x) => { x.sma5CandleSec = s; x.maCandleSec = s; })}
+                    help="ONE shared candle size for the whole platform — SMA5, MA-Signal, chart, tradebar and server all use it (the display interval on the chart is separate). The 5-SMA is 5 candles of this size (3m → a 15-min line). Changing it live re-warms over ~5 candles and hot-swaps the SEA." />
                   {/* T163 ribbon-mode knobs — SHARED with the MA detector and the
                       chart ribbons (same trendAngle fields, one truth). Pushed
                       live to SEA; a lookback change re-warms in seconds. */}
@@ -551,9 +551,9 @@ export function SettingsMenu() {
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">
-                  <TfRow label="Timeframe" sec={d.maCandleSec}
-                    onChange={(s) => edit((x) => { x.maCandleSec = s; })}
-                    help="Candle size the MA-Signal runs on (1m/2m/3m/5m). Changing it live re-warms the slope over a few candles." />
+                  <TfRow label="Candle timeframe (shared)" sec={d.maCandleSec}
+                    onChange={(s) => edit((x) => { x.maCandleSec = s; x.sma5CandleSec = s; })}
+                    help="The SAME one shared candle size as on the SMA5 detector — MA and SMA5 always run on one timeframe (T171). Changing it here changes it everywhere and hot-swaps the SEA." />
                   {/* T163 ribbon-mode knobs. Gray floor is MA-only — the SMA5
                       ribbon is binary (green/red, no gray, 2026-08-14). */}
                   <NumRow label="Ribbon lookback (shared)" value={d.trendAngle?.lookbackMin ?? 5} step={1} min={1} max={10} unit="candles"
