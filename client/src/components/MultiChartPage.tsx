@@ -57,6 +57,9 @@ interface ToolbarState {
   indicators?: IndicatorKey[];
   markerFilter?: TradeMarkerFilter;
   activeOnly?: boolean;
+  /** "ALL" = the 2×2 one-pane-per-instrument grid; an instrument key = that
+   *  instrument's CE (left) | PE (right) split (Partha 2026-08-21 pills). */
+  view?: string;
 }
 function loadToolbar(): ToolbarState {
   try { return JSON.parse(localStorage.getItem(TOOLBAR_LS_KEY) || "{}") as ToolbarState; } catch { return {}; }
@@ -111,7 +114,7 @@ type AtmShape = {
 
 function InstrumentPane({
   instKey, intervalSec, style, indicators, markerFilter, activeOnly, crosshairSync,
-  taOpts, chartDate, simCutoffRef, fs, onToggleFs,
+  taOpts, chartDate, simCutoffRef, fs, onToggleFs, forceSide,
 }: {
   instKey: string;
   intervalSec: number;
@@ -126,12 +129,17 @@ function InstrumentPane({
   simCutoffRef?: MutableRefObject<number | null>;
   fs: boolean;
   onToggleFs: () => void;
+  /** Instrument-pill split view (2026-08-21): pin this pane to ONE leg — CE
+   *  left, PE right — instead of following the shown trade's side. */
+  forceSide?: "CE" | "PE";
 }) {
   const tradesQ = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: instKey, date: chartDate },
     { refetchInterval: 10_000, refetchOnWindowFocus: false },
   );
-  const rows = (tradesQ.data ?? []) as PaneTradeRow[];
+  const allRows = (tradesQ.data ?? []) as PaneTradeRow[];
+  // A pinned-leg pane only ever considers its own side's trades.
+  const rows = forceSide ? allRows.filter((r) => r.side === forceSide) : allRows;
 
   // Focus from the desk (direction-pill click, cross-window). Cleared by Reset.
   const [focusKey, setFocusKey] = useState<string | null>(null);
@@ -147,7 +155,7 @@ function InstrumentPane({
   const openTrade = rows.filter((r) => r.status === "OPEN").sort(byNewest)[0] ?? null;
   const mostRecent = rows.length ? rows.slice().sort(byNewest)[0] : null;
   const shown = focused ?? openTrade ?? mostRecent;
-  const side: "CE" | "PE" = shown?.side ?? "CE";
+  const side: "CE" | "PE" = forceSide ?? shown?.side ?? "CE";
 
   const liveState = trpc.trading.instrumentLiveState.useQuery(
     { instrument: instKey },
@@ -313,17 +321,22 @@ export default function MultiChartPage() {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
   const [activeOnly, setActiveOnly] = useState(saved.activeOnly ?? false);
+  // Instrument pills (Partha 2026-08-21): ALL = the 2×2 grid; an instrument =
+  // that instrument's CE (left) | PE (right) split.
+  const [view, setView] = useState<string>(
+    saved.view && (MAIN_CHART_INSTRUMENTS as readonly string[]).includes(saved.view) ? saved.view : "ALL",
+  );
   const crosshairSync = useMemo(() => createCrosshairSync(), []);
   // Persist toolbar settings so they survive a window restart. The interval is
   // saved ONLY once the user explicitly picks one — otherwise it's left unset so
   // the chart keeps defaulting to the CONFIG timeframe (sma5CandleSec, 2m).
   useEffect(() => {
     try {
-      const s: ToolbarState = { style, indicators: Array.from(indicators), markerFilter, activeOnly };
+      const s: ToolbarState = { style, indicators: Array.from(indicators), markerFilter, activeOnly, view };
       if (userPickedInterval.current) s.intervalSec = intervalSec;
       localStorage.setItem(TOOLBAR_LS_KEY, JSON.stringify(s));
     } catch { /* ignore quota/availability */ }
-  }, [intervalSec, style, indicators, markerFilter, activeOnly]);
+  }, [intervalSec, style, indicators, markerFilter, activeOnly, view]);
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -373,29 +386,54 @@ export default function MultiChartPage() {
   const btn = (active: boolean) =>
     `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
-  const pane = (inst: string) => (
-    <InstrumentPane
-      key={`${inst}-${refreshNonce}-${chartDate}`}
-      instKey={inst}
-      intervalSec={intervalSec}
-      style={style}
-      indicators={indicators}
-      markerFilter={markerFilter}
-      activeOnly={activeOnly}
-      crosshairSync={crosshairSync}
-      taOpts={taOpts}
-      chartDate={chartDate}
-      simCutoffRef={isSim ? simCutoffRef : undefined}
-      fs={fullscreenInst === inst}
-      onToggleFs={() => setFullscreenInst((p) => (p === inst ? null : inst))}
-    />
-  );
+  const pane = (inst: string, forceSide?: "CE" | "PE") => {
+    const paneId = forceSide ? `${inst}#${forceSide}` : inst;
+    return (
+      <InstrumentPane
+        key={`${paneId}-${refreshNonce}-${chartDate}`}
+        instKey={inst}
+        intervalSec={intervalSec}
+        style={style}
+        indicators={indicators}
+        markerFilter={markerFilter}
+        activeOnly={activeOnly}
+        crosshairSync={crosshairSync}
+        taOpts={taOpts}
+        chartDate={chartDate}
+        simCutoffRef={isSim ? simCutoffRef : undefined}
+        fs={fullscreenInst === paneId}
+        onToggleFs={() => setFullscreenInst((p) => (p === paneId ? null : paneId))}
+        forceSide={forceSide}
+      />
+    );
+  };
+  // Short pill labels for the view switcher.
+  const PILL_LABEL: Record<string, string> = {
+    CRUDEOIL: "Crude", NIFTY_50: "Nifty", NATURALGAS: "Gas", BANKNIFTY: "BNifty",
+  };
 
   return (
     <div className="flex h-screen w-screen flex-col gap-1 p-2 text-foreground" style={{ background: chartColors(theme).background }}>
       {/* Toolbar — always visible, even in fullscreen (the pane fills the area BELOW it). */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1 text-xs">
         <span className="font-bold tracking-wide">Charts</span>
+        {/* View pills (2026-08-21): All = the 2×2 grid; an instrument = its
+            CE (left) | PE (right) split. Switching clears pane fullscreen. */}
+        <div className="flex rounded border border-border overflow-hidden">
+          {["ALL", ...MAIN_CHART_INSTRUMENTS].map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => { setView(v); setFullscreenInst(null); }}
+              title={v === "ALL" ? "All four instruments (2×2 grid)" : `${INSTRUMENT_CHART_META[v]?.displayName ?? v} — CE left, PE right`}
+              className={`px-2 py-0.5 text-[0.625rem] font-bold transition-colors ${
+                view === v ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v === "ALL" ? "All" : PILL_LABEL[v] ?? v}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
             <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { userPickedInterval.current = true; setIntervalSec(iv.seconds); }}>{iv.label}</button>
@@ -448,9 +486,19 @@ export default function MultiChartPage() {
         </button>
       </div>
 
-      {/* Content — one fullscreen pane, else the 2×2 grid (top: Crude·Nifty, bottom: NatGas·BankNifty). */}
+      {/* Content — one fullscreen pane; else the instrument CE|PE split when a
+          pill is active; else the 2×2 grid (top: Crude·Nifty, bottom: NatGas·BankNifty). */}
       {fullscreenInst ? (
-        <div className="min-h-0 flex-1">{pane(fullscreenInst)}</div>
+        <div className="min-h-0 flex-1">
+          {fullscreenInst.includes("#")
+            ? pane(fullscreenInst.split("#")[0], fullscreenInst.split("#")[1] as "CE" | "PE")
+            : pane(fullscreenInst)}
+        </div>
+      ) : view !== "ALL" ? (
+        <div className="grid min-h-0 flex-1 grid-cols-2 gap-1">
+          {pane(view, "CE")}
+          {pane(view, "PE")}
+        </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-1">
           {MAIN_CHART_INSTRUMENTS.map((inst) => pane(inst))}
