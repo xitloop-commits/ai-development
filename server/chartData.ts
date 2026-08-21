@@ -86,7 +86,9 @@ function newCacheEntry(): TickCacheEntry {
     chain: Promise.resolve(),
     lastAccess: Date.now(),
   };
-  entry.gunzip.on("error", () => { entry.dead = true; });
+  // No dead-on-error handler any more — feedChunkResilient resyncs past
+  // corrupt seams instead of abandoning the stream (2026-08-21).
+  entry.gunzip.on("error", () => {});
   return entry;
 }
 
@@ -120,6 +122,65 @@ function parseIntoEntry(entry: TickCacheEntry, decoded: string): void {
       if (gm) entry.exchangeSegment = gm[1];
     }
   }
+}
+
+// ── Corruption-tolerant gzip feeding (2026-08-21) ─────────────────────────
+// A recorder restart (power cut 08-13, fleet double-start 08-21) leaves the
+// day file with a TRUNCATED gzip member followed by the new instance's fresh
+// stream. A plain inflater either errors at the seam (readers froze on
+// pre-seam data) or goes silent mid-garbage (the index wedge). This feeder
+// RESYNCS: on error or silent output it hunts the next gzip member header
+// (1f 8b 08) and continues with a fresh inflater — a seam costs the few
+// seconds of data it tore, never the rest of the day.
+const GZ_MAGIC = Buffer.from([0x1f, 0x8b, 0x08]);
+
+interface GzHost { gunzip: zlib.Gunzip; pending: string }
+
+function freshGunzip(): zlib.Gunzip {
+  const g = zlib.createGunzip();
+  g.on("error", () => {}); // surfaced per-feed; a bare emit must never crash
+  return g;
+}
+
+/** feedChunk that survives corrupt seams. Never rejects — it returns whatever
+ *  decoded, resyncing past damage. Resets `host.pending` on a resync (a torn
+ *  line at a seam is garbage, not a line). */
+async function feedChunkResilient(host: GzHost, raw: Buffer): Promise<string> {
+  let out = "";
+  let buf = raw;
+  for (let hop = 0; hop < 16; hop++) {
+    let text = "";
+    let failed = false;
+    try {
+      text = await feedChunk(host, buf);
+    } catch {
+      failed = true;
+    }
+    out += text;
+    if (!failed) {
+      // Silent desync: a sizeable chunk decoding to NOTHING means the
+      // inflater is lost mid-garbage (no error, no output — the wedge case).
+      if (text.length === 0 && buf.length > (1 << 16)) {
+        const at = buf.indexOf(GZ_MAGIC);
+        if (at > 0) {
+          host.gunzip.destroy();
+          host.gunzip = freshGunzip();
+          host.pending = "";
+          buf = buf.subarray(at);
+          continue;
+        }
+      }
+      return out;
+    }
+    // Stream error inside `buf` — restart at the next member header.
+    host.gunzip.destroy();
+    host.gunzip = freshGunzip();
+    host.pending = "";
+    const at = buf.indexOf(GZ_MAGIC, 1); // skip the failing start
+    if (at === -1) return out;           // seam continues into the next chunk
+    buf = buf.subarray(at);
+  }
+  return out;
 }
 
 /** Feed one raw chunk through the entry's decompressor; resolves with the
@@ -162,7 +223,9 @@ function readFileSlice(file: string, from: number, to: number): Buffer {
   }
 }
 
-/** Legacy one-shot full read — fallback when the streaming entry went dead. */
+/** Legacy one-shot full read — fallback when the streaming entry went dead.
+ *  gunzipSync stops at a corrupt seam; entries no longer go dead (resilient
+ *  feeder), so this path is now rare and its truncation acceptable. */
 function readUnderlyingTicksFull(file: string): UnderlyingTicks {
   const entry = newCacheEntry(); // reuse the parser, throw the entry away
   try {
@@ -219,7 +282,7 @@ export async function readUnderlyingTicks(instrument: string, date: string): Pro
     if (e.dead || size <= e.bytesFed) return;
     const chunk = readFileSlice(file, e.bytesFed, size);
     try {
-      const decoded = await feedChunk(e, chunk);
+      const decoded = await feedChunkResilient(e, chunk);
       e.bytesFed += chunk.length;
       parseIntoEntry(e, decoded);
     } catch {
@@ -280,13 +343,12 @@ function todayIST(): string {
 function newOptionIndex(): OptionDayIndex {
   const idx: OptionDayIndex = {
     bytesFed: 0,
-    gunzip: zlib.createGunzip(),
+    gunzip: freshGunzip(), // resilient feeding — seams resync, never kill (2026-08-21)
     dead: false,
     pending: "",
     bySec: new Map(),
     chain: Promise.resolve(),
   };
-  idx.gunzip.on("error", () => { idx.dead = true; });
   return idx;
 }
 
@@ -328,14 +390,11 @@ async function refreshOptionIndex(idx: OptionDayIndex, file: string): Promise<vo
     const to = Math.min(idx.bytesFed + CHUNK, size);
     const raw = readFileSlice(file, idx.bytesFed, to);
     if (raw.length === 0) return;
-    try {
-      const decoded = await feedChunk(idx, raw);
-      idx.bytesFed += raw.length;
-      parseOptionLines(idx, decoded);
-    } catch {
-      idx.dead = true;
-      return;
-    }
+    // Resilient: a corrupt seam (recorder restart mid-day) resyncs at the
+    // next gzip member instead of freezing the index at the seam (2026-08-21).
+    const decoded = await feedChunkResilient(idx, raw);
+    idx.bytesFed += raw.length;
+    parseOptionLines(idx, decoded);
     await new Promise((r) => setImmediate(r));
   }
 }
@@ -398,50 +457,51 @@ export function readOptionContractTicks(
   return result;
 }
 
-/** One serialized option-file scan: filters to `securityId`, yields the event
- *  loop every ~131k lines, and self-caps at 90s so a stuck stream can't wedge
- *  the shared queue. Live-appended "today" file → gunzip errors on the unfinished
- *  tail; we resolve with whatever decoded so far. */
-function scanOptionFile(file: string, securityId: string): Promise<UnderlyingTicks> {
+/** One serialized option-file scan: filters to `securityId`, yields between
+ *  4 MB chunks, and self-caps at 90s so a stuck stream can't wedge the shared
+ *  queue. Resilient (2026-08-21): a corrupt seam mid-file (recorder restart /
+ *  power cut) resyncs at the next gzip member instead of truncating the scan
+ *  at the seam — pre-seam AND post-seam data both return. */
+async function scanOptionFile(file: string, securityId: string): Promise<UnderlyingTicks> {
   const needle = `"security_id": "${securityId}"`;
   const t: number[] = [];
   const ltp: number[] = [];
-
-  return new Promise((resolve) => {
-    let done = false;
-    const gunzip = zlib.createGunzip();
-    const stream = createReadStream(file);
-    const rl = readline.createInterface({ input: stream.pipe(gunzip) });
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      try { rl.close(); stream.destroy(); } catch { /* already closed */ }
-      resolve({ t, ltp });
-    };
-    const timer = setTimeout(finish, 90_000); // safety: never hold the queue > 90s
-    gunzip.on("error", finish); // unfinished tail of a live-appended gzip
-    stream.on("error", finish);
-    let seen = 0;
-    rl.on("line", (line) => {
-      // Breathe every ~131k lines so the live WS broadcast isn't starved while
-      // scanning this giant file.
-      if ((++seen & 0x1ffff) === 0) { rl.pause(); setImmediate(() => rl.resume()); }
-      if (line.length < 8 || !line.includes(needle)) return;
-      const lm = LTP_RE.exec(line);
-      if (!lm) return;
-      const tm = RECV_TS_RE.exec(line);
-      if (!tm) return;
-      const price = parseFloat(lm[1]);
-      const ts = parseFloat(tm[1]);
-      if (price > 0 && ts > 0) {
-        t.push(ts);
-        ltp.push(price);
+  const host: GzHost = { gunzip: freshGunzip(), pending: "" };
+  const deadline = Date.now() + 90_000; // safety: never hold the queue > 90s
+  const CHUNK = 4 << 20;
+  let size = 0;
+  try { size = statSync(file).size; } catch { return { t, ltp }; }
+  let fed = 0;
+  let carry = ""; // trailing partial line across chunks
+  while (fed < size && Date.now() < deadline) {
+    const to = Math.min(fed + CHUNK, size);
+    const raw = readFileSlice(file, fed, to);
+    if (raw.length === 0) break;
+    const decoded = await feedChunkResilient(host, raw);
+    fed += raw.length;
+    const text = carry + decoded;
+    const lastNl = text.lastIndexOf("\n");
+    carry = lastNl === -1 ? text : text.slice(lastNl + 1);
+    if (lastNl !== -1) {
+      for (const line of text.slice(0, lastNl).split("\n")) {
+        if (line.length < 8 || !line.includes(needle)) continue;
+        const lm = LTP_RE.exec(line);
+        if (!lm) continue;
+        const tm = RECV_TS_RE.exec(line);
+        if (!tm) continue;
+        const price = parseFloat(lm[1]);
+        const ts = parseFloat(tm[1]);
+        if (price > 0 && ts > 0) {
+          t.push(ts);
+          ltp.push(price);
+        }
       }
-    });
-    rl.on("close", finish);
-    rl.on("error", finish);
-  });
+    }
+    // Breathe between chunks so the live WS broadcast isn't starved.
+    await new Promise((r) => setImmediate(r));
+  }
+  host.gunzip.destroy();
+  return { t, ltp };
 }
 
 /**
