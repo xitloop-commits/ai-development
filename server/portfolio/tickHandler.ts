@@ -26,7 +26,7 @@ import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { decideExit, ladderDecide } from "./exitStrategies";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
 import { getExitConfig, getCommonConfig, type CandleAnchor, type SidewaysMode } from "./aiModeConfig";
-import { nearestSupportBelow } from "./swingLevels";
+import { nearestSupportBelow, computeSwingLevels } from "./swingLevels";
 import { resolveNetRsExit, netPnlAtPrice, loadChargeRates } from "./netRsExit";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
@@ -323,7 +323,7 @@ class TickHandler extends EventEmitter {
     const rec = { open: candleOpen, close: candleClose, high: st.h, low: st.l, t: st.minute * cs };
     st.completed.push(rec);
     // Keep only what the lookback needs (plus a little slack).
-    const keep = Math.max(1, xBack) + 2;
+    const keep = Math.max(Math.max(1, xBack) + 2, 120); // keep ~120 for swing highs (Next-T TP)
     if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
     // T167 — track "progress" candles (those making a new favourable extreme vs
     // runFav) so the sideways="ignore" mode can x-back over progress candles only.
@@ -482,7 +482,7 @@ class TickHandler extends EventEmitter {
         st.stop = st.stop === null ? cand : isBuy ? Math.max(st.stop, cand) : Math.min(st.stop, cand);
       }
       // Trim to the rolling window the live path maintains.
-      const keep = back + 2;
+      const keep = Math.max(back + 2, 120); // keep ~120 for swing highs (Next-T TP)
       if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
       if (st.progress.length > keep) st.progress.splice(0, st.progress.length - keep);
       st.seed = "done";
@@ -497,6 +497,15 @@ class TickHandler extends EventEmitter {
   private dynTslViz(tradeId: string): { anchorTime: number | null; ignoredTimes: number[] } {
     const st = this.dynTslState.get(tradeId);
     return { anchorTime: st?.anchorTime ?? null, ignoredTimes: st?.ignoredTimes ?? [] };
+  }
+
+  /** T171 Next-T TP — swing HIGH prices for a trade, from the same candle history
+   *  the candle-TSL keeps (~120 bars). Empty until the trade has candle state. */
+  private dynTslSwingHighs(tradeId: string): number[] {
+    const st = this.dynTslState.get(tradeId);
+    if (!st || !st.completed.length) return [];
+    const bars = st.completed.map((c) => ({ t: c.t ?? 0, high: c.high, low: c.low }));
+    return computeSwingLevels(bars, 2, 8).highs.map((h) => h.price);
   }
 
   /** Drop the per-channel state cache. Pass a channel to drop just that one — used
@@ -707,7 +716,7 @@ class TickHandler extends EventEmitter {
     const master = cc.masterExits;
     const mTP = master.tp.enabled, mSL = master.sl.enabled, mTSL = master.tsl.enabled;
     const masterNeedsRates =
-      (mTP && master.tp.mode === "rupees") ||
+      (mTP && master.tp.tpMode === "fixed" && master.tp.mode === "rupees") ||
       (mSL && master.sl.mode === "rupees") ||
       // TSL needs the rate table only in the ₹ peak-clamp mode (candle mode is
       // price-based; % mode is premium-based).
@@ -916,7 +925,7 @@ class TickHandler extends EventEmitter {
         // Lubas-managed path (after the Dhan-managed early-continue above).
         if ((mTP || mSL || mTSL) && !trade.entryPending && trade.entryPrice > 0 && trade.qty > 0) {
           const needNet =
-            (mTP && master.tp.mode === "rupees") ||
+            (mTP && master.tp.tpMode === "fixed" && master.tp.mode === "rupees") ||
             (mSL && master.sl.mode === "rupees") ||
             (mTSL && master.tsl.trailMode === "peak" && master.tsl.mode === "rupees");
           const curNet = needNet ? netPnlAtPrice(trade, tick.ltp, chargeRates) : 0;
@@ -926,9 +935,27 @@ class TickHandler extends EventEmitter {
           let masterHit: { reason: "TP_HIT" | "SL_HIT" | "TSL_HIT"; exitPrice: number } | null = null;
           // TP first (bank profit), then SL, then TSL.
           if (mTP) {
-            const hit = master.tp.mode === "rupees"
-              ? curNet >= master.tp.value
-              : (isBuy ? tick.ltp >= pctLevel(master.tp.value, true) : tick.ltp <= pctLevel(master.tp.value, true));
+            let hit = false;
+            if (master.tp.tpMode === "nextT" && isBuy) {
+              // Next-T (Rider): target the nearest swing HIGH above price that
+              // clears >= minYieldPct above entry (steps up as each is passed).
+              // No swing high above price (trend) → NO early cap, ride with the
+              // TSL; only the wide safety cap fires.
+              const minTarget = trade.entryPrice * (1 + master.tp.minYieldPct / 100);
+              const target = this.dynTslSwingHighs(trade.id)
+                .filter((h) => h > tick.ltp && h >= minTarget)
+                .sort((a, b) => a - b)[0] ?? null; // nearest above price
+              const cap = master.tp.safetyCapPct > 0
+                ? trade.entryPrice * (1 + master.tp.safetyCapPct / 100) : null;
+              trade.targetPrice = target ?? cap ?? null; // drawn on the bar; steps up
+              anyUpdated = true;
+              if (target != null && tick.ltp >= target) hit = true;
+              else if (cap != null && tick.ltp >= cap) hit = true;
+            } else {
+              hit = master.tp.mode === "rupees"
+                ? curNet >= master.tp.value
+                : (isBuy ? tick.ltp >= pctLevel(master.tp.value, true) : tick.ltp <= pctLevel(master.tp.value, true));
+            }
             if (hit) masterHit = { reason: "TP_HIT", exitPrice: tick.ltp };
           }
           if (!masterHit && mSL) {
@@ -996,7 +1023,7 @@ class TickHandler extends EventEmitter {
             mode === "rupees"
               ? trade.entryPrice + (isBuy === favourable ? 1 : -1) * (v / trade.qty)
               : pctLevel(v, favourable);
-          if (mTP) { trade.targetPrice = r2(toPrice(master.tp.value, master.tp.mode, true)); anyUpdated = true; }
+          if (mTP && master.tp.tpMode !== "nextT") { trade.targetPrice = r2(toPrice(master.tp.value, master.tp.mode, true)); anyUpdated = true; }
           // Downside display = the tighter of the master hard-SL and the armed TSL.
           let stopDisp: number | null = mSL ? toPrice(master.sl.value, master.sl.mode, false) : null;
           if (mTSL) {

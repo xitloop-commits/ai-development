@@ -46,6 +46,12 @@ and PUSH to the chart (like the T167 candle-TSL highlight already does) → char
 timeframe to the signal timeframe + server-push.
 
 **C. "Next-T" resistance TP.** TP modes: **% · ₹ · Next-T** (swing high).
+→ **✅ SERVER SHIPPED 2026-08-21:** `MasterTpLevel` (tpMode fixed/nextT + minYieldPct
+default 5 + safetyCapPct default 40) + migration; `dynTslSwingHighs` reuses
+`computeSwingLevels` on the ~120-bar candle history; the master TP eval targets the nearest
+swing high above price that clears minYield, rides in a trend, and fires the wide safety cap.
+**UI to SELECT nextT mode (SettingsMenu MasterTpRow) still pending** — until then it's
+config-only (defaults to "fixed" = existing %/₹).
 - Next-T targets the **nearest swing high (T) ABOVE the current price** that clears **≥ X%
   above entry** (X configurable, default **5%**).
 - **Stepping (b):** as each T is cleared the target steps up **T1→T2→T3**, **shown moving on

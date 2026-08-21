@@ -240,6 +240,25 @@ export interface MasterTslLevel {
   maxGapPct: number;
 }
 
+/** Master TP mode (T171 Next-T). "fixed" = a %/₹ target (mode+value). "nextT" =
+ *  target the nearest swing HIGH above price that clears >= minYieldPct above
+ *  entry, stepping T1→T2→T3; in a trend (no swing high above price) there is NO
+ *  early cap — ride with the TSL — except a wide safetyCapPct ceiling. */
+export type TpMode = "fixed" | "nextT";
+export interface MasterTpLevel {
+  enabled: boolean;
+  tpMode: TpMode;
+  // ── fixed (%/₹ target) ──
+  mode: ExitLevelMode;
+  value: number;
+  // ── nextT (swing-high target) ──
+  /** Min % above entry for a swing high to qualify as a target. Default 5. */
+  minYieldPct: number;
+  /** Wide safety cap (%) — the only ceiling in a trend; fires only on an extreme
+   *  spike. 0 = off. Default 40. */
+  safetyCapPct: number;
+}
+
 /**
  * Master SL / TP / TSL (T141). Live in the COMMON block so they span paper +
  * live + replay. Each is an independent switch; when on it is THE only level of
@@ -252,7 +271,7 @@ export interface MasterTslLevel {
  *         premium; rupees = give back at most value ₹ of net P&L from the peak.
  */
 export interface MasterExitsConfig {
-  tp: MasterLevel;
+  tp: MasterTpLevel;
   sl: MasterLevel;
   tsl: MasterTslLevel;
 }
@@ -409,7 +428,7 @@ function baseCommon(): CommonConfig {
     trendAngle: { source: "ma", lookbackMin: 5, scaleMode: "auto", fixedPctPer45: 0.2, grayPctile: 40, smooth: true },
     // T141 — master SL/TP/TSL, all OFF by default so per-strategy exits stand.
     masterExits: {
-      tp: { enabled: false, mode: "percent", value: 10 },
+      tp: { enabled: false, tpMode: "fixed", mode: "percent", value: 10, minYieldPct: 5, safetyCapPct: 40 },
       sl: { enabled: false, mode: "percent", value: 10 },
       tsl: {
         enabled: false, trailMode: "peak", mode: "percent", value: 3,
@@ -675,7 +694,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   // meaningless); TP/SL % use the usual bands.
   if (!c.masterExits) {
     (c as CommonConfig).masterExits = {
-      tp: { enabled: false, mode: "percent", value: 10 },
+      tp: { enabled: false, tpMode: "fixed", mode: "percent", value: 10, minYieldPct: 5, safetyCapPct: 40 },
       sl: { enabled: false, mode: "percent", value: 10 },
       tsl: {
         enabled: false, trailMode: "peak", mode: "percent", value: 3,
@@ -684,8 +703,13 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
     };
   }
   const m = c.masterExits;
-  m.tp.enabled = !!m.tp.enabled; m.tp.mode = exitMode(m.tp.mode);
+  // T171 — TP gained tpMode (fixed / nextT) + Next-T params; back-fill.
+  m.tp.enabled = !!m.tp.enabled;
+  m.tp.tpMode = m.tp.tpMode === "nextT" ? "nextT" : "fixed";
+  m.tp.mode = exitMode(m.tp.mode);
   m.tp.value = clampLevel(m.tp.value, m.tp.mode, 100, 10, 3000);
+  m.tp.minYieldPct = clampNum(m.tp.minYieldPct, 0, 100, 5);
+  m.tp.safetyCapPct = clampNum(m.tp.safetyCapPct, 0, 500, 40); // 0 = off
   m.sl.enabled = !!m.sl.enabled; m.sl.mode = exitMode(m.sl.mode);
   m.sl.value = clampLevel(m.sl.value, m.sl.mode, 100, 10, 2000);
   // T167 — TSL gained trailMode + candle params; back-fill for old configs.
