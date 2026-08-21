@@ -2,6 +2,21 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T168 [UI] — Chart higher-high / lower-low swing markers — SPEC LOCKED 2026-08-21, build pending 🆕
+Partha spec (design locked, brainstorm). A **market-structure overlay** on the chart,
+**independent of any trade/entry** — pure price structure, rolling with the current candle.
+- **Definition (b) SWING PIVOTS:** a higher high = a local **peak** (candle higher than its
+  neighbours, dip after); a lower low = a local **trough**. NOT running new-highs (too noisy).
+- **Higher highs → green**, labeled **T1/T2/T3…**; **lower lows → red**, labeled **B1/B2/B3…**
+  (labels default; changeable).
+- **Show the last X of each** — default **X = 3**, **configurable**.
+- **Pivot strength ~1–2** (candles each side to confirm; configurable later). Note the small
+  confirmation lag (newest pivot appears a couple candles after the peak).
+- **Pure client-side chart overlay** — computed straight from the chart's candle array (the
+  same swing/new-high logic the candle-TSL uses internally); **no server plumbing.**
+- Default target: the **premium candle chart** (same candles as the TSL); underlying chart TBD.
+- Ties into the "move failed" exit idea — a run of **lower lows** = the reversal signal.
+
 ### T167 [EXEC/UI] — Master stop redesign: SL-xor-TSL + candle-based trailing ✅ BUILT 2026-08-20 (paper-validate next session)
 Partha spec (design locked). Common (Master) block: the stop is a **single choice —
 SL *or* TSL, never both** (TP stays separate/orthogonal).
