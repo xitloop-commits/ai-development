@@ -2,26 +2,24 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-### T169-B [UI/SEA] — Server-authoritative chart lines (no drift) — ONLY REMAINING PIECE of the T169/T171 revamp
-_T171 (Rider collapse), T170 (re-entry row styling), and T169 parts A (single candle
-timeframe) + C (Next-T TP) all ✅ SHIPPED 2026-08-21 — see git history. This is the one
-open item left from the revamp._
+### T169-B [UI/SEA] — Server-authoritative chart lines (no drift) — ✅ SHIPPED 2026-08-21 (needs client rebuild + eyeball)
+The whole T169/T170/T171 chart+exit revamp is now complete: T171 (Rider collapse), T170
+(re-entry row styling), T169-A (single candle timeframe), T169-C (Next-T TP), and T169-B
+(server-authoritative lines) all shipped 2026-08-21 — see git history.
 
-Approach **A (recompute authoritatively in the TS server)** locked 2026-08-21. Shared
-`shared/candles.ts` bucketer = one impl for client + server.
+Approach **A (recompute authoritatively in the TS server)**, per-line variant **B** (server
+does the maths, chart maps to display candles) — locked with Partha. Shared
+`shared/candles.ts` (bucketer + Heikin-Ashi) + `shared/chartLines.ts` (SMA5 line + ribbon)
+= one impl for client + server.
 
-**Slice 1 — swings — ✅ SHIPPED 2026-08-21.** tRPC `chartSwingLevels` reads the recorded
-underlying ticks, buckets on the SIGNAL timeframe, computes the pivots server-side; the
-chart's `swings` indicator draws these (client fallback while empty). Tested (6).
-
-**Slice 2 — SMA5 line + MA ribbon — ⬜ OPEN.** The intricate, visually-calibrated half
-(`higherTfSma` + `trendAnalysis` polish passes). Carries a design fork to settle with
-Partha FIRST: today the client maps the signal-timeframe line onto EACH display candle;
-server-authoritative can either (a) return the per-signal-candle line points and let the
-chart step between them — cleaner, but changes the look at fine display intervals — or (b)
-keep the trivial display-candle mapping client-side and only move the heavy computation
-(line + slope + colour + polish) to the server — same look, more plumbing. Needs the
-running chart to eyeball. Recommend (b).
+- **Swings** ✅ — tRPC `chartSwingLevels`, on the SIGNAL timeframe. Tested.
+- **SMA5 line + MA/SMA5 ribbons + bottom readout** ✅ — tRPC `chartLines` computes them once
+  per signal candle; the chart maps onto display candles (`ribbonFromServerBuckets` reuses
+  the exact `finalize`). Client compute kept as a fallback while a query is empty. Tested.
+- **Underlying chart only** (option-pane premium ribbon = a later slice, if wanted).
+- **Steep-zone blue/pink parallels REMOVED** (Partha, 2026-08-21).
+- ⏳ **Needs a client rebuild + Partha's eyeball** at the running chart to confirm the SMA5
+  line + ribbon look unchanged (visual; server unit tests pass but can't verify the render).
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
