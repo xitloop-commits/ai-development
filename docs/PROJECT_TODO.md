@@ -77,18 +77,35 @@ SL *or* TSL, never both** (TP stays separate/orthogonal).
   confirmed): also drop **MSL** (Ladder safety floor — redundant now the Master SL is
   the floor) and **TTP** (Ladder trailing-TP). When implementing, remove the
   `dynTslPercent`/`dynTsl*` render + prop from TradeBar + TodayTradeRow wiring.
+- **🔒 STOP REDESIGN LOCKED (Partha 2026-08-21) — supersedes the SL-xor/SL-floor rev above.**
+  - **One marker, not two:** Red **"SL"** (fixed) / Yellow **"TSL"** (trailing) — same marker,
+    only label/colour/behaviour change.
+  - **Per trade: SL xor TSL** (one at a time). **Default = TSL, always active.**
+  - **TSL initial placement (entry candle):** the **nearest support (S1/S2/S3 swing low)
+    below entry**; **fallback = x-back candle low** if no support exists yet.
+  - **From the next candle on:** follows the **x-back candle low**, ratcheting UP (xBack=1,
+    never loosens) — always **below the current price**, **can climb above entry to lock
+    profit**.
+  - **Exit intra-candle** the instant price crosses below the level (decided above).
+  - The support-start + candle trail **also cuts the non-starters** (breaks its stop → out),
+    so **no separate SL floor / quick-cut needed** — that replaces the earlier a/b question.
+  - Note: reverts the "SL + TSL coexist floor" — back to xor with TSL as the always-on
+    default; the TSL itself is the protection.
 - **🔎 OPEN THREADS (Partha "many issues around this — we'll fix all, keep understanding", 2026-08-20).**
   Foundation: every option position is a BUY → **long premium**; an UP premium candle
   = profit for the held leg (CE *or* PE), so the TSL always trails BELOW the premium
   (`isBuy` always true; the `!isBuy`/short branches are dead here). Known issues to
   work through:
-  1. **Candle-close exit lag** — the stop can sit ABOVE the live price (e.g. Nifty
-     24150CE stop 219 vs price 208.5) because the exit waits for the 5-min candle to
-     CLOSE below the level; premium sinks below the stop meanwhile → give-back.
-     Decision pending: exit **intra-candle** (tick crosses below) vs keep candle-close.
+  1. **Candle-close exit lag → DECIDED (Partha 2026-08-21): exit INTRA-CANDLE (tick).**
+     The candle-TSL LEVEL still ratchets up on candle CLOSES, but the EXIT now fires the
+     instant a tick crosses BELOW the current level — no waiting for the 5-min close. Kills
+     the give-back (exit AT the stop, not far below it) and makes "Secured" honest. Base
+     form is clean (a); a small anti-whipsaw buffer is an optional later refinement.
   2. **`maxGapPct` only tightens when the stop lags far BELOW price** — it does nothing
      when price falls back below the stop (the give-back case above).
-  3. **Looseness tuning** — xBack was 5 (too slow, rarely anchored); now 2.
+  3. **Looseness tuning → DECIDED (Partha 2026-08-21): xBack = 1.** Anchor after ONE
+     higher candle so the stop engages on almost any up-move (was 5→2; the "TSL never
+     fires" trades came from needing 2 new-high candles). Stays configurable.
   4. **Losing trades never anchor** (no new highs) → the 5% SL floor carries them; the
      candle-TSL viz shows no gold anchor (correct, but worth confirming intended).
   5. **Chart highlight visibility** — needs the client rebuilt to the latest commit.
