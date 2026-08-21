@@ -2,7 +2,14 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-### T168 [UI] — Chart higher-high / lower-low swing markers — SPEC LOCKED 2026-08-21, build pending 🆕
+### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
+- **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
+  chart Indicators dropdown ("Swing levels (T1-3 / S1-3 S/R)"). `lib/swingLevels.ts`
+  (`computeSwingLevels`, pure) finds the last 3 swing peaks/troughs (strength 2); TickChart
+  draws them as horizontal `createPriceLine`s — **green T1/T2/T3** (peaks), **red S1/S2/S3**
+  (troughs). Client-side, off by default (opt-in via the dropdown). Strength/count hardcoded
+  3/2 for v1 — **making X + strength UI-configurable is the follow-up.** Needs a client
+  rebuild to appear.
 Partha spec (design locked, brainstorm). A **market-structure overlay** on the chart,
 **independent of any trade/entry** — pure price structure, rolling with the current candle.
 - **Definition (b) SWING PIVOTS:** a higher high = a local **peak** (candle higher than its

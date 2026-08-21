@@ -21,6 +21,7 @@ import {
 } from "lightweight-charts";
 import type { Candle } from "@/lib/signalChart";
 import { IST_OFFSET_SECONDS } from "@/lib/signalChart";
+import { computeSwingLevels } from "@/lib/swingLevels";
 import {
   heikinAshi,
   type ChartStyle,
@@ -503,6 +504,31 @@ export function TickChart({
       up.setData(upData);
       const dn = chart.addSeries(LineSeries, { color: cc.down, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
       dn.setData(dnData);
+    }
+
+    // T168 — swing S/R levels: horizontal lines at the last 3 swing peaks
+    // (green T1-3) + troughs (red S1-3). Pure price structure, independent of any
+    // trade/entry. Configurable X/strength is a follow-up; defaults 3 / 2.
+    if (indicators.has("swings")) {
+      const SWING_STRENGTH = 2;
+      const SWING_COUNT = 3;
+      const sw = computeSwingLevels(
+        candles.map((c) => ({ time: c.time as number, high: c.high, low: c.low })),
+        SWING_STRENGTH,
+        SWING_COUNT,
+      );
+      sw.highs.forEach((lv, i) =>
+        series.createPriceLine({
+          price: lv.price, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title: `T${i + 1}`,
+        }),
+      );
+      sw.lows.forEach((lv, i) =>
+        series.createPriceLine({
+          price: lv.price, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title: `S${i + 1}`,
+        }),
+      );
     }
 
     if (indicators.has("rsi")) {
