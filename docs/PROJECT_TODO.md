@@ -131,14 +131,14 @@ SL *or* TSL, never both** (TP stays separate/orthogonal).
   = profit for the held leg (CE *or* PE), so the TSL always trails BELOW the premium
   (`isBuy` always true; the `!isBuy`/short branches are dead here). Known issues to
   work through:
-  1. **Candle-close exit lag → DECIDED (Partha 2026-08-21): exit INTRA-CANDLE (tick).**
+  1. **Candle-close exit lag → ✅ SHIPPED 2026-08-21 (candle-mode master TSL): exit INTRA-CANDLE (tick).**
      The candle-TSL LEVEL still ratchets up on candle CLOSES, but the EXIT now fires the
      instant a tick crosses BELOW the current level — no waiting for the 5-min close. Kills
      the give-back (exit AT the stop, not far below it) and makes "Secured" honest. Base
      form is clean (a); a small anti-whipsaw buffer is an optional later refinement.
   2. **`maxGapPct` only tightens when the stop lags far BELOW price** — it does nothing
      when price falls back below the stop (the give-back case above).
-  3. **Looseness tuning → DECIDED (Partha 2026-08-21): xBack = 1.** Anchor after ONE
+  3. **Looseness tuning → ✅ SHIPPED 2026-08-21: xBack = 1** (default + live config). Anchor after ONE
      higher candle so the stop engages on almost any up-move (was 5→2; the "TSL never
      fires" trades came from needing 2 new-high candles). Stays configurable.
   4. **Losing trades never anchor** (no new highs) → the 5% SL floor carries them; the

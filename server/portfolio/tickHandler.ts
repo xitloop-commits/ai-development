@@ -930,11 +930,10 @@ class TickHandler extends EventEmitter {
             // below the running peak.
             let hit = false;
             if (master.tsl.trailMode === "candle") {
-              // Mode B — reuse the shared candle trailer at the SIGNAL timeframe,
-              // raw candles for true O/H/L/C. Exit on a CLOSE-confirmed breach of
-              // the ratcheted x-back level; sideways candles are ignored/counted
-              // per config. The seed builds the pre-entry candles so it's live from
-              // the first tick.
+              // Mode B (Rider) — the candle trailer ratchets the level UP on candle
+              // CLOSES (to the x-back candle low), but the EXIT fires INTRA-CANDLE
+              // the instant a tick crosses below the current level (T167 2026-08-21).
+              // No waiting for the candle to close → no give-back; exit AT the stop.
               const cs = trade.cohort === "ma_signal" ? cc.maCandleSec : cc.sma5CandleSec;
               const dyn = this.dynTslLevel(
                 trade.id, tick.ltt, tick.ltp, isBuy, master.tsl.xBack, master.tsl.anchor,
@@ -945,7 +944,7 @@ class TickHandler extends EventEmitter {
               const viz = this.dynTslViz(trade.id);
               trade.tslAnchorTime = viz.anchorTime;
               trade.tslIgnoredTimes = viz.ignoredTimes;
-              hit = dyn.closedBelow;
+              hit = dyn.level != null && (isBuy ? tick.ltp < dyn.level : tick.ltp > dyn.level);
             } else if (master.tsl.mode === "rupees") {
               // Mode A ₹ — give back at most `value` ₹ of net P&L from the running
               // peak-net. Armed at entry: no `peakNet > 0` gate, so it trails from
