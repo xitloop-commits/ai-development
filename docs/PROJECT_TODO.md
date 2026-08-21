@@ -7,19 +7,21 @@ _T171 (Rider collapse), T170 (re-entry row styling), and T169 parts A (single ca
 timeframe) + C (Next-T TP) all ✅ SHIPPED 2026-08-21 — see git history. This is the one
 open item left from the revamp._
 
-**Server-authoritative lines (no drift).** Today the chart RE-COMPUTES the SMA5/MA
-ribbon in TS from its own candle feed — a *mirror* of the Python SEA that can drift
-(different code, different tick stream; the "draw from candle 1" change widened the early
-gap). Move to: compute the SMA5/MA lines + swing levels ONCE on the server (authoritative)
-and PUSH to the chart (like the T167 candle-TSL highlight already does) → chart = tradebar
-= server = signal, guaranteed in sync. Switch the T168 swing lines from the chart-display
-timeframe to the signal timeframe + server-push.
+Approach **A (recompute authoritatively in the TS server)** locked 2026-08-21. Shared
+`shared/candles.ts` bucketer = one impl for client + server.
 
-**Build note:** this is a visual, architecture-touching feature — needs SEA to publish its
-per-candle SMA5/MA line values + detected swings, a store/endpoint to expose them, and a
-TickChart rewire to draw the pushed values instead of recomputing. Best done as a focused
-pass with the running chart in front of you to eyeball the sync. Everything it depends on
-(single timeframe, swing computation, candle-TSL push channel) is already shipped.
+**Slice 1 — swings — ✅ SHIPPED 2026-08-21.** tRPC `chartSwingLevels` reads the recorded
+underlying ticks, buckets on the SIGNAL timeframe, computes the pivots server-side; the
+chart's `swings` indicator draws these (client fallback while empty). Tested (6).
+
+**Slice 2 — SMA5 line + MA ribbon — ⬜ OPEN.** The intricate, visually-calibrated half
+(`higherTfSma` + `trendAnalysis` polish passes). Carries a design fork to settle with
+Partha FIRST: today the client maps the signal-timeframe line onto EACH display candle;
+server-authoritative can either (a) return the per-signal-candle line points and let the
+chart step between them — cleaner, but changes the look at fine display intervals — or (b)
+keep the trivial display-candle mapping client-side and only move the heavy computation
+(line + slope + colour + polish) to the server — same look, more plumbing. Needs the
+running chart to eyeball. Recommend (b).
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
