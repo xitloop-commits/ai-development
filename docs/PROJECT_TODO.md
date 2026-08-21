@@ -2,6 +2,45 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T169 [EXEC/UI/SEA] — "Next-T" resistance TP + single candle timeframe + server-authoritative lines — SPEC LOCKED 2026-08-21 🆕
+Partha spec (design locked, brainstorm). Three coupled pieces + a bar-marker cleanup.
+
+**A. Single candle timeframe (one source of truth).** Collapse the two Common knobs
+(`sma5CandleSec` + `maCandleSec`) into ONE "candle timeframe." SEA signals, chart,
+tradebar, and the server backend ALL read it; changing it hot-swaps SEA live (already
+wired via `/ws/sea-control` → `syncCohortsFromAiConfig`). Signals fire on THIS timeframe
+regardless of the chart's display interval (display interval = just a view; e.g. signals
+are 5-min even on a 1-min chart).
+
+**B. Server-authoritative lines (no drift).** Today the chart RE-COMPUTES the SMA5/MA
+ribbon in TS from its own candle feed — a *mirror* of the Python SEA that can drift
+(different code, different tick stream; the "draw from candle 1" change widened the early
+gap). Move to: compute the SMA5/MA lines + swing levels ONCE on the server (authoritative)
+and PUSH to the chart (like the T167 candle-TSL highlight already does) → chart = tradebar
+= server = signal, guaranteed in sync. Switch the T168 swing lines from the chart-display
+timeframe to the signal timeframe + server-push.
+
+**C. "Next-T" resistance TP.** TP modes: **% · ₹ · Next-T** (swing high).
+- Next-T targets the **nearest swing high (T) ABOVE the current price** that clears **≥ X%
+  above entry** (X configurable, default **5%**).
+- **Stepping (b):** as each T is cleared the target steps up **T1→T2→T3**, **shown moving on
+  the bar**.
+- **Trend / no T above price → NO early cap: ride with the TSL** (the candle-TSL is the exit
+  on the reversal). The market structure (T-levels) self-selects "bank at resistance" (range)
+  vs "ride" (trend).
+- **Wide safety cap:** configurable %, default **~40%** — only fires on an extreme spike
+  (insurance while the TSL give-back is unfixed; remove later if desired).
+- **Depends on the T167 TSL give-back fixes** — the step-up + ride rely on the TSL actually
+  protecting profit.
+
+**Bar-marker cleanup (this session).** Keep **E, LTP, SL/TSL, TP**. Remove: **candle-TSL
+faint line** (confirmed), **TTP** (confirmed — visual-only, never fires), **MSL**
+(recommended — the Master SL floor covers it). One TP only.
+
+**Build note:** substantial — server-side swing computation + Next-T TP exit, the
+one-timeframe collapse, and the server-authoritative line push. Sequence after the T167 TSL
+fixes.
+
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
   chart Indicators dropdown ("Swing levels (T1-3 / S1-3 S/R)"). `lib/swingLevels.ts`
