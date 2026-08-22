@@ -6,7 +6,8 @@
  * Data: Broker status from tRPC broker.getStatus, discipline score from
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
-import { useState, useMemo, useEffect, memo } from 'react';
+import { useState, useMemo, useEffect, useRef, memo } from 'react';
+import * as signalsStore from '@/stores/signalsStore';
 import { Calendar,
   Menu, Target,
 } from 'lucide-react';
@@ -362,11 +363,22 @@ function ChannelModeToggle() {
   // trade is routed to the run server-side, so viewing/placing on paper or live
   // would be misleading. Auto-switch on start and keep it there; the Paper/Live
   // tabs are disabled until the run stops. (Partha 2026-08-22)
+  const utils = trpc.useUtils();
   const replayQ = trpc.replay.status.useQuery(undefined, { refetchInterval: 3000, refetchOnWindowFocus: false });
   const replayRunning = !!replayQ.data?.running;
+  const wasReplayRunning = useRef(false);
   useEffect(() => {
-    if (replayRunning && deskMode !== 'replay') setDeskMode('replay');
-  }, [replayRunning, deskMode]);
+    if (replayRunning) {
+      // Replay just started → fresh slate: clear the signals tray (the server
+      // also cleared its store) so old signals don't bleed into the new run.
+      if (!wasReplayRunning.current) {
+        signalsStore.clear();
+        void utils.trading.signals.invalidate();
+      }
+      if (deskMode !== 'replay') setDeskMode('replay');
+    }
+    wasReplayRunning.current = replayRunning;
+  }, [replayRunning, deskMode, utils]);
   // CLEAR moved into the desk's day-jump bar (T130) — a destructive control
   // shouldn't sit permanently in the app-bar chrome.
 

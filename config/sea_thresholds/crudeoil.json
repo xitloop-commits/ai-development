@@ -11,7 +11,7 @@
     ]
   },
   "sma5_signal": {
-    "enabled": false,
+    "enabled": true,
     "period": 5,
     "buffer_pct": 0,
     "use_ha": true,

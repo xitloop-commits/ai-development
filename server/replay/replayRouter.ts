@@ -15,6 +15,9 @@ import { getSeaStatus } from "../seaHeartbeat";
 import { TRPCError } from "@trpc/server";
 import { getISTNow } from "../discipline/types";
 import { listReplayDates, getReplayStatus, startReplay, stopReplay } from "./tickReplay";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("SEA", "Replay");
 
 /**
  * True while the exchange we REPLAY is open (weekday, within hours).
@@ -98,6 +101,15 @@ export const replayRouter = router({
         });
       }
       try {
+        // Fresh slate for the run: clear the SEA signals tray (stored by
+        // wall-clock date, so a prior run's signals would otherwise bleed in).
+        // The run itself is new/empty, so trades already start clean.
+        try {
+          const { clearSeaSignals } = await import("../seaSignalStore");
+          await clearSeaSignals();
+        } catch (e) {
+          log.warn(`replay start: clearSeaSignals failed (non-fatal): ${(e as Error)?.message ?? e}`);
+        }
         const { runId } = await startReplay(input.date, input.speed, {
           models: input.models,
           instruments: input.instruments,
