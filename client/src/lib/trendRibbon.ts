@@ -201,7 +201,47 @@ export function ribbonFromServerBuckets(
       st.set(m0 + j, { trend: b.trend, deg: b.deg, line: b.line, runMin: 1 });
     }
   }
+  // Same display polish trendAnalysis applies: pull a steady rise/fall out of the
+  // gray zone so a clearly-trending line reads green/red, not sideways-yellow.
+  polishStates(st);
   return finalize(candles, st);
+}
+
+/** History-polish passes over a per-minute state map (mutates trend): a gray run
+ *  before a DOWN turns down (any length); a short gray run before an UP turns up;
+ *  then boundaries are pulled to where the line actually turned. Extracted so the
+ *  SEA ribbon (ribbonFromServerBuckets) gets the same treatment trendAnalysis
+ *  applies inline. Operates on the map's own keys, so it works at any timeframe. */
+function polishStates(st: Map<number, MinuteState>): void {
+  const seq = Array.from(st.keys()).sort((a, b) => a - b);
+  let i = 0;
+  while (i < seq.length) {
+    let j = i;
+    while (j < seq.length && st.get(seq[j])!.trend === st.get(seq[i])!.trend) j++;
+    const runTrend = st.get(seq[i])!.trend;
+    const runLen = j - i;
+    if (runTrend === 0 && j < seq.length && st.get(seq[j])!.trend === -1) {
+      for (let k = i; k < j; k++) st.get(seq[k])!.trend = -1;
+    }
+    if (runTrend === 0 && runLen <= 3 && j < seq.length && st.get(seq[j])!.trend === 1) {
+      for (let k = i; k < j; k++) st.get(seq[k])!.trend = 1;
+    }
+    i = j;
+  }
+  i = 0;
+  while (i < seq.length) {
+    let j = i;
+    while (j < seq.length && st.get(seq[j])!.trend === st.get(seq[i])!.trend) j++;
+    if (st.get(seq[i])!.trend !== -1 && j < seq.length && st.get(seq[j])!.trend === -1) {
+      let t = j - 1;
+      while (t > i && st.get(seq[t])!.line < st.get(seq[t - 1])!.line) { st.get(seq[t])!.trend = -1; t--; }
+    }
+    if (st.get(seq[i])!.trend !== 1 && j < seq.length && st.get(seq[j])!.trend === 1) {
+      let t = j - 1;
+      while (t > i && st.get(seq[t])!.line > st.get(seq[t - 1])!.line) { st.get(seq[t])!.trend = 1; t--; }
+    }
+    i = j;
+  }
 }
 
 /**
