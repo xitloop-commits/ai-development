@@ -33,15 +33,22 @@ per candle close (~1/min) → light; the same SEA→Node→UI path signals alrea
 - **Slice 1 — Node foundation ✅ SHIPPED 2026-08-21.** `seaLineStore` (rolling per-candle
   series by instrument+date+securityId+kind) + `POST /api/sea/line` ingest +
   `tickBus.emitSeaLine` fan-out + tRPC `seaLines` query. Additive, isolated, unit-tested (6).
-- **Slice 2 — SEA emit ⬜.** `premium_ribbon.py` expose the per-candle `line` (additive);
-  the engine POSTs `{instrument,date,securityId,kind,t,line,state,close}` fire-and-forget via
-  a new `send_line()` in `risk_control_client.py`. Open q: does SEA run BOTH the sma5 AND ma
-  premium ribbons, or only one? — only the one it computes can be authoritative.
-- **Slice 3 — client ⬜.** MultiChartPage pane reads `seaLines` for its `secId` + live
-  `seaLine` WS updates, draws that ribbon; falls back to today's client compute otherwise.
-- ⏳ **End-to-end verification needs a LIVE SEA session (Monday)** or a SEA-driven run — a
-  Node-side replay does NOT run SEA, so it won't populate the store. The chart fallback means
-  no regression if the feed isn't flowing.
+- **Slice 2 — SEA emit ✅ SHIPPED 2026-08-21.** `premium_ribbon.py` remembers each closed
+  candle's `line` (additive) + queues it in `on_leg_tick`; `drain_closed()` + the feed's
+  `date`/`sec_id()`; the engine drains BOTH ribbons (SEA runs ma AND sma5) and POSTs each
+  closed sample fire-and-forget via `send_line()`. Additive — no change to ribbon events /
+  decisions. Tests +2 (10 ribbon tests pass); existing SEA tests green.
+- **Slice 3 — client ✅ SHIPPED 2026-08-21.** `ribbonLineFromSea()` maps SEA's samples onto
+  the pane's display candles; MultiChartPage draws SEA's line per contract (kind ma + sma5),
+  falling back to the client compute for non-traded strikes / before SEA pushes. Refetches
+  while live. (Bottom readout still client-computed — informational follow-up. Live WS push
+  via `tickBus.emitSeaLine` exists but the pane currently POLLs `seaLines` every 4s — WS
+  wiring is a follow-up.)
+- ✅ **VERIFIABLE via the T165 LIVE SIMULATION** (SEA runs against a replayed day → emits →
+  store fills → pane draws it) — no need to wait for Monday. Fallback means no regression if
+  the feed isn't flowing.
+- **Remaining polish (later):** drive the bottom readout from SEA too (needs SEA to emit the
+  slope angle); switch the pane from 4s polling to the `seaLine` WS push.
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
