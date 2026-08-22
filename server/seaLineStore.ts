@@ -23,6 +23,8 @@ export interface SeaLineSample {
   state: -1 | 0 | 1;
   /** The (HA or raw) close the state compared against. */
   close: number;
+  /** Slope ANGLE (degrees) SEA computed — drives the trend/angle/run readout. */
+  deg: number;
 }
 
 export type SeaLineKind = "sma5" | "ma";

@@ -1503,7 +1503,7 @@ def run(
                     for _det in (ma_ribbon, sma5_ribbon):
                         if _det is None:
                             continue
-                        for (_leg, _t, _line, _state, _close) in _det.drain_closed():
+                        for (_leg, _t, _line, _state, _close, _deg) in _det.drain_closed():
                             _sid = premium_feed.sec_id(_leg)
                             if _emit_date and _sid:
                                 send_line({
@@ -1515,6 +1515,7 @@ def run(
                                     "line": _line,
                                     "state": _state,
                                     "close": _close,
+                                    "deg": _deg,
                                 })
                 except Exception as exc:
                     print(f"  ribbon line push error: {exc}", file=sys.stderr)

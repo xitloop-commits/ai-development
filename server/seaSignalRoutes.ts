@@ -126,9 +126,10 @@ export function registerSeaSignalRoutes(app: Express): void {
       return;
     }
     const state: -1 | 0 | 1 = b.state === 1 ? 1 : b.state === -1 ? -1 : 0;
+    const deg = Number.isFinite(Number(b.deg)) ? Number(b.deg) : 0;
     try {
-      insertSeaLine(String(b.instrument), String(b.date), String(b.securityId), kind, { t, line, state, close });
-      tickBus.emitSeaLine({ instrument: String(b.instrument), date: String(b.date), securityId: String(b.securityId), kind, t, line, state, close });
+      insertSeaLine(String(b.instrument), String(b.date), String(b.securityId), kind, { t, line, state, close, deg });
+      tickBus.emitSeaLine({ instrument: String(b.instrument), date: String(b.date), securityId: String(b.securityId), kind, t, line, state, close, deg });
       res.json({ success: true });
     } catch (err: any) {
       log.warn(`sea/line ingest failed: ${err?.message ?? err}`);

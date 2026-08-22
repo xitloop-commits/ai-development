@@ -37,7 +37,7 @@ import { istDateString } from "@/lib/signalChart";
 import {
   trendAnalysis,
   trendReadoutText,
-  ribbonLineFromSea,
+  ribbonFromSea,
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
@@ -231,26 +231,28 @@ function InstrumentPane({
     { instrument: instKey, date: chartDate, securityId: secId ?? "", kind: "sma5" },
     { enabled: !!secId && indicators.has("sma5Ribbon"), refetchInterval: 4000, refetchOnWindowFocus: false },
   );
-  const trendA = useMemo(
-    () => (indicators.has("maRibbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec }) : undefined),
-    [c.candles, taOpts, indicators, maCandleSec],
-  );
-  const trendS = useMemo(
-    () => (indicators.has("sma5Ribbon") ? trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec }) : undefined),
-    [c.candles, taOpts, indicators, sma5CandleSec],
-  );
+  // T169-B — prefer SEA's OWN ribbon (line + trend/angle/run) for this contract;
+  // fall back to the client compute only when SEA hasn't pushed it (non-traded
+  // strike, or before the first candle). trendReadout below reads .minuteState,
+  // so the readout is server-authoritative too whenever SEA data is present.
+  const trendA = useMemo(() => {
+    if (!indicators.has("maRibbon")) return undefined;
+    if (seaMaQ.data?.length) return ribbonFromSea(seaMaQ.data, c.candles as { time: number; close: number }[], maCandleSec);
+    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec });
+  }, [c.candles, taOpts, indicators, maCandleSec, seaMaQ.data]);
+  const trendS = useMemo(() => {
+    if (!indicators.has("sma5Ribbon")) return undefined;
+    if (seaS5Q.data?.length) return ribbonFromSea(seaS5Q.data, c.candles as { time: number; close: number }[], sma5CandleSec);
+    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec });
+  }, [c.candles, taOpts, indicators, sma5CandleSec, seaS5Q.data]);
   const extraLines = useMemo(() => {
-    // T169-B — prefer SEA's authoritative line for this contract; fall back to the
-    // client compute when SEA hasn't pushed it (non-traded strike, or not yet).
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
-    const s5src = seaS5Q.data?.length ? ribbonLineFromSea(seaS5Q.data, c.candles) : (trendS?.lines ?? []);
-    const masrc = seaMaQ.data?.length ? ribbonLineFromSea(seaMaQ.data, c.candles) : (trendA?.lines ?? []);
     const arr = [
-      ...s5src.map((l) => ({ ...l, order: 1000 })),
-      ...masrc.map((l) => ({ ...l, order: 1002 })),
+      ...(trendS?.lines ?? []).map((l) => ({ ...l, order: 1000 })),
+      ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ];
     return arr.length ? (arr as never) : undefined;
-  }, [trendA, trendS, seaMaQ.data, seaS5Q.data, c.candles]);
+  }, [trendA, trendS]);
   const trendReadout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();
@@ -331,7 +333,7 @@ export default function MultiChartPage() {
   const userPickedInterval = useRef(saved.intervalSec != null);
   const [style, setStyle] = useState<ChartStyle>(saved.style ?? "ha");
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(saved.indicators ?? ["sma5", "maRibbon", "sma5Ribbon"]),
+    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
@@ -468,7 +470,9 @@ export default function MultiChartPage() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setIndicatorMenuOpen(false)} />
               <div className="absolute z-20 mt-1 w-44 rounded border border-border bg-background/95 p-1 shadow-xl backdrop-blur">
-                {INDICATOR_OPTIONS.map((o) => (
+                {/* T169-B — the multichart carries ONLY the two SEA-authoritative
+                    ribbons; every other (client-computed) indicator was removed. */}
+                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon").map((o) => (
                   <label key={o.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[0.6875rem] hover:bg-secondary/60">
                     <input type="checkbox" checked={indicators.has(o.key)} onChange={() => toggleIndicator(o.key)} />
                     {o.label}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { insertSeaLine, getSeaLines, _resetSeaLineStore } from "./seaLineStore";
 
-const S = (t: number, line: number, state: -1 | 0 | 1 = 1, close = line) => ({ t, line, state, close });
+const S = (t: number, line: number, state: -1 | 0 | 1 = 1, close = line, deg = 0) => ({ t, line, state, close, deg });
 
 describe("seaLineStore", () => {
   beforeEach(() => _resetSeaLineStore());
@@ -21,7 +21,7 @@ describe("seaLineStore", () => {
     insertSeaLine("banknifty", "2026-08-21", "111", "sma5", S(60, 105, -1));
     const arr = getSeaLines("banknifty", "2026-08-21", "111", "sma5");
     expect(arr).toHaveLength(1);
-    expect(arr[0]).toEqual({ t: 60, line: 105, state: -1, close: 105 });
+    expect(arr[0]).toEqual({ t: 60, line: 105, state: -1, close: 105, deg: 0 });
   });
 
   it("keeps separate series per kind / securityId / date", () => {

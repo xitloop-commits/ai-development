@@ -148,12 +148,13 @@ def test_drain_closed_emits_closed_candle_lines() -> None:
     _run(det, "CE", prices)
     samples = det.drain_closed()
     assert samples, "expected closed-candle line samples"
-    # Shape: (leg, t_epoch, line, state, close).
-    leg, t, line, state, close = samples[0]
+    # Shape: (leg, t_epoch, line, state, close, deg).
+    leg, t, line, state, close, deg = samples[0]
     assert leg == "CE"
     assert t % 60 == 0                 # bucket-aligned epoch seconds
     assert isinstance(line, float) and line > 0
     assert state in (-1, 0, 1)
+    assert isinstance(deg, float)      # slope angle for the readout
     # Every sample is bucket-aligned and the series is time-ordered per leg.
     ce = [s for s in samples if s[0] == "CE"]
     assert all(s[1] % 60 == 0 for s in ce)

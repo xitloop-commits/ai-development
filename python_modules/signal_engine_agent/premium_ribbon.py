@@ -84,6 +84,9 @@ class RibbonLeg:
         self.last_line: float | None = None
         self.last_close: float = 0.0
         self.last_bucket: int | None = None
+        # T169-B — slope ANGLE (degrees) of the last closed candle, so the chart's
+        # trend/angle/run readout is server-computed too (not a client re-calc).
+        self.last_deg: float = 0.0
 
     def set_candle_sec(self, sec: int) -> None:
         sec = max(1, int(sec))
@@ -162,16 +165,24 @@ class RibbonLeg:
         ):
             self.state = 0
             self.last_pct = None
+            self.last_deg = 0.0
             return 0
         pct = (line - self._line[0]) / self._line[0] * 100.0
         self.last_pct = pct
+        # T169-B — track |slope| in BOTH modes (moved up from the gray path) so the
+        # angle scale exists for the binary SMA5 ribbon too, then compute the slope
+        # ANGLE the readout shows: atan(pct / p80)·180/π, p80 = 80th-pctile |slope|
+        # (auto scale, floored). Server-computed → the chart's readout matches.
+        self._abs_hist.append(abs(pct))
+        _srt = sorted(self._abs_hist)
+        _p80 = max(_srt[min(len(_srt) - 1, int(len(_srt) * 0.8))], self.min_noise_pct)
+        self.last_deg = math.degrees(math.atan(pct / _p80)) if _p80 > 0 else 0.0
         # BINARY mode (gray_pctile <= 0, Partha 2026-08-14: SMA5 line has no
         # gray — only green and red): state is the SIGN of the slope, no noise
         # floor, no sample warm-up. An exactly-flat line keeps the prior state.
         if self.gray_pctile <= 0:
             self.state = 1 if pct > 0 else -1 if pct < 0 else self.state
             return self.state
-        self._abs_hist.append(abs(pct))
         if len(self._abs_hist) < self.min_samples:
             self.state = 0
             return 0
@@ -212,9 +223,9 @@ class PremiumRibbonDetector:
         )
         self._legs = {"CE": mk(), "PE": mk()}
         # T169-B — closed-candle line samples pending push to the chart:
-        # (leg, t_epoch, line, state, close). Filled in on_leg_tick, drained by
-        # the engine each loop.
-        self.closed_samples: list[tuple[str, int, float, int, float]] = []
+        # (leg, t_epoch, line, state, close, deg). Filled in on_leg_tick, drained
+        # by the engine each loop.
+        self.closed_samples: list[tuple[str, int, float, int, float, float]] = []
 
     def leg(self, leg: str) -> RibbonLeg:
         return self._legs[leg]
@@ -266,6 +277,7 @@ class PremiumRibbonDetector:
                 float(leg_state.last_line),
                 int(leg_state.state),
                 float(leg_state.last_close),
+                float(leg_state.last_deg),
             ))
         if st is None or st == prev:
             return []
@@ -291,9 +303,9 @@ class PremiumRibbonDetector:
         # replaying the past. Live ticks (on_leg_tick) queue as normal after this.
         self.closed_samples.clear()
 
-    def drain_closed(self) -> list[tuple[str, int, float, int, float]]:
+    def drain_closed(self) -> list[tuple[str, int, float, int, float, float]]:
         """T169-B — pull + clear the queued closed-candle line samples
-        (leg, t_epoch, line, state, close) for the engine to push to the chart."""
+        (leg, t_epoch, line, state, close, deg) for the engine to push to the chart."""
         out = self.closed_samples
         self.closed_samples = []
         return out
