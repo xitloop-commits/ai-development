@@ -358,6 +358,15 @@ function ChannelModeToggle() {
   const deskMode = useDeskMode();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
+  // While a replay is RUNNING, the desk is locked to the Replay workspace: every
+  // trade is routed to the run server-side, so viewing/placing on paper or live
+  // would be misleading. Auto-switch on start and keep it there; the Paper/Live
+  // tabs are disabled until the run stops. (Partha 2026-08-22)
+  const replayQ = trpc.replay.status.useQuery(undefined, { refetchInterval: 3000, refetchOnWindowFocus: false });
+  const replayRunning = !!replayQ.data?.running;
+  useEffect(() => {
+    if (replayRunning && deskMode !== 'replay') setDeskMode('replay');
+  }, [replayRunning, deskMode]);
   // CLEAR moved into the desk's day-jump bar (T130) — a destructive control
   // shouldn't sit permanently in the app-bar chrome.
 
@@ -375,11 +384,12 @@ function ChannelModeToggle() {
         return (
           <button
             key={m}
-            onClick={() => { setDeskMode('book'); if (m !== currentMode) setChannel(channelOf(currentWs, m)); }}
+            disabled={replayRunning}
+            onClick={() => { if (replayRunning) return; setDeskMode('book'); if (m !== currentMode) setChannel(channelOf(currentWs, m)); }}
             className={`px-4 flex items-center justify-center text-[0.6875rem] font-bold tracking-wider border-b-2 transition-colors ${
               active ? activeTone : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
-            }`}
-            title={`Switch the desk + My book to ${MODE_LABELS[m]}`}
+            } ${replayRunning ? 'opacity-40 cursor-not-allowed' : ''}`}
+            title={replayRunning ? 'Locked to Replay while a simulation is running' : `Switch the desk + My book to ${MODE_LABELS[m]}`}
           >
             {MODE_LABELS[m]}
           </button>
