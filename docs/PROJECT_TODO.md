@@ -2,6 +2,19 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T172 [UI] — Replay controls → chart bar; Replay as a 3rd desk tab — ✅ SHIPPED 2026-08-21 (needs client rebuild + eyeball)
+Partha restructure: replay was scattered in the main app; consolidated so you START a run
+from the chart window and VIEW its trades on the desk.
+- **Replay control + its settings moved off the app bar → the multichart toolbar**
+  (`ReplayControl` + `AiControl replay`). Added a lightweight `ChannelProvider` so those
+  channel-aware controls render in the standalone chart window (no CapitalProvider there).
+- **Watchlist Replay tab removed** — the left drawer is watchlist-only now.
+- **Replay is a 3rd desk tab** (app bar: Paper | Live | Replay via a new `deskMode` store).
+  Selecting Replay shows the runs picker (`ReplayPane`, moved from the watchlist) + the
+  selected run's trades (existing overlay); no run picked → a prompt, not the live book.
+- Dropped the obsolete `openReplayTab`/replay-tab-nonce plumbing. ⏳ eyeball after a client
+  rebuild (start a run from the chart, confirm it appears under the desk's Replay tab).
+
 ### T169-B [UI/SEA] — Server-authoritative chart lines (no drift) — ✅ SHIPPED 2026-08-21 (needs client rebuild + eyeball)
 The whole T169/T170/T171 chart+exit revamp is now complete: T171 (Rider collapse), T170
 (re-entry row styling), T169-A (single candle timeframe), T169-C (Next-T TP), and T169-B
