@@ -263,6 +263,12 @@ function InstrumentPane({
     ];
     return arr.length ? (arr as never) : undefined;
   }, [trendA, trendS]);
+  // T172 — SERVER-AUTHORITATIVE S/R zones for this pane's contract (merged,
+  // retest-counted). TickChart splits them by current price into T/S levels.
+  const swingsQ = trpc.trading.optionSwingLevels.useQuery(
+    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec },
+    { enabled: !!secId && indicators.has("swings"), staleTime: Infinity, refetchOnWindowFocus: false },
+  );
   const trendReadout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();
@@ -307,6 +313,7 @@ function InstrumentPane({
               : "Waiting for live ticks…"
         }
         loading={!!secId && seedQ.isLoading}
+        serverLevels={swingsQ.data}
         extraLines={extraLines}
         tslAnchorTime={shown?.tslAnchorTime ?? null}
         tslIgnoredTimes={shown?.tslIgnoredTimes ?? undefined}

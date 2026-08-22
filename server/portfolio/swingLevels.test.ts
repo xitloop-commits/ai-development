@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSwingLevels, nearestSupportBelow } from "./swingLevels";
+import { computeSwingLevels, nearestSupportBelow, significantLevels } from "./swingLevels";
 
 describe("computeSwingLevels (server, T171)", () => {
   const bars = [
@@ -42,5 +42,38 @@ describe("nearestSupportBelow (Rider support-start)", () => {
   it("returns null when no swing low is below entry", () => {
     // entry 10 → both lows (14, 16) are ABOVE → no support below → null
     expect(nearestSupportBelow(bars, 10, 1)).toBeNull();
+  });
+});
+
+describe("significantLevels (server, T172)", () => {
+  // Two swing highs at ~100 (100.0 and 100.2 → within 0.3% → merge, touches 2),
+  // one isolated high at 110, and a swing low at 90. Session hi/lo = 110.5 / 89.5.
+  const bars = [
+    { t: 0, high: 95, low: 94 },
+    { t: 1, high: 100.0, low: 99 },  // swing HIGH (100.0)
+    { t: 2, high: 98, low: 90 },     // swing LOW (90)
+    { t: 3, high: 100.2, low: 99 },  // swing HIGH (100.2) → merges with 100.0
+    { t: 4, high: 98, low: 95 },
+    { t: 5, high: 110.0, low: 108 }, // swing HIGH (110)
+    { t: 6, high: 105, low: 104 },
+    { t: 7, high: 110.5, low: 89.5 },// extremes, but last bar → not a pivot
+  ];
+
+  it("merges nearby pivots into a retest-counted zone", () => {
+    const r = significantLevels(bars, { strength: 1, mergePct: 0.3 });
+    const merged = r.levels.find((l) => Math.abs(l.price - 100.1) < 0.2);
+    expect(merged?.touches).toBe(2); // 100.0 + 100.2 folded together
+  });
+
+  it("keeps far-apart pivots as separate single-touch zones", () => {
+    const r = significantLevels(bars, { strength: 1, mergePct: 0.3 });
+    expect(r.levels.some((l) => Math.abs(l.price - 110) < 0.1 && l.touches === 1)).toBe(true);
+    expect(r.levels.some((l) => Math.abs(l.price - 90) < 0.1 && l.touches === 1)).toBe(true);
+  });
+
+  it("returns the session high/low as majors", () => {
+    const r = significantLevels(bars, { strength: 1, mergePct: 0.3 });
+    expect(r.sessionHigh).toBe(110.5);
+    expect(r.sessionLow).toBe(89.5);
   });
 });

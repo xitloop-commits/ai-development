@@ -63,6 +63,78 @@ export function computeSwingLevels(
   return { highs: highs.slice(-k), lows: lows.slice(-k) };
 }
 
+/** One merged S/R zone. */
+export interface Level {
+  /** Representative price of the zone (touch-weighted mean of its pivots). */
+  price: number;
+  /** How many swing pivots landed in this zone (>=1). Higher = stronger. */
+  touches: number;
+}
+
+export interface SignificantLevels {
+  /** Merged swing zones (highs + lows pooled), sorted ascending by price. */
+  levels: Level[];
+  /** Session extremes — always drawn as majors on the chart. */
+  sessionHigh: number;
+  sessionLow: number;
+}
+
+/**
+ * Actionable S/R zones for the chart (T172 approach A). Finds every swing pivot
+ * (strength candles on each side), then MERGES pivots whose prices sit within
+ * `mergePct` of each other into one zone (representative = touch-weighted mean,
+ * touches = how many pivots hit it) so near-duplicate levels collapse. Highs and
+ * lows are POOLED: a level that was resistance can later act as support, so the
+ * chart splits them by the CURRENT price, not by pivot kind. Also returns the
+ * session high/low as always-shown majors.
+ *
+ * @param strength candles required on each side to confirm a pivot (default 3).
+ * @param mergePct percent band within which pivots fold into one zone (default 0.3).
+ */
+export function significantLevels(
+  bars: SwingBar[],
+  opts: { strength?: number; mergePct?: number } = {},
+): SignificantLevels {
+  const strength = Math.max(1, Math.floor(opts.strength ?? 3));
+  const mergePct = opts.mergePct ?? 0.3;
+  const n = bars.length;
+  let sessionHigh = -Infinity;
+  let sessionLow = Infinity;
+  for (let i = 0; i < n; i++) {
+    if (bars[i].high > sessionHigh) sessionHigh = bars[i].high;
+    if (bars[i].low < sessionLow) sessionLow = bars[i].low;
+  }
+  const pivots: number[] = [];
+  for (let i = strength; i < n - strength; i++) {
+    const c = bars[i];
+    let isHigh = true;
+    let isLow = true;
+    for (let j = 1; j <= strength; j++) {
+      if (bars[i - j].high >= c.high || bars[i + j].high >= c.high) isHigh = false;
+      if (bars[i - j].low <= c.low || bars[i + j].low <= c.low) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) pivots.push(c.high);
+    if (isLow) pivots.push(c.low);
+  }
+  pivots.sort((a, b) => a - b);
+  const levels: Level[] = [];
+  for (const p of pivots) {
+    const last = levels[levels.length - 1];
+    if (last && Math.abs(p - last.price) <= (last.price * mergePct) / 100) {
+      last.price = (last.price * last.touches + p) / (last.touches + 1);
+      last.touches += 1;
+    } else {
+      levels.push({ price: p, touches: 1 });
+    }
+  }
+  return {
+    levels,
+    sessionHigh: sessionHigh === -Infinity ? 0 : sessionHigh,
+    sessionLow: sessionLow === Infinity ? 0 : sessionLow,
+  };
+}
+
 /**
  * The Rider stop's support-start: the nearest swing LOW strictly BELOW `entry`
  * (a real support to place the initial stop at). Returns null when no swing low

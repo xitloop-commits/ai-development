@@ -151,6 +151,11 @@ export interface TickChartProps {
    *  timeframe from the recorded ticks). When present the "swings" indicator
    *  draws these instead of recomputing off the display candles. */
   serverSwings?: { highs: { price: number }[]; lows: { price: number }[] };
+  /** T172 — actionable S/R zones (merged, touch-counted) computed on the server.
+   *  When present the "swings" indicator splits them by the CURRENT price into
+   *  resistances above (T1..Tn, nearest first) + supports below (S1..Sn), colours
+   *  each by its retest count, and always draws the session HI/LO as majors. */
+  serverLevels?: { levels: { price: number; touches: number }[]; sessionHigh: number; sessionLow: number };
   /** T169-B — server-authoritative SMA5 line, one sample per SIGNAL candle (t =
    *  raw bucket-start epoch). When present the "sma5" indicator maps these onto
    *  the display candles instead of recomputing. */
@@ -199,6 +204,7 @@ export function TickChart({
   sma5Period = 5,
   sma5CandleSec = 60,
   serverSwings,
+  serverLevels,
   serverSma5,
   extraLines,
   tslAnchorTime,
@@ -545,32 +551,72 @@ export function TickChart({
       dn.setData(dnData);
     }
 
-    // T168 — swing S/R levels: horizontal lines at the last 3 swing peaks
-    // (green T1-3) + troughs (red S1-3). Pure price structure, independent of any
-    // trade/entry. Configurable X/strength is a follow-up; defaults 3 / 2.
+    // Swing S/R levels. Pure price structure, independent of any trade/entry.
     if (indicators.has("swings")) {
-      // T169-B — prefer the SERVER-AUTHORITATIVE levels (computed once on the
-      // SIGNAL timeframe from the recorded ticks). Fall back to a client compute
-      // off the display candles only while the server query is loading/empty.
-      const sw = serverSwings && (serverSwings.highs.length || serverSwings.lows.length)
-        ? serverSwings
-        : computeSwingLevels(
-            candles.map((c) => ({ time: c.time as number, high: c.high, low: c.low })),
-            2,
-            3,
-          );
-      sw.highs.forEach((lv, i) =>
+      if (serverLevels && serverLevels.levels.length) {
+        // T172 (approach A) — actionable, retest-graded S/R. Split the merged
+        // server zones by the current price: every zone ABOVE is a resistance
+        // (T1..Tn, nearest first), every zone BELOW a support (S1..Sn). Colour +
+        // width scale with the retest count so tested levels stand out. Session
+        // HI/LO are always drawn as solid majors.
+        //  1 touch  = faint, thin      2 touches = solid, thin
+        //  3 touches = solid, medium   4+        = bright, thick
+        const styleFor = (touches: number, kind: "R" | "S") => {
+          const green = ["#22c55e66", "#22c55e", "#16a34a", "#15803d"];
+          const red = ["#ef444466", "#ef4444", "#dc2626", "#b91c1c"];
+          const tier = Math.min(3, Math.max(0, touches - 1));
+          return { color: (kind === "R" ? green : red)[tier], width: (touches >= 4 ? 3 : touches >= 3 ? 2 : 1) as 1 | 2 | 3 };
+        };
+        const cur = candles.length ? (candles[candles.length - 1].close as number) : null;
+        if (cur != null) {
+          const above = serverLevels.levels.filter((l) => l.price > cur).sort((a, b) => a.price - b.price);
+          const below = serverLevels.levels.filter((l) => l.price < cur).sort((a, b) => b.price - a.price);
+          above.forEach((l, i) => {
+            const st = styleFor(l.touches, "R");
+            series.createPriceLine({
+              price: l.price, color: st.color, lineWidth: st.width, lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true, title: `T${i + 1}·${l.touches}x`,
+            });
+          });
+          below.forEach((l, i) => {
+            const st = styleFor(l.touches, "S");
+            series.createPriceLine({
+              price: l.price, color: st.color, lineWidth: st.width, lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true, title: `S${i + 1}·${l.touches}x`,
+            });
+          });
+        }
         series.createPriceLine({
-          price: lv.price, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true, title: `T${i + 1}`,
-        }),
-      );
-      sw.lows.forEach((lv, i) =>
+          price: serverLevels.sessionHigh, color: "#22c55e", lineWidth: 2, lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: "HI",
+        });
         series.createPriceLine({
-          price: lv.price, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true, title: `S${i + 1}`,
-        }),
-      );
+          price: serverLevels.sessionLow, color: "#ef4444", lineWidth: 2, lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: "LO",
+        });
+      } else {
+        // Fallback (instchart / while the server query loads): last 3 swing peaks
+        // (green T1-3) + troughs (red S1-3) off the recorded/display candles.
+        const sw = serverSwings && (serverSwings.highs.length || serverSwings.lows.length)
+          ? serverSwings
+          : computeSwingLevels(
+              candles.map((c) => ({ time: c.time as number, high: c.high, low: c.low })),
+              2,
+              3,
+            );
+        sw.highs.forEach((lv, i) =>
+          series.createPriceLine({
+            price: lv.price, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true, title: `T${i + 1}`,
+          }),
+        );
+        sw.lows.forEach((lv, i) =>
+          series.createPriceLine({
+            price: lv.price, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true, title: `S${i + 1}`,
+          }),
+        );
+      }
     }
 
     if (indicators.has("rsi")) {
@@ -757,7 +803,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

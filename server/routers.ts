@@ -27,7 +27,7 @@ import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
 import { bucketTicksToCandles } from "../shared/candles";
 import { sma5SignalLine, maRibbonSignal } from "../shared/chartLines";
-import { computeSwingLevels } from "./portfolio/swingLevels";
+import { computeSwingLevels, significantLevels } from "./portfolio/swingLevels";
 import { getSeaLines } from "./seaLineStore";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
@@ -471,6 +471,29 @@ export const appRouter = router({
           ma: maRibbonSignal(signal, { ...ta, source: "ma" }),
           sma5Ribbon: maRibbonSignal(signal, { ...ta, source: "sma5" }),
         };
+      }),
+
+    // T172 — actionable S/R zones for ONE option contract, computed on the server
+    // from its full recorded ticks: swing pivots merged into retest-counted zones
+    // + session hi/lo. The chart splits them by current price into T/S levels.
+    optionSwingLevels: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          securityId: z.string().min(1),
+          timeframeSec: z.number().int().positive(),
+          strength: z.number().int().positive().max(10).optional(),
+          mergePct: z.number().positive().max(5).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const ticks = await readOptionContractTicks(input.instrument, input.date, input.securityId);
+        const candles = bucketTicksToCandles(ticks.t, ticks.ltp, input.timeframeSec);
+        return significantLevels(
+          candles.map((c) => ({ t: c.t, high: c.high, low: c.low })),
+          { strength: input.strength, mergePct: input.mergePct },
+        );
       }),
 
     // T169-B (option B) — SERVER-AUTHORITATIVE ribbon SEA pushed for one traded
