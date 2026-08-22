@@ -16,10 +16,32 @@ does the maths, chart maps to display candles) — locked with Partha. Shared
 - **SMA5 line + MA/SMA5 ribbons + bottom readout** ✅ — tRPC `chartLines` computes them once
   per signal candle; the chart maps onto display candles (`ribbonFromServerBuckets` reuses
   the exact `finalize`). Client compute kept as a fallback while a query is empty. Tested.
-- **Underlying chart only** (option-pane premium ribbon = a later slice, if wanted).
 - **Steep-zone blue/pink parallels REMOVED** (Partha, 2026-08-21).
-- ⏳ **Needs a client rebuild + Partha's eyeball** at the running chart to confirm the SMA5
-  line + ribbon look unchanged (visual; server unit tests pass but can't verify the render).
+- ⏳ **Needs a client rebuild + Partha's eyeball** on the `?view=instchart` chart to confirm the
+  SMA5 line + ribbon look unchanged (visual; server unit tests pass but can't verify the render).
+
+**⚠️ Scope note (2026-08-21 PM):** the above (approach A) is on the **underlying single
+chart** (`?view=instchart`), which Partha does NOT use daily — his main chart is the
+**premium multichart** (`?view=multichart`, live CE/PE panes). So Partha chose the stronger
+model for the chart he actually uses:
+
+### T169-B2 [UI/SEA] — TRUE single source: SEA PUSHES its ribbon to the premium multichart (option B) — IN PROGRESS
+Decision (Partha): the client must never re-calculate; the DECIDER (SEA) emits the exact line
+it decided on and the chart only draws it. Target = the **premium multichart**, for the
+**traded (ATM) contract** SEA actually evaluates (other strike panes stay display-only). Once
+per candle close (~1/min) → light; the same SEA→Node→UI path signals already use.
+- **Slice 1 — Node foundation ✅ SHIPPED 2026-08-21.** `seaLineStore` (rolling per-candle
+  series by instrument+date+securityId+kind) + `POST /api/sea/line` ingest +
+  `tickBus.emitSeaLine` fan-out + tRPC `seaLines` query. Additive, isolated, unit-tested (6).
+- **Slice 2 — SEA emit ⬜.** `premium_ribbon.py` expose the per-candle `line` (additive);
+  the engine POSTs `{instrument,date,securityId,kind,t,line,state,close}` fire-and-forget via
+  a new `send_line()` in `risk_control_client.py`. Open q: does SEA run BOTH the sma5 AND ma
+  premium ribbons, or only one? — only the one it computes can be authoritative.
+- **Slice 3 — client ⬜.** MultiChartPage pane reads `seaLines` for its `secId` + live
+  `seaLine` WS updates, draws that ribbon; falls back to today's client compute otherwise.
+- ⏳ **End-to-end verification needs a LIVE SEA session (Monday)** or a SEA-driven run — a
+  Node-side replay does NOT run SEA, so it won't populate the store. The chart fallback means
+  no regression if the feed isn't flowing.
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
