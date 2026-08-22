@@ -65,6 +65,7 @@ import { chargeRatesForTrade } from "../../shared/chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { getActiveRunId, appendTrade as appendTradeToRun, getRun, updateRunTrades } from "../replay/replayRuns";
+import { nowMs } from "../replay/tickReplay";
 import { disciplineAgent } from "../discipline";
 import { notifyOrderRejected } from "../_core/tradeEventNotifier";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
@@ -608,7 +609,7 @@ class PortfolioAgentImpl {
     trade.chargesBreakdown = charges.breakdown;
     trade.unrealizedPnl = 0;
     trade.ltp = exitPrice;
-    trade.closedAt = Date.now();
+    trade.closedAt = nowMs();
     if (trade.openedAt) trade.durationMs = trade.closedAt - trade.openedAt;
     trade.status = "CLOSED";
     if (exitReason) trade.exitReason = exitReason;
@@ -697,7 +698,7 @@ class PortfolioAgentImpl {
     trade.chargesBreakdown = charges.breakdown;
     trade.unrealizedPnl = 0;
     trade.ltp = exitPrice;
-    trade.closedAt = Date.now();
+    trade.closedAt = nowMs();
     // Hold duration (ms) — persisted so reports read it without recomputing.
     if (trade.openedAt) trade.durationMs = trade.closedAt - trade.openedAt;
     trade.status = "CLOSED";
@@ -885,7 +886,7 @@ class PortfolioAgentImpl {
       stopLossPrice: null,
       brokerOrderId: update.orderId,
       brokerId: update.brokerId,
-      openedAt: Date.now(),
+      openedAt: nowMs(),
       closedAt: null,
     } as TradeRecord;
   }
@@ -1296,7 +1297,7 @@ class PortfolioAgentImpl {
         trade.exitPrice = trade.entryPrice;
         trade.pnl = 0;
         trade.unrealizedPnl = 0;
-        trade.closedAt = Date.now();
+        trade.closedAt = nowMs();
         // 2026-07-01: Telegram push for broker-side kills (REJECTED /
         // CANCELLED / EXPIRED). Previously silent — the operator had no
         // signal that the AI had tried to enter but was blocked at the

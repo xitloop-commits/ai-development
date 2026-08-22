@@ -24,6 +24,7 @@ import {
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates, createDayRecord } from "./compounding";
 import { getActiveRunId, getRun, updateRunTrades } from "../replay/replayRuns";
+import { nowMs } from "../replay/tickReplay";
 import { getExitConfig, getCommonConfig, type CandleAnchor, type SidewaysMode } from "./aiModeConfig";
 import { nearestSupportBelow, computeSwingLevels } from "./swingLevels";
 import { netPnlAtPrice, loadChargeRates } from "./netRsExit";
@@ -736,7 +737,7 @@ class TickHandler extends EventEmitter {
       // placeholder entry so the trade isn't stuck unpriced forever.
       if (
         trade.entryPending &&
-        Date.now() - trade.openedAt > ENTRY_FILL_TIMEOUT_MS
+        nowMs() - trade.openedAt > ENTRY_FILL_TIMEOUT_MS
       ) {
         trade.entryPending = false;
         anyUpdated = true;
@@ -768,7 +769,7 @@ class TickHandler extends EventEmitter {
         // Update LTP + stamp the tick timestamp so RCA's stale-price
         // monitor can detect broker disconnects / illiquid contracts.
         trade.ltp = tick.ltp;
-        trade.lastTickAt = Date.now();
+        trade.lastTickAt = nowMs();
         anyUpdated = true;
 
         // ── LIVE channels ────────────────────────────────────────────────

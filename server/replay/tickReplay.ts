@@ -293,6 +293,18 @@ export function isReplayActive(): boolean {
   return running;
 }
 
+/** Sim-aware "now" in epoch MS (Partha 2026-08-22). While a replay is running,
+ *  returns the sim clock (replay tick time) so trade timestamps land on the
+ *  replayed day — markers, durations, etc. all use replay time. Falls back to
+ *  wall-clock when not replaying (live/paper unchanged). */
+export function nowMs(): number {
+  if (running) {
+    const c = replayCutoffTs();
+    if (c != null) return Math.round(c * 1000);
+  }
+  return Date.now();
+}
+
 /**
  * Start replaying a date at `speed` (1× = real-time). Streams both NSE
  * instruments' option + underlying ticks into tickBus, paced by recv_ts from a
