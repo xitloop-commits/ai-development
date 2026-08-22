@@ -567,10 +567,14 @@ export function TickChart({
           const tier = Math.min(3, Math.max(0, touches - 1));
           return { color: (kind === "R" ? green : red)[tier], width: (touches >= 4 ? 3 : touches >= 3 ? 2 : 1) as 1 | 2 | 3 };
         };
+        // Only levels TESTED at least twice are real S/R — single-touch pivots
+        // are one-off noise, and drawing them all buries the chart. (Tunable.)
+        const MIN_TOUCHES = 2;
         const cur = candles.length ? (candles[candles.length - 1].close as number) : null;
         if (cur != null) {
-          const above = serverLevels.levels.filter((l) => l.price > cur).sort((a, b) => a.price - b.price);
-          const below = serverLevels.levels.filter((l) => l.price < cur).sort((a, b) => b.price - a.price);
+          const shown = serverLevels.levels.filter((l) => l.touches >= MIN_TOUCHES);
+          const above = shown.filter((l) => l.price > cur).sort((a, b) => a.price - b.price);
+          const below = shown.filter((l) => l.price < cur).sort((a, b) => b.price - a.price);
           above.forEach((l, i) => {
             const st = styleFor(l.touches, "R");
             series.createPriceLine({

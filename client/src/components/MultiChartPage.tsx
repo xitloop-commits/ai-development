@@ -33,7 +33,7 @@ import { TickChart } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
-import { istDateString } from "@/lib/signalChart";
+import { istDateString, IST_OFFSET_SECONDS } from "@/lib/signalChart";
 import {
   trendAnalysis,
   trendReadoutText,
@@ -265,8 +265,14 @@ function InstrumentPane({
   }, [trendA, trendS]);
   // T172 — SERVER-AUTHORITATIVE S/R zones for this pane's contract (merged,
   // retest-counted). TickChart splits them by current price into T/S levels.
+  // cutoffTs = last closed candle's raw epoch, so during a replay the levels
+  // only reflect data the sim has reached (no look-ahead). Advances one candle
+  // at a time, so the query refetches at candle cadence, not every tick.
+  const swingCutoffTs = c.candles.length
+    ? (c.candles[c.candles.length - 1].time as number) - IST_OFFSET_SECONDS
+    : undefined;
   const swingsQ = trpc.trading.optionSwingLevels.useQuery(
-    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec },
+    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec, cutoffTs: swingCutoffTs },
     { enabled: !!secId && indicators.has("swings"), staleTime: Infinity, refetchOnWindowFocus: false },
   );
   const trendReadout = useMemo(() => {

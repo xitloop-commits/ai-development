@@ -485,11 +485,28 @@ export const appRouter = router({
           timeframeSec: z.number().int().positive(),
           strength: z.number().int().positive().max(10).optional(),
           mergePct: z.number().positive().max(5).optional(),
+          // Raw epoch seconds. During a replay the recorded file is the WHOLE
+          // day, so without this the levels (and session hi/lo) would reveal
+          // FUTURE swings the sim hasn't reached. Cap ticks at the sim clock.
+          cutoffTs: z.number().int().positive().optional(),
         }),
       )
       .query(async ({ input }) => {
-        const ticks = await readOptionContractTicks(input.instrument, input.date, input.securityId);
-        const candles = bucketTicksToCandles(ticks.t, ticks.ltp, input.timeframeSec);
+        const raw = await readOptionContractTicks(input.instrument, input.date, input.securityId);
+        let { t, ltp } = raw;
+        if (input.cutoffTs != null) {
+          // t is ascending — binary-search the first index past the cutoff.
+          let lo = 0;
+          let hi = t.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (t[mid] <= input.cutoffTs) lo = mid + 1;
+            else hi = mid;
+          }
+          t = t.slice(0, lo);
+          ltp = ltp.slice(0, lo);
+        }
+        const candles = bucketTicksToCandles(t, ltp, input.timeframeSec);
         return significantLevels(
           candles.map((c) => ({ t: c.t, high: c.high, low: c.low })),
           { strength: input.strength, mergePct: input.mergePct },
