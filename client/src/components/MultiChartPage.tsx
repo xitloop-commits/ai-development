@@ -37,7 +37,7 @@ import { istDateString } from "@/lib/signalChart";
 import {
   trendAnalysis,
   trendReadoutText,
-  ribbonFromSea,
+  ribbonFromServerBuckets,
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
 import { ReplayControl } from "@/components/ReplayControl";
@@ -229,32 +229,32 @@ function InstrumentPane({
   const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
   const sma5CandleSec = cohortQ.data?.sma5CandleSec ?? 60;
-  // T169-B (option B) — SERVER-AUTHORITATIVE ribbon lines SEA pushed for THIS
-  // pane's contract. Present only for the traded (ATM) contract SEA evaluates;
-  // other strikes keep the client compute. Refetch periodically so new closed
-  // candles appear while live/simulating.
-  const seaMaQ = trpc.trading.seaLines.useQuery(
-    { instrument: instKey, date: chartDate, securityId: secId ?? "", kind: "ma" },
-    { enabled: !!secId && indicators.has("maRibbon"), refetchInterval: 4000, refetchOnWindowFocus: false },
+  // T172 — SERVER-AUTHORITATIVE ribbon for THIS pane's contract, computed on the
+  // server from the contract's full recorded ticks (same shared math SEA uses).
+  // Unlike the old SEA push it covers the whole pane (not just the lock window)
+  // and never lags the replay, since the contract file is static — the ribbon
+  // just "reveals" as display candles advance. Client compute stays as a
+  // fallback only while the (slow) read is still loading.
+  const optLinesQ = trpc.trading.optionChartLines.useQuery(
+    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec },
+    {
+      enabled: !!secId && (indicators.has("maRibbon") || indicators.has("sma5Ribbon")),
+      staleTime: Infinity,
+      refetchOnWindowFocus: false,
+    },
   );
-  const seaS5Q = trpc.trading.seaLines.useQuery(
-    { instrument: instKey, date: chartDate, securityId: secId ?? "", kind: "sma5" },
-    { enabled: !!secId && indicators.has("sma5Ribbon"), refetchInterval: 4000, refetchOnWindowFocus: false },
-  );
-  // T169-B — prefer SEA's OWN ribbon (line + trend/angle/run) for this contract;
-  // fall back to the client compute only when SEA hasn't pushed it (non-traded
-  // strike, or before the first candle). trendReadout below reads .minuteState,
-  // so the readout is server-authoritative too whenever SEA data is present.
   const trendA = useMemo(() => {
     if (!indicators.has("maRibbon")) return undefined;
-    if (seaMaQ.data?.length) return ribbonFromSea(seaMaQ.data, c.candles as { time: number; close: number }[], maCandleSec);
+    if (optLinesQ.data?.ma?.length)
+      return ribbonFromServerBuckets(optLinesQ.data.ma, c.candles as { time: number; close: number }[], sma5CandleSec);
     return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec });
-  }, [c.candles, taOpts, indicators, maCandleSec, seaMaQ.data]);
+  }, [c.candles, taOpts, indicators, maCandleSec, sma5CandleSec, optLinesQ.data]);
   const trendS = useMemo(() => {
     if (!indicators.has("sma5Ribbon")) return undefined;
-    if (seaS5Q.data?.length) return ribbonFromSea(seaS5Q.data, c.candles as { time: number; close: number }[], sma5CandleSec);
+    if (optLinesQ.data?.sma5Ribbon?.length)
+      return ribbonFromServerBuckets(optLinesQ.data.sma5Ribbon, c.candles as { time: number; close: number }[], sma5CandleSec);
     return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec });
-  }, [c.candles, taOpts, indicators, sma5CandleSec, seaS5Q.data]);
+  }, [c.candles, taOpts, indicators, sma5CandleSec, optLinesQ.data]);
   const extraLines = useMemo(() => {
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
     const arr = [

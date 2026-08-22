@@ -449,6 +449,30 @@ export const appRouter = router({
         };
       }),
 
+    // T172 — SERVER-AUTHORITATIVE ribbon for ONE option contract, computed from
+    // its full recorded ticks (not just its lock window like the SEA push). Same
+    // shared ribbon math SEA uses, so for recorded/replay data it reproduces SEA's
+    // numbers — but covers the whole pane and never lags the replay. Feeds the
+    // multichart MA + SMA5 ribbons per premium contract.
+    optionChartLines: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          securityId: z.string().min(1),
+          timeframeSec: z.number().int().positive(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const ticks = await readOptionContractTicks(input.instrument, input.date, input.securityId);
+        const signal = bucketTicksToCandles(ticks.t, ticks.ltp, input.timeframeSec);
+        const ta = getCommonConfig().trendAngle;
+        return {
+          ma: maRibbonSignal(signal, { ...ta, source: "ma" }),
+          sma5Ribbon: maRibbonSignal(signal, { ...ta, source: "sma5" }),
+        };
+      }),
+
     // T169-B (option B) — SERVER-AUTHORITATIVE ribbon SEA pushed for one traded
     // contract (premium pane). Returns the stored per-candle series SEA computed
     // for its decision; the chart draws these exact values (client compute is the

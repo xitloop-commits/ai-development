@@ -36,9 +36,9 @@
     "slope_lookback": 10,
     "thr_hi": 0.015,
     "thr_lo": 0.006,
-    "rev_pct": 0,
+    "rev_pct": 0.18,
     "sl_pct": 12,
-    "candle_sec": 300,
+    "candle_sec": 60,
     "ribbon_lookback": 3,
     "ribbon_gray_pctile": 10
   },
@@ -57,9 +57,9 @@
     "use_ha": true,
     "sl_pct": 12,
     "confirm_candles": 1,
-    "entry_watch": 3,
-    "entry_gate": true,
-    "candle_sec": 300,
+    "entry_watch": 0,
+    "entry_gate": false,
+    "candle_sec": 60,
     "ribbon_lookback": 3,
     "ribbon_gray_pctile": 0
   }
