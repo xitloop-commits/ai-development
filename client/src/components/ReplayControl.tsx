@@ -7,7 +7,7 @@
  * Stop. Backed by the `replay` tRPC router; replay is blocked during live
  * market hours (the server enforces that).
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Play, Square, Rewind } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeaStatus } from '@/stores/seaStatusStore';
@@ -27,6 +27,19 @@ const REPLAY_INSTS = [
   { key: 'nifty50', label: 'Nifty' },
   { key: 'banknifty', label: 'BankN' },
 ] as const;
+
+// Persist the replay panel's picks (date/speed/instruments/models) so they
+// survive closing the panel + restarting the window. (defaultTf persists on its
+// own via loadReplayDefaultTf/saveReplayDefaultTf.) Fixes "replay setting is not
+// saving the changes" (Partha 2026-08-23).
+const RS_KEY = 'replay.panelSettings';
+interface ReplayPanelSettings { date?: string; speed?: number; insts?: string[]; models?: Record<string, string> }
+function loadReplaySettings(): ReplayPanelSettings {
+  try { return JSON.parse(localStorage.getItem(RS_KEY) || '{}'); } catch { return {}; }
+}
+function saveReplaySettings(o: ReplayPanelSettings): void {
+  try { localStorage.setItem(RS_KEY, JSON.stringify(o)); } catch { /* ignore quota/availability */ }
+}
 
 export function ReplayControl() {
   const utils = trpc.useUtils();
@@ -55,16 +68,18 @@ export function ReplayControl() {
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  const [date, setDate] = useState<string>('');
-  const [speed, setSpeed] = useState<number>(1);
+  const savedRS = useMemo(loadReplaySettings, []);
+  const [date, setDate] = useState<string>(savedRS.date ?? '');
+  const [speed, setSpeed] = useState<number>(savedRS.speed ?? 1);
   // Default chart timeframe a replay opens at (persisted). Paper/live is locked
   // to the signal-detector config, so this applies to replay only.
   const [defaultTf, setDefaultTf] = useState<number>(() => loadReplayDefaultTf() ?? 60);
-  const selectedDate = date || dates[0] || '';
+  // A saved date that no longer has a recording falls back to the newest.
+  const selectedDate = (date && dates.includes(date)) ? date : (dates[0] || date || '');
 
   // Which instruments this run replays — both by default. The model pickers +
   // the started run follow this selection.
-  const [insts, setInsts] = useState<string[]>(REPLAY_INSTS.map((i) => i.key));
+  const [insts, setInsts] = useState<string[]>(savedRS.insts ?? REPLAY_INSTS.map((i) => i.key));
   const toggleInst = (k: string) =>
     setInsts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
 
@@ -75,7 +90,9 @@ export function ReplayControl() {
   // without touching these still records the model that actually ran.
   const modelsQ = trpc.trading.modelVersions.useQuery(undefined, { staleTime: Infinity });
   const seaQ = trpc.trading.seaCohortState.useQuery(undefined, { refetchInterval: 10_000 });
-  const [models, setModels] = useState<Record<string, string>>({});
+  const [models, setModels] = useState<Record<string, string>>(savedRS.models ?? {});
+  // Persist the panel picks whenever they change.
+  useEffect(() => { saveReplaySettings({ date, speed, insts, models }); }, [date, speed, insts, models]);
   const pickFor = (inst: string) => {
     const list = modelsQ.data?.[inst] ?? [];
     // Never DEFAULT to something that can't run, even if LATEST points at it.
