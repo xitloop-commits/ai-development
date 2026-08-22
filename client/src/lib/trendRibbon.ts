@@ -204,6 +204,36 @@ export function ribbonFromServerBuckets(
   return finalize(candles, st);
 }
 
+/** T169-B (option B) — one SEA-pushed closed-candle ribbon sample. */
+export interface SeaRibbonSample { t: number; line: number; state: -1 | 0 | 1; close: number }
+
+/**
+ * T169-B — build the ribbon LINE from SEA's own pushed values (the exact numbers
+ * the signal decision used). Each display candle takes the latest SEA sample at
+ * or before it (a step line), coloured by SEA's state. Returns the TickChart
+ * `extraLines` shape. Empty in → [] (caller falls back to the client compute).
+ */
+export function ribbonLineFromSea(
+  samples: SeaRibbonSample[],
+  candles: { time: number }[],
+): { data: RibbonPoint[]; color: string }[] {
+  if (!samples.length || !candles.length) return [];
+  const data: RibbonPoint[] = [];
+  let si = 0;
+  for (const c of candles) {
+    const raw = (c.time as number) - IST_OFFSET_SECONDS; // display time is IST-shifted
+    while (si + 1 < samples.length && samples[si + 1].t <= raw) si++;
+    const s = samples[si];
+    if (s && s.t <= raw) {
+      const color = s.state > 0 ? GREEN : s.state < 0 ? RED : GRAY;
+      data.push({ time: c.time, value: s.line * 0.9995, color });
+    } else {
+      data.push({ time: c.time }); // before SEA's first sample → gap
+    }
+  }
+  return [{ data, color: GRAY }];
+}
+
 /** Run-age stamping + ribbon line construction (shared by smooth/raw paths). */
 function finalize(
   candles: { time: number; close: number }[],
