@@ -318,11 +318,26 @@ function InstrumentPane({
 
   const hasOpen = openTrade != null;
 
+  // MA warm-up counter — the MA ribbon needs 15 candles before it goes live and
+  // can fire. Show progress until the server ribbon has a bucket at/before now.
+  const maWarmup = useMemo(() => {
+    if (!indicators.has("maRibbon") || !c.candles.length) return null;
+    const lastRawT = (c.candles[c.candles.length - 1].time as number) - IST_OFFSET_SECONDS;
+    const ready = (optLinesQ.data?.ma ?? []).some((b) => b.t <= lastRawT);
+    if (ready) return null;
+    return { have: Math.min(15, c.candles.length), need: 15 };
+  }, [indicators, c.candles, optLinesQ.data]);
+
   return (
     <div
       className="min-h-0 h-full relative rounded border border-border/60"
       style={hasOpen && !focused ? { borderColor: sideColor } : undefined}
     >
+      {maWarmup && (
+        <div className="absolute top-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-warning-amber/40 bg-warning-amber/20 px-2 py-0.5 text-[0.625rem] font-bold tabular-nums text-warning-amber">
+          MA warm-up {maWarmup.have}/{maWarmup.need}
+        </div>
+      )}
       <TickChart
         candles={c.candles}
         markers={markers}
