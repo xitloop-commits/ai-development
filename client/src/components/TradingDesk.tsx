@@ -8,7 +8,7 @@
  * Presentational children: PastRow, TodaySection, FutureRow, TodayPnlBar, ConfirmDialog.
  * Shared helpers: @/lib/tradeTypes, @/lib/tradeFormatters, @/lib/tradeCalculations, @/lib/tradeThemes.
  */
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
 import * as signalsStore from '@/stores/signalsStore';
@@ -26,8 +26,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
-import { useSelectedRunId, useDeskMode, setDeskMode } from '@/lib/replaySelection';
-import { ReplayPane } from '@/components/ReplayPane';
+import { useSelectedRunId, useDeskMode, setSelectedRunId } from '@/lib/replaySelection';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -111,6 +110,22 @@ export default function TradingDesk({
     { enabled: !!selectedRunId, refetchInterval: selectedRunId ? 4000 : false },
   );
   const run = selectedRunId ? runQuery.data : null;
+
+  // The runs picker was removed (2026-08-22) — the desk shows only the trades
+  // table in replay mode. Auto-pick the run to show: a RUNNING replay wins (so a
+  // freshly started sim appears at once), otherwise the newest run. Exit is via
+  // the app-bar Paper/Live tabs (they call setDeskMode('book')).
+  const replayRunsQuery = trpc.replay.runs.useQuery(undefined, {
+    enabled: deskMode === 'replay',
+    refetchInterval: deskMode === 'replay' ? 5000 : false,
+  });
+  useEffect(() => {
+    if (deskMode !== 'replay') return;
+    const runs = replayRunsQuery.data ?? [];
+    const running = runs.find((r) => r.status === 'RUNNING');
+    if (running && selectedRunId !== running.runId) { setSelectedRunId(running.runId); return; }
+    if (!selectedRunId && runs.length) setSelectedRunId(runs[0].runId);
+  }, [deskMode, selectedRunId, replayRunsQuery.data]);
 
   // CLEAR — wipe this book's pool back to its opening funding. Paper only; it
   // moved off the app bar into the day-jump bar (T130) so a destructive control
@@ -275,36 +290,9 @@ export default function TradingDesk({
           narrower than the top bar it sits under, leaving dead space after the
           Rating column. The scroll perf it bought is not worth a table that
           doesn't fill. */}
-      {/* Replay section (app-bar REPLAY tab) — the runs picker / compare / delete,
-          moved here from the old watchlist Replay tab. Selecting a run fills the
-          table below with its trades. A bounded strip so the trades stay visible. */}
-      {deskMode === 'replay' && (
-        <div className="shrink-0 max-h-[38vh] overflow-hidden flex flex-col border-b border-border">
-          <ReplayPane />
-        </div>
-      )}
-
-      {/* Unmissable banner while a run is on the desk. Without it the desk looks
-          like the live book showing unfamiliar numbers — the worst possible
-          ambiguity on a trading screen. */}
-      {run && (
-        <div className="shrink-0 flex items-center gap-2 px-3 py-1 bg-info-cyan/15 border-b border-info-cyan/40">
-          <span className="text-[0.5625rem] font-bold uppercase tracking-wider text-info-cyan">Replay run</span>
-          <span className="text-[0.625rem] font-bold text-foreground">{run.runId}</span>
-          <span className="text-[0.5rem] text-muted-foreground">
-            {run.date} · {run.tradeCount} trades ·{' '}
-            {Object.entries(run.models ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ') || 'model n/a'}
-          </span>
-          <button
-            type="button"
-            onClick={() => setDeskMode('book')}
-            className="ml-auto px-1.5 py-0.5 rounded text-[0.5625rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30"
-          >
-            Back to live book
-          </button>
-        </div>
-      )}
-
+      {/* Replay section (app-bar REPLAY tab): the desk shows only the selected
+          run's trades — the runs picker + detail banner were removed 2026-08-22.
+          The run is auto-picked above; exit via the app-bar Paper/Live tabs. */}
       <div className="flex-1 relative overflow-hidden w-full">
         <div ref={tableContainerRef} className={`h-full w-full overflow-y-auto overflow-x-hidden scrollbar-thin bg-card transition-opacity duration-150 ${
           workspace === 'my' ? 'scrollbar-bullish' :
@@ -312,7 +300,7 @@ export default function TradingDesk({
         }`}>
           {deskMode === 'replay' && !run ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-[0.6875rem] text-muted-foreground">
-              Select a replay run above to view its trades — or start one from the chart window's Replay control.
+              No replay run to show yet — start one from the chart window's Replay control and its trades appear here.
             </div>
           ) : allDays.length === 0 ? (
             <NoCapitalEmpty onOpenSettings={() => {
