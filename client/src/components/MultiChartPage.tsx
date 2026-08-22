@@ -116,7 +116,7 @@ type AtmShape = {
 
 function InstrumentPane({
   instKey, intervalSec, style, indicators, markerFilter, activeOnly, crosshairSync,
-  taOpts, chartDate, simCutoffRef, fs, onToggleFs, forceSide,
+  taOpts, chartDate, simCutoffRef, activeReplayRunId, fs, onToggleFs, forceSide,
 }: {
   instKey: string;
   intervalSec: number;
@@ -129,6 +129,9 @@ function InstrumentPane({
   taOpts?: Partial<TrendAngleOptions>;
   chartDate: string;
   simCutoffRef?: MutableRefObject<number | null>;
+  /** T172 — when a replay run is active, draw ITS trades (entry/TSL/target/
+   *  markers) instead of the paper book's. */
+  activeReplayRunId?: string | null;
   fs: boolean;
   onToggleFs: () => void;
   /** Instrument-pill split view (2026-08-21): pin this pane to ONE leg — CE
@@ -137,9 +140,14 @@ function InstrumentPane({
 }) {
   const tradesQ = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: instKey, date: chartDate },
-    { refetchInterval: 10_000, refetchOnWindowFocus: false },
+    { enabled: !activeReplayRunId, refetchInterval: 10_000, refetchOnWindowFocus: false },
   );
-  const allRows = (tradesQ.data ?? []) as PaneTradeRow[];
+  // T172 — replay-run trades (same row shape) when a sim is running.
+  const replayTradesQ = trpc.trading.replayTradesForChart.useQuery(
+    { runId: activeReplayRunId ?? "", instrument: instKey },
+    { enabled: !!activeReplayRunId, refetchInterval: 4000, refetchOnWindowFocus: false },
+  );
+  const allRows = ((activeReplayRunId ? replayTradesQ.data : tradesQ.data) ?? []) as PaneTradeRow[];
   // A pinned-leg pane only ever considers its own side's trades.
   const rows = forceSide ? allRows.filter((r) => r.side === forceSide) : allRows;
 
@@ -335,7 +343,7 @@ export default function MultiChartPage() {
   const userPickedInterval = useRef(saved.intervalSec != null);
   const [style, setStyle] = useState<ChartStyle>(saved.style ?? "ha");
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon"]),
+    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
@@ -382,6 +390,10 @@ export default function MultiChartPage() {
     isSim && rp?.startedAt != null && rp?.anchorRecvTs != null
       ? rp.anchorRecvTs + ((Date.now() - rp.startedAt) / 1000) * (rp.speed || 1)
       : null;
+  // T172 — during a sim the chart's trade overlays (entry/TSL/target/markers)
+  // come from the RUNNING replay run, not the paper book. runs are newest-first.
+  const runsQ = trpc.replay.runs.useQuery(undefined, { enabled: isSim, refetchInterval: 5000, refetchOnWindowFocus: false });
+  const activeReplayRunId = isSim ? (runsQ.data?.find((r) => r.status === "RUNNING")?.runId ?? null) : null;
 
   const utils = trpc.useUtils();
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -420,6 +432,7 @@ export default function MultiChartPage() {
         taOpts={taOpts}
         chartDate={chartDate}
         simCutoffRef={isSim ? simCutoffRef : undefined}
+        activeReplayRunId={activeReplayRunId}
         fs={fullscreenInst === paneId}
         onToggleFs={() => setFullscreenInst((p) => (p === paneId ? null : paneId))}
         forceSide={forceSide}
@@ -472,9 +485,10 @@ export default function MultiChartPage() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setIndicatorMenuOpen(false)} />
               <div className="absolute z-20 mt-1 w-44 rounded border border-border bg-background/95 p-1 shadow-xl backdrop-blur">
-                {/* T169-B — the multichart carries ONLY the two SEA-authoritative
-                    ribbons; every other (client-computed) indicator was removed. */}
-                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon").map((o) => (
+                {/* T169-B — the multichart carries the two SEA ribbons + the S/R
+                    swing lines (toggleable, on by default); other client-computed
+                    indicators stay removed. */}
+                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon" || o.key === "swings").map((o) => (
                   <label key={o.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[0.6875rem] hover:bg-secondary/60">
                     <input type="checkbox" checked={indicators.has(o.key)} onChange={() => toggleIndicator(o.key)} />
                     {o.label}

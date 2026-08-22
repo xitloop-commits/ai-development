@@ -528,6 +528,46 @@ export const appRouter = router({
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
 
+    // T172 — a replay RUN's trades for one instrument, in the exact
+    // tradesForChart row shape, so the chart draws the replay run's entry / TSL /
+    // target / markers (during or after a sim) instead of the live book's.
+    replayTradesForChart: publicProcedure
+      .input(
+        z.object({
+          runId: z.string().min(1),
+          instrument: z.string(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const { getRun } = await import("./replay/replayRuns");
+        const run = await getRun(input.runId);
+        if (!run) return [];
+        const wantFolder = logFolderFor(input.instrument);
+        return run.trades
+          .filter((t) => logFolderFor(t.instrument) === wantFolder)
+          .map((t, i) => ({
+            id: t.id,
+            signalSeq: t.signalSeq ?? null,
+            tradeNo: i + 1,
+            side: (t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
+            strike: t.strike ?? null,
+            entryTime: Math.round(t.openedAt / 1000),
+            entryPrice: t.entryPrice,
+            stopLossPrice: t.stopLossPrice ?? null,
+            targetPrice: t.targetPrice ?? null,
+            exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
+            exitPrice: t.exitPrice,
+            status: t.status,
+            exitReason: t.exitReason,
+            pnl: t.pnl,
+            cohort: t.cohort ?? null,
+            contractSecurityId: t.contractSecurityId ?? null,
+            tslAnchorTime: t.tslAnchorTime ?? null,
+            tslIgnoredTimes: t.tslIgnoredTimes ?? null,
+          }))
+          .sort((a, b) => a.entryTime - b.entryTime);
+      }),
+
     // ── Trade archive (2026-08-19) — cleared books live on for analysis ──
     // Every Clear copies its CLOSED trades (+ today's signals) into the
     // archive collections first. These read-only queries feed the chart's
