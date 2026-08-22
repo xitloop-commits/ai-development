@@ -23,6 +23,8 @@ export interface OverlayTradeRow {
   exitTime?: number | null;
   entryPrice: number;
   stopLossPrice?: number | null;
+  /** Real candle-TSL level (rolls up per candle) — drawn as the "TSL" line. */
+  dynTslLevel?: number | null;
   targetPrice?: number | null;
   exitPrice?: number | null;
   cohort?: string | null;
@@ -98,7 +100,7 @@ export interface TradePriceLine {
  *  `draggable` marks the TSL + Target lines movable (open paper trades). */
 export function buildTradeLines(
   t: OverlayTradeRow,
-  opts: { draggable?: boolean } = {},
+  opts: { draggable?: boolean; dynTsl?: boolean } = {},
 ): TradePriceLine[] {
   const isClosed = t.status !== "OPEN";
   const dim = (c: string) => (isClosed ? c + "66" : c);
@@ -106,8 +108,18 @@ export function buildTradeLines(
   if (t.entryPrice > 0) lines.push({ price: t.entryPrice, color: dim(CHART_ENTRY), title: "Entry" });
   if (t.exitPrice != null && t.exitPrice > 0)
     lines.push({ price: t.exitPrice, color: dim("#94a3b8"), title: "Exit" });
-  if (t.stopLossPrice != null && t.stopLossPrice > 0)
+  if (opts.dynTsl) {
+    // REPLAY-only atomic TSL test (Partha 2026-08-23): draw the REAL candle-TSL
+    // level (`dynTslLevel`), which rolls up per candle per the placement logic.
+    // The hard SL is shown separately only when it's set and distinct.
+    if (t.dynTslLevel != null && t.dynTslLevel > 0)
+      lines.push({ price: t.dynTslLevel, color: dim(CHART_DOWN), title: "TSL", draggable: opts.draggable });
+    if (t.stopLossPrice != null && t.stopLossPrice > 0 && (t.dynTslLevel == null || Math.abs(t.stopLossPrice - t.dynTslLevel) > 0.01))
+      lines.push({ price: t.stopLossPrice, color: dim("#f97316"), title: "SL" });
+  } else if (t.stopLossPrice != null && t.stopLossPrice > 0) {
+    // Paper/live — unchanged: the (blended) stopLossPrice as the TSL line.
     lines.push({ price: t.stopLossPrice, color: dim(CHART_DOWN), title: "TSL", draggable: opts.draggable });
+  }
   if (t.targetPrice != null && t.targetPrice > 0)
     lines.push({ price: t.targetPrice, color: dim(CHART_UP), title: "Target", draggable: opts.draggable });
   return lines;

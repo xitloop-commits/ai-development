@@ -90,6 +90,7 @@ interface PaneTradeRow {
   exitTime?: number | null;
   entryPrice: number;
   stopLossPrice: number | null;
+  dynTslLevel?: number | null;
   targetPrice: number | null;
   exitPrice: number | null;
   pnl?: number;
@@ -309,9 +310,11 @@ function InstrumentPane({
   // Reference lines from the shown trade (focused / active).
   const tradeLines = useMemo(() => {
     if (!shown) return NO_LINES as TradePriceLine[];
-    return buildTradeLines(shown);
+    // REPLAY-only: draw the real rolling candle-TSL (dynTslLevel). Paper/live keep
+    // the existing stopLossPrice-as-TSL line.
+    return buildTradeLines(shown, { dynTsl: !!activeReplayRunId });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on primitive levels, not row identity
-  }, [shown?.entryPrice, shown?.stopLossPrice, shown?.targetPrice, shown?.exitPrice, shown?.status]);
+  }, [shown?.entryPrice, shown?.stopLossPrice, shown?.dynTslLevel, shown?.targetPrice, shown?.exitPrice, shown?.status, activeReplayRunId]);
 
   const hasOpen = openTrade != null;
 

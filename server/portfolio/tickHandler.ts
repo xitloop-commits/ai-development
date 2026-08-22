@@ -1073,6 +1073,7 @@ class TickHandler extends EventEmitter {
         if (live.msBelowEntry != null) ft.msBelowEntry = live.msBelowEntry;
         if (live.msAboveEntry != null) ft.msAboveEntry = live.msAboveEntry;
         if (live.stopLossPrice != null) ft.stopLossPrice = live.stopLossPrice;
+        if (live.dynTslLevel !== undefined) ft.dynTslLevel = live.dynTslLevel; // real candle-TSL (rolls)
         if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
         if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
         if (!live.entryPending) {
@@ -1127,6 +1128,7 @@ class TickHandler extends EventEmitter {
       if (live.msBelowEntry != null) patch.msBelowEntry = live.msBelowEntry;
       if (live.msAboveEntry != null) patch.msAboveEntry = live.msAboveEntry;
       if (live.stopLossPrice != null) patch.stopLossPrice = live.stopLossPrice;
+      if (live.dynTslLevel !== undefined) patch.dynTslLevel = live.dynTslLevel; // real candle-TSL (rolls)
       // T167 candle-TSL highlight — persist the anchor + ignored candle times so
       // tradesForChart can hand them to the chart (anchor is a small number;
       // ignored array only written when non-empty).

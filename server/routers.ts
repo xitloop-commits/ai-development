@@ -380,6 +380,7 @@ export const appRouter = router({
               exitStrategy: t.exitStrategy ?? null,
               // Current SL/TP (they trail) — drawn as price lines on the chart.
               stopLossPrice: t.stopLossPrice ?? null,
+              dynTslLevel: t.dynTslLevel ?? null,
               targetPrice: t.targetPrice ?? null,
             };
           })
@@ -618,6 +619,7 @@ export const appRouter = router({
             entryTime: Math.round(t.openedAt / 1000),
             entryPrice: t.entryPrice,
             stopLossPrice: t.stopLossPrice ?? null,
+            dynTslLevel: t.dynTslLevel ?? null,
             targetPrice: t.targetPrice ?? null,
             exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
             exitPrice: t.exitPrice,

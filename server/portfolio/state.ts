@@ -401,6 +401,7 @@ export const tradeRecordSchema = new Schema(
     status: { type: String, default: "OPEN" },
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
+    dynTslLevel: { type: Number, default: null },     // real candle-TSL level (rolls per candle)
     tslAnchorTime: { type: Number, default: null },   // T167 candle-TSL viz
     tslIgnoredTimes: { type: [Number], default: undefined }, // T167 candle-TSL viz
     peakLtp: { type: Number, default: null },
