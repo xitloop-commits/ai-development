@@ -440,11 +440,18 @@ export default function MultiChartPage() {
   // (Partha 2026-08-22/23)
   const wasSimRef = useRef(false);
   useEffect(() => {
-    if (isSim !== wasSimRef.current) {
-      wasSimRef.current = isSim;
-      if (isSim) setReplayTf(loadReplayDefaultTf() ?? 60);
-      doRefresh();
-    }
+    if (isSim === wasSimRef.current) return;
+    wasSimRef.current = isSim;
+    if (!isSim) { doRefresh(); return; } // replay stopped → back to live book
+    // Replay started. Refresh now AND again shortly after — at t=0 the server's
+    // replayed lock/premium data often isn't ready yet, so a single immediate
+    // refresh re-resolves to today's contract and shows nothing. The staggered
+    // retries catch the data the moment it's live, so candles appear on Start
+    // without a manual refresh. (Partha 2026-08-23)
+    setReplayTf(loadReplayDefaultTf() ?? 60);
+    doRefresh();
+    const timers = [1200, 2800, 5000].map((ms) => setTimeout(() => doRefresh(), ms));
+    return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only on isSim transition
   }, [isSim]);
 
