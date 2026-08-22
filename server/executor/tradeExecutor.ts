@@ -20,6 +20,7 @@
  */
 
 import { createLogger } from "../broker/logger";
+import { nowMs } from "../replay/tickReplay";
 import {
   notifyTradeExit,
   notifyGateRejection,
@@ -1432,7 +1433,7 @@ function buildTradeRecord(
     brokerOrderId,
     brokerId,
     superOrderId: superOrderId ?? null,
-    openedAt: Date.now(),
+    openedAt: nowMs(), // sim time during replay so duration/markers are correct
     closedAt: null,
   };
 }
