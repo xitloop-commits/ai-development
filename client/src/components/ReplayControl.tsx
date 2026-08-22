@@ -12,6 +12,8 @@ import { Play, Square, Rewind } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { toast } from 'sonner';
+import { CHART_INTERVALS } from '@/lib/instrumentChart';
+import { loadReplayDefaultTf, saveReplayDefaultTf } from '@/lib/replaySelection';
 
 /** Shown when SEA is down — replay would record ticks with zero signals, so the
  *  server refuses it (T136). We disable the button up front with this reason. */
@@ -55,6 +57,9 @@ export function ReplayControl() {
 
   const [date, setDate] = useState<string>('');
   const [speed, setSpeed] = useState<number>(1);
+  // Default chart timeframe a replay opens at (persisted). Paper/live is locked
+  // to the signal-detector config, so this applies to replay only.
+  const [defaultTf, setDefaultTf] = useState<number>(() => loadReplayDefaultTf() ?? 60);
   const selectedDate = date || dates[0] || '';
 
   // Which instruments this run replays — both by default. The model pickers +
@@ -185,6 +190,14 @@ export function ReplayControl() {
         className="w-full rounded border border-border bg-muted/40 px-1.5 py-1 text-[0.625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
       >
         {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+      </select>
+      <select
+        value={defaultTf}
+        onChange={(e) => { const v = Number(e.target.value); setDefaultTf(v); saveReplayDefaultTf(v); }}
+        title="Default chart timeframe a replay opens at — you can still switch it live during the replay"
+        className="w-full rounded border border-border bg-muted/40 px-1.5 py-1 text-[0.625rem] font-semibold text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40"
+      >
+        {CHART_INTERVALS.map((iv) => <option key={iv.seconds} value={iv.seconds}>Timeframe: {iv.label}</option>)}
       </select>
       {/* Model under test, one picker per instrument (their version strings
           differ — see the comment above). SEA hot-swaps to these before the

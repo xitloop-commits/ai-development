@@ -50,3 +50,27 @@ function subscribe(l: () => void): () => void {
 export function useSelectedRunId(): string | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+// ── Replay default chart timeframe ─────────────────────────────────────────
+// Persisted default the chart opens at when a replay starts (set in the Replay
+// panel). In paper/live the timeframe is locked to the signal-detector config,
+// so this only applies to replay. Stored in seconds.
+const REPLAY_TF_KEY = "replay.defaultTf";
+
+export function loadReplayDefaultTf(): number | null {
+  try {
+    const v = localStorage.getItem(REPLAY_TF_KEY);
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveReplayDefaultTf(sec: number): void {
+  try {
+    localStorage.setItem(REPLAY_TF_KEY, String(sec));
+  } catch {
+    /* ignore quota/availability */
+  }
+}

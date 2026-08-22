@@ -42,6 +42,7 @@ import {
 } from "@/lib/trendRibbon";
 import { ReplayControl } from "@/components/ReplayControl";
 import { AiControl } from "@/components/AiControl";
+import { loadReplayDefaultTf } from "@/lib/replaySelection";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
@@ -224,11 +225,10 @@ function InstrumentPane({
     return buildTradeMarkers(onThis, times, Infinity, true);
   }, [c.candles, rows, secId, strike, side, markerFilter, activeOnly, focused]);
 
-  // Shared trend engine (ribbons per source + steep parallels), on each
-  // detector's candle timeframe so colours flip when signals fire.
-  const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
-  const maCandleSec = cohortQ.data?.maCandleSec ?? 60;
-  const sma5CandleSec = cohortQ.data?.sma5CandleSec ?? 60;
+  // One shared timeframe: the ribbons + S/R are computed on the SERVER at the
+  // chart's display timeframe (intervalSec), so candles and every indicator
+  // always agree. (intervalSec is locked to the signal-detector config in
+  // paper/live and freely chosen in replay — see the parent.)
   // T172 — SERVER-AUTHORITATIVE ribbon for THIS pane's contract, computed on the
   // server from the contract's full recorded ticks (same shared math SEA uses).
   // Unlike the old SEA push it covers the whole pane (not just the lock window)
@@ -236,7 +236,7 @@ function InstrumentPane({
   // just "reveals" as display candles advance. Client compute stays as a
   // fallback only while the (slow) read is still loading.
   const optLinesQ = trpc.trading.optionChartLines.useQuery(
-    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec },
+    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: intervalSec },
     {
       enabled: !!secId && (indicators.has("maRibbon") || indicators.has("sma5Ribbon")),
       staleTime: Infinity,
@@ -246,15 +246,15 @@ function InstrumentPane({
   const trendA = useMemo(() => {
     if (!indicators.has("maRibbon")) return undefined;
     if (optLinesQ.data?.ma?.length)
-      return ribbonFromServerBuckets(optLinesQ.data.ma, c.candles as { time: number; close: number }[], sma5CandleSec);
-    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: maCandleSec });
-  }, [c.candles, taOpts, indicators, maCandleSec, sma5CandleSec, optLinesQ.data]);
+      return ribbonFromServerBuckets(optLinesQ.data.ma, c.candles as { time: number; close: number }[], intervalSec);
+    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "ma", bucketSec: intervalSec });
+  }, [c.candles, taOpts, indicators, intervalSec, optLinesQ.data]);
   const trendS = useMemo(() => {
     if (!indicators.has("sma5Ribbon")) return undefined;
     if (optLinesQ.data?.sma5Ribbon?.length)
-      return ribbonFromServerBuckets(optLinesQ.data.sma5Ribbon, c.candles as { time: number; close: number }[], sma5CandleSec);
-    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: sma5CandleSec });
-  }, [c.candles, taOpts, indicators, sma5CandleSec, optLinesQ.data]);
+      return ribbonFromServerBuckets(optLinesQ.data.sma5Ribbon, c.candles as { time: number; close: number }[], intervalSec);
+    return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: intervalSec });
+  }, [c.candles, taOpts, indicators, intervalSec, optLinesQ.data]);
   const extraLines = useMemo(() => {
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
     const arr = [
@@ -272,7 +272,7 @@ function InstrumentPane({
     ? (c.candles[c.candles.length - 1].time as number) - IST_OFFSET_SECONDS
     : undefined;
   const swingsQ = trpc.trading.optionSwingLevels.useQuery(
-    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: sma5CandleSec, cutoffTs: swingCutoffTs },
+    { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: intervalSec, cutoffTs: swingCutoffTs },
     { enabled: !!secId && indicators.has("swings"), staleTime: Infinity, refetchOnWindowFocus: false },
   );
   const trendReadout = useMemo(() => {
@@ -350,10 +350,10 @@ export default function MultiChartPage() {
   useEffect(() => { document.title = "CHARTS — Lucky Basker"; }, []);
 
   const saved = useMemo(() => loadToolbar(), []);
-  const [intervalSec, setIntervalSec] = useState(saved.intervalSec ?? 60);
-  // A saved interval counts as a user pick, so the config-default effect below
-  // doesn't overwrite it on load.
-  const userPickedInterval = useRef(saved.intervalSec != null);
+  // One shared chart timeframe. In replay the user picks it (starting at the
+  // persisted replay default); in paper/live it's LOCKED to the signal-detector
+  // config below. `intervalSec` (derived, further down) is what the panes use.
+  const [replayTf, setReplayTf] = useState(() => loadReplayDefaultTf() ?? 60);
   const [style, setStyle] = useState<ChartStyle>(saved.style ?? "ha");
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
     () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings"]),
@@ -367,16 +367,15 @@ export default function MultiChartPage() {
     saved.view && (MAIN_CHART_INSTRUMENTS as readonly string[]).includes(saved.view) ? saved.view : "ALL",
   );
   const crosshairSync = useMemo(() => createCrosshairSync(), []);
-  // Persist toolbar settings so they survive a window restart. The interval is
-  // saved ONLY once the user explicitly picks one — otherwise it's left unset so
-  // the chart keeps defaulting to the CONFIG timeframe (sma5CandleSec, 2m).
+  // Persist toolbar settings so they survive a window restart. (Timeframe is no
+  // longer saved here — paper/live is locked to config, replay opens at the
+  // persisted replay default.)
   useEffect(() => {
     try {
       const s: ToolbarState = { style, indicators: Array.from(indicators), markerFilter, activeOnly, view };
-      if (userPickedInterval.current) s.intervalSec = intervalSec;
       localStorage.setItem(TOOLBAR_LS_KEY, JSON.stringify(s));
     } catch { /* ignore quota/availability */ }
-  }, [intervalSec, style, indicators, markerFilter, activeOnly, view]);
+  }, [style, indicators, markerFilter, activeOnly, view]);
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -387,16 +386,22 @@ export default function MultiChartPage() {
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
   const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
-  useEffect(() => {
-    if (userPickedInterval.current) return;
-    const cfg = cohortQ.data?.sma5CandleSec;
-    if (cfg && cfg !== intervalSec) setIntervalSec(cfg);
-  }, [cohortQ.data?.sma5CandleSec, intervalSec]);
 
   // T165 — live-simulation clock.
   const replayQ = trpc.replay.status.useQuery(undefined, { refetchInterval: 2000, refetchOnWindowFocus: false });
   const rp = replayQ.data;
   const isSim = !!rp?.running;
+  // One shared timeframe (Partha 2026-08-22): paper/live is LOCKED to the signal
+  // detector's candle timeframe; replay is user-chosen. Every candle + indicator
+  // uses this single value.
+  const configTf = cohortQ.data?.sma5CandleSec ?? 60;
+  const intervalSec = isSim ? replayTf : configTf;
+  // Each replay opens at the persisted default; the user can then switch it live.
+  const wasSimRef = useRef(false);
+  useEffect(() => {
+    if (isSim && !wasSimRef.current) setReplayTf(loadReplayDefaultTf() ?? 60);
+    wasSimRef.current = isSim;
+  }, [isSim]);
   const chartDate = isSim && rp?.date ? rp.date : istDateString();
   const simCutoffRef = useRef<number | null>(null);
   simCutoffRef.current =
@@ -481,7 +486,13 @@ export default function MultiChartPage() {
         </div>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
-            <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { userPickedInterval.current = true; setIntervalSec(iv.seconds); }}>{iv.label}</button>
+            <button
+              key={iv.seconds}
+              className={`${btn(intervalSec === iv.seconds)} disabled:opacity-30 disabled:cursor-not-allowed`}
+              disabled={!isSim}
+              onClick={() => { if (isSim) setReplayTf(iv.seconds); }}
+              title={isSim ? "Chart timeframe (replay)" : "Locked to the MA signal-detector timeframe during paper/live trading"}
+            >{iv.label}</button>
           ))}
         </div>
         <div className="flex items-center gap-0.5">
