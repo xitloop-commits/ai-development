@@ -632,6 +632,34 @@ export function TickChart({
       }
     }
 
+    // Forward projection ray (Partha 2026-08-22) — extends each ribbon's CURRENT
+    // slope forward, so you can see where it's heading if it keeps this angle.
+    // Slope = the last 2 COMPLETED candles (the forming candle is left out), the
+    // same segment the ∠geom readout measures. Drawn in DATA space (2 points), so
+    // it renders at the true geometric angle at any zoom. Dotted; green up / red
+    // down. 5 candles forward (tunable).
+    const PROJECT_CANDLES = 5;
+    const drawProjection = (map: Map<number, number> | undefined, up: string, dn: string) => {
+      if (!map || candles.length < 3) return;
+      const iB = candles.length - 2;
+      const iA = candles.length - 3;
+      const pB = map.get(Math.floor((candles[iB].time as number) / 60));
+      const pA = map.get(Math.floor((candles[iA].time as number) / 60));
+      if (pB == null || pA == null) return;
+      const perCandle = pB - pA;
+      const tEnd = ((candles[iB].time as number) + PROJECT_CANDLES * intervalSec) as UTCTimestamp;
+      const s = chart.addSeries(LineSeries, {
+        color: perCandle >= 0 ? up : dn, lineWidth: 1, lineStyle: LineStyle.Dotted,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      s.setData([
+        { time: candles[iB].time as UTCTimestamp, value: pB },
+        { time: tEnd, value: pB + PROJECT_CANDLES * perCandle },
+      ]);
+    };
+    if (indicators.has("maRibbon")) drawProjection(trendLine, "#22c55e", "#ef4444");
+    if (indicators.has("sma5Ribbon")) drawProjection(trendLineRight, "#60a5fa", "#f59e0b");
+
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
       const rsiSeries = chart.addSeries(
