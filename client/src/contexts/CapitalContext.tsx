@@ -623,6 +623,16 @@ export function useChannel(): ChannelContextValue {
   return ctx;
 }
 
+/** Lightweight channel-only provider for the STANDALONE chart windows
+ *  (?view=multichart / instchart) which don't mount the full CapitalProvider.
+ *  Gives channel-aware controls (e.g. the replay-settings AiControl) a local
+ *  channel so they render outside the main desk. Defaults to paper. */
+export function ChannelProvider({ children }: { children: ReactNode }) {
+  const [channel, setChannel] = useState<Channel>('paper');
+  const value = useMemo<ChannelContextValue>(() => ({ channel, setChannel }), [channel]);
+  return <ChannelContext.Provider value={value}>{children}</ChannelContext.Provider>;
+}
+
 export function StaticCapitalProvider({
   value,
   children,

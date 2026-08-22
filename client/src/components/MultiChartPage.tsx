@@ -40,6 +40,8 @@ import {
   ribbonFromSea,
   type TrendAngleOptions,
 } from "@/lib/trendRibbon";
+import { ReplayControl } from "@/components/ReplayControl";
+import { AiControl } from "@/components/AiControl";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
@@ -495,14 +497,19 @@ export default function MultiChartPage() {
             SIMULATION {chartDate}
           </span>
         )}
-        <button
-          type="button"
-          onClick={doRefresh}
-          className="ml-auto rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          title="Refresh — reload every pane's history and overlays"
-        >
-          ⟳
-        </button>
+        {/* Replay control + its settings (moved here from the app bar, 2026-08-21). */}
+        <div className="ml-auto flex items-center gap-1 self-stretch">
+          <ReplayControl />
+          <AiControl replay />
+          <button
+            type="button"
+            onClick={doRefresh}
+            className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            title="Refresh — reload every pane's history and overlays"
+          >
+            ⟳
+          </button>
+        </div>
       </div>
 
       {/* Content — one fullscreen pane; else the instrument CE|PE split when a

@@ -5,7 +5,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AlertProvider } from "./contexts/AlertContext";
 import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
-import { CapitalProvider } from "./contexts/CapitalContext";
+import { CapitalProvider, ChannelProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
 
@@ -150,7 +150,9 @@ function App() {
                 </Suspense>
               ) : showMultiChart ? (
                 <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading charts…</div>}>
-                  <MultiChartPage />
+                  <ChannelProvider>
+                    <MultiChartPage />
+                  </ChannelProvider>
                 </Suspense>
               ) : showTestChart ? (
                 <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading chart…</div>}>
