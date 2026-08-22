@@ -9,6 +9,7 @@
 
 import type { Express, Request, Response } from "express";
 import { insertSeaSignal } from "./seaSignalStore";
+import { insertSeaLine, type SeaLineKind } from "./seaLineStore";
 import { recordSeaHeartbeat } from "./seaHeartbeat";
 import { tickBus } from "./broker/tickBus";
 import { createLogger } from "./broker/logger";
@@ -102,6 +103,35 @@ export function registerSeaSignalRoutes(app: Express): void {
       });
     } catch (err: any) {
       log.warn(`sea/locked-premiums failed: ${err?.message ?? err}`);
+      res.status(500).json({ success: false, error: err?.message ?? String(err) });
+    }
+  });
+
+  // T169-B — SEA pushes one closed-candle ribbon sample per contract+kind here,
+  // so the chart draws the exact line the signal decision used (no re-calc). The
+  // server just stores it (seaLineStore) + fans it out live; fire-and-forget on
+  // SEA's side, so a hiccup never stalls the engine.
+  app.post("/api/sea/line", (req: Request, res: Response) => {
+    const b = req.body;
+    if (!b || typeof b !== "object" || !b.instrument || !b.securityId || !b.date) {
+      res.status(400).json({ success: false, error: "missing line body" });
+      return;
+    }
+    const kind: SeaLineKind = b.kind === "ma" ? "ma" : "sma5";
+    const t = Number(b.t);
+    const line = Number(b.line);
+    const close = Number(b.close);
+    if (!Number.isFinite(t) || !Number.isFinite(line) || !Number.isFinite(close)) {
+      res.status(400).json({ success: false, error: "t/line/close must be finite" });
+      return;
+    }
+    const state: -1 | 0 | 1 = b.state === 1 ? 1 : b.state === -1 ? -1 : 0;
+    try {
+      insertSeaLine(String(b.instrument), String(b.date), String(b.securityId), kind, { t, line, state, close });
+      tickBus.emitSeaLine({ instrument: String(b.instrument), date: String(b.date), securityId: String(b.securityId), kind, t, line, state, close });
+      res.json({ success: true });
+    } catch (err: any) {
+      log.warn(`sea/line ingest failed: ${err?.message ?? err}`);
       res.status(500).json({ success: false, error: err?.message ?? String(err) });
     }
   });

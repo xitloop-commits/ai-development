@@ -60,6 +60,13 @@ class TickBus extends EventEmitter {
     this.emit("seaSignal", signal);
   }
 
+  /** T169-B — emit one server-authoritative ribbon sample (SEA-pushed) for live
+   *  fan-out to the chart. History lives in seaLineStore; this is the real-time
+   *  tail only, so a pane updates its line as each candle closes. */
+  emitSeaLine(sample: unknown): void {
+    this.emit("seaLine", sample);
+  }
+
   /** Emit the SEA engine liveness snapshot for live push to browser clients.
    *  Replaces UI polling of the seaStatus tRPC query. */
   emitSeaStatus(status: unknown): void {

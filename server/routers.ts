@@ -28,6 +28,7 @@ import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from 
 import { bucketTicksToCandles } from "../shared/candles";
 import { sma5SignalLine, maRibbonSignal } from "../shared/chartLines";
 import { computeSwingLevels } from "./portfolio/swingLevels";
+import { getSeaLines } from "./seaLineStore";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -447,6 +448,21 @@ export const appRouter = router({
           sma5Ribbon: maRibbonSignal(signal, { ...ta, source: "sma5" }),
         };
       }),
+
+    // T169-B (option B) — SERVER-AUTHORITATIVE ribbon SEA pushed for one traded
+    // contract (premium pane). Returns the stored per-candle series SEA computed
+    // for its decision; the chart draws these exact values (client compute is the
+    // fallback while empty). `kind` = "sma5" | "ma".
+    seaLines: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          securityId: z.string().min(1),
+          kind: z.enum(["sma5", "ma"]),
+        }),
+      )
+      .query(({ input }) => getSeaLines(input.instrument, input.date, input.securityId, input.kind)),
 
     // One option contract's recorded ticks for a date (filtered from the big
     // all-strikes option file). SLOW (~15–30s on a 0.2–1 GB gz) — used ONCE to
