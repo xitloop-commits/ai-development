@@ -124,28 +124,45 @@ export function maRibbonSignal(
   }
   if (!allAbs.length) return [];
   const sortedAbs = [...allAbs].sort((a, b) => a - b);
-  const grayIdx = Math.min(
-    sortedAbs.length - 1,
-    Math.floor(sortedAbs.length * Math.min(0.9, Math.max(0.1, o.grayPctile / 100))),
-  );
-  const noise = Math.max(sortedAbs[grayIdx] ?? 0.01, 0.002);
-  const p80 = o.scaleMode === "fixed"
+  const pctile = (arr: number[], p: number) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] ?? 0;
+  // Whole-series p80 (deg scale) — used as-is for SMA5 (which has no warm-up).
+  const p80Whole = o.scaleMode === "fixed"
     ? Math.max(o.fixedPctPer45, 0.005)
-    : Math.max(sortedAbs[Math.floor(sortedAbs.length * 0.8)] ?? noise * 2, noise);
+    : Math.max(pctile(sortedAbs, 0.8), 0.002);
 
-  // SMA5 ribbon is BINARY (no gray); MA keeps its gray zone.
+  // SMA5 ribbon is BINARY (sign, no gray, no warm-up). MA mirrors SEA's detector
+  // (premium_ribbon.py): a CAUSAL expanding noise floor + a 15-sample warm-up
+  // (min_samples) — NO bucket is emitted until then, so the chart's MA line
+  // appears exactly when SEA's ribbon goes live (Partha 2026-08-23).
   const noGray = o.source === "sma5";
+  const MIN_SAMPLES = 15;
+  const MIN_NOISE = 0.002;
+  const gp = Math.min(0.9, Math.max(0.1, o.grayPctile / 100));
   const idx: number[] = [];
   const trend = new Array<-1 | 0 | 1>(n).fill(0);
   const deg = new Array<number>(n).fill(0);
   const line = new Array<number>(n).fill(0);
   let prevTrend: -1 | 0 | 1 = 0;
+  const seen: number[] = []; // causal |pct| history (MA noise floor)
   for (let i = 0; i < n; i++) {
     const pct = pctAt[i];
     if (pct == null) continue;
-    const t: -1 | 0 | 1 = noGray
-      ? (pct > 0 ? 1 : pct < 0 ? -1 : prevTrend)
-      : pct > noise ? 1 : pct < -noise ? -1 : 0;
+    if (noGray) {
+      const t: -1 | 0 | 1 = pct > 0 ? 1 : pct < 0 ? -1 : prevTrend;
+      prevTrend = t;
+      trend[i] = t;
+      deg[i] = (Math.atan(pct / p80Whole) * 180) / Math.PI;
+      line[i] = lineV[i]!;
+      idx.push(i);
+      continue;
+    }
+    // MA — causal expanding noise floor + 15-sample warm-up gate.
+    seen.push(Math.abs(pct));
+    if (seen.length < MIN_SAMPLES) continue; // still warming → emit nothing (no line yet)
+    const srt = [...seen].sort((a, b) => a - b);
+    const noise = Math.max(pctile(srt, gp), MIN_NOISE);
+    const p80 = o.scaleMode === "fixed" ? Math.max(o.fixedPctPer45, 0.005) : Math.max(pctile(srt, 0.8), noise);
+    const t: -1 | 0 | 1 = pct > noise ? 1 : pct < -noise ? -1 : 0;
     prevTrend = t;
     trend[i] = t;
     deg[i] = (Math.atan(pct / p80) * 180) / Math.PI;

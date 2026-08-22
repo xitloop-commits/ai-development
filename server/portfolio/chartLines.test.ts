@@ -107,19 +107,32 @@ describe("sma5SignalLine (min-periods=1)", () => {
 
 describe("maRibbonSignal (slope trend)", () => {
   it("classifies a steadily RISING series as up-trend on the confirmed tail", () => {
-    const sig = Array.from({ length: 12 }, (_, i) => K(i * 60, 100 + i));
+    const sig = Array.from({ length: 25 }, (_, i) => K(i * 60, 100 + i));
     const r = maRibbonSignal(sig, { source: "ma" });
     expect(r.length).toBeGreaterThan(0);
     expect(r[r.length - 1].trend).toBe(1);
   });
 
   it("classifies a steadily FALLING series as down-trend on the confirmed tail", () => {
-    const sig = Array.from({ length: 12 }, (_, i) => K(i * 60, 200 - i));
+    const sig = Array.from({ length: 25 }, (_, i) => K(i * 60, 200 - i));
     const r = maRibbonSignal(sig, { source: "ma" });
     expect(r[r.length - 1].trend).toBe(-1);
   });
 
   it("returns [] for fewer than 2 candles", () => {
     expect(maRibbonSignal([K(0, 100)], { source: "ma" })).toEqual([]);
+  });
+
+  it("MA warm-up: emits NOTHING until 15 slope samples (mirrors SEA)", () => {
+    // 12 candles → ~11 slope samples < 15 → still warming → no buckets drawn.
+    const sig = Array.from({ length: 12 }, (_, i) => K(i * 60, 100 + i));
+    expect(maRibbonSignal(sig, { source: "ma" })).toEqual([]);
+  });
+
+  it("SMA5 ribbon has NO warm-up (binary from the first slope)", () => {
+    const sig = Array.from({ length: 8 }, (_, i) => K(i * 60, 100 + i));
+    const r = maRibbonSignal(sig, { source: "sma5" });
+    expect(r.length).toBeGreaterThan(0);
+    expect(r[r.length - 1].trend).toBe(1);
   });
 });
