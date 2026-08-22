@@ -413,12 +413,6 @@ export default function MultiChartPage() {
   // uses this single value.
   const configTf = cohortQ.data?.sma5CandleSec ?? 60;
   const intervalSec = isSim ? replayTf : configTf;
-  // Each replay opens at the persisted default; the user can then switch it live.
-  const wasSimRef = useRef(false);
-  useEffect(() => {
-    if (isSim && !wasSimRef.current) setReplayTf(loadReplayDefaultTf() ?? 60);
-    wasSimRef.current = isSim;
-  }, [isSim]);
   const chartDate = isSim && rp?.date ? rp.date : istDateString();
   const simCutoffRef = useRef<number | null>(null);
   simCutoffRef.current =
@@ -436,8 +430,23 @@ export default function MultiChartPage() {
     void utils.trading.optionTicksForContract.invalidate();
     void utils.trading.tradesForChart.invalidate();
     void utils.trading.instrumentLiveState.invalidate();
+    void utils.trading.strikeLockState.invalidate();
     setRefreshNonce((n) => n + 1);
   };
+  // On a replay start/stop transition: (1) open at the persisted default
+  // timeframe, (2) auto-refresh so the locked contract + ATM (and thus secId)
+  // re-resolve for the replayed day — otherwise the chart stays subscribed to
+  // today's contract and the replay ticks never show until a manual refresh.
+  // (Partha 2026-08-22/23)
+  const wasSimRef = useRef(false);
+  useEffect(() => {
+    if (isSim !== wasSimRef.current) {
+      wasSimRef.current = isSim;
+      if (isSim) setReplayTf(loadReplayDefaultTf() ?? 60);
+      doRefresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only on isSim transition
+  }, [isSim]);
 
   // Fullscreen = show ONLY this instrument's pane, filling the content area
   // BELOW the toolbar (so the toolbar stays visible + the pane fills the width).
