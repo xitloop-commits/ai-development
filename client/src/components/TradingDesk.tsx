@@ -26,7 +26,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
-import { useSelectedRunId, setSelectedRunId, useDeskMode } from '@/lib/replaySelection';
+import { useSelectedRunId, useDeskMode, setDeskMode } from '@/lib/replaySelection';
 import { ReplayPane } from '@/components/ReplayPane';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
@@ -297,7 +297,7 @@ export default function TradingDesk({
           </span>
           <button
             type="button"
-            onClick={() => setSelectedRunId(null)}
+            onClick={() => setDeskMode('book')}
             className="ml-auto px-1.5 py-0.5 rounded text-[0.5625rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30"
           >
             Back to live book

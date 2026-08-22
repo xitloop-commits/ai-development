@@ -11,7 +11,7 @@
  * trade while losing on hit rate, and a model that simply fires more often loses
  * more to charges — a real finding, but a different one from predicting worse.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Trash2, GitCompare, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSelectedRunId, setSelectedRunId } from '@/lib/replaySelection';
@@ -105,6 +105,13 @@ export function ReplayPane() {
   });
 
   const runs = runsQuery.data ?? [];
+
+  // In the desk's Replay section, auto-show the LATEST run so the trades table
+  // fills immediately (like Paper/Live) instead of waiting for a manual pick.
+  // runs are newest-first; only fires when nothing is selected yet.
+  useEffect(() => {
+    if (!selected && runs.length) setSelectedRunId(runs[0].runId);
+  }, [selected, runs]);
 
   const toggleCompare = (runId: string) =>
     setCompare((prev) =>
