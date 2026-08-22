@@ -303,7 +303,7 @@ export function isReplayActive(): boolean {
 export async function startReplay(
   date: string,
   speed = 1,
-  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number; instruments?: string[] } = {},
+  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number; instruments?: string[]; timeframeSec?: number } = {},
 ): Promise<{ runId: string }> {
   if (running) throw new Error("A replay is already running — stop it first.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Bad date: ${date}`);
@@ -355,6 +355,7 @@ export async function startReplay(
   const run = await startRun({
     date,
     speed,
+    timeframeSec: opts.timeframeSec,
     models: { ...cohortState.models, ...(opts.models ?? {}) },
     cohorts: { scalp: cohortState.scalp, trend: cohortState.trend, ma: cohortState.ma },
     openingCapital: opts.openingCapital,

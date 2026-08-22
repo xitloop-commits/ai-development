@@ -55,6 +55,9 @@ export const replayRouter = router({
         /** Notional capital the run sizes against — never a real pool. */
         openingCapital: z.number().positive().optional(),
         note: z.string().max(200).optional(),
+        /** Chart/analysis timeframe (seconds) the replay opens at — stored on
+         *  the run so the ribbon-geometry recorder uses it (fixed at start). */
+        timeframeSec: z.number().int().positive().max(3600).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -100,6 +103,7 @@ export const replayRouter = router({
           instruments: input.instruments,
           openingCapital: input.openingCapital,
           note: input.note ?? null,
+          timeframeSec: input.timeframeSec,
         });
         return { ...getReplayStatus(), runId };
       } catch (e: unknown) {

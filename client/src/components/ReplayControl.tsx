@@ -236,6 +236,7 @@ export function ReplayControl() {
             speed,
             instruments: insts,
             models: Object.keys(chosenModels).length ? chosenModels : undefined,
+            timeframeSec: defaultTf,
           })
         }
         disabled={!selectedDate || insts.length === 0 || startMut.isPending || seaOff}

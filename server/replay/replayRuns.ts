@@ -30,6 +30,9 @@ export interface ReplayRun {
   /** The RECORDED date being replayed (YYYY-MM-DD), not the wall-clock date. */
   date: string;
   speed: number;
+  /** Chart/analysis timeframe (seconds) chosen when the replay started. The
+   *  ribbon-geometry recorder records this run's points at this timeframe. */
+  timeframeSec?: number;
   status: ReplayRunStatus;
   /** Model version per instrument at the moment the run started — the thing
    *  under test. `{ nifty50: "20260718_161937", … }` */
@@ -55,6 +58,7 @@ const replayRunSchema = new Schema(
     runId: { type: String, required: true, unique: true, index: true },
     date: { type: String, required: true, index: true },
     speed: { type: Number, default: 1 },
+    timeframeSec: { type: Number, default: 60 },
     status: { type: String, enum: ["RUNNING", "COMPLETED", "ABORTED"], default: "RUNNING" },
     models: { type: Schema.Types.Mixed, default: {} },
     cohorts: { type: Schema.Types.Mixed, default: {} },
@@ -105,6 +109,7 @@ function makeRunId(date: string): string {
 export async function startRun(input: {
   date: string;
   speed: number;
+  timeframeSec?: number;
   models: Record<string, string>;
   cohorts: Record<string, boolean>;
   openingCapital?: number;
@@ -115,6 +120,7 @@ export async function startRun(input: {
     runId,
     date: input.date,
     speed: input.speed,
+    timeframeSec: input.timeframeSec ?? 60,
     status: "RUNNING" as const,
     models: input.models,
     cohorts: input.cohorts,

@@ -151,6 +151,14 @@ async function startServer() {
       tradeExecutor.start();
       registerShutdownHook("tradeExecutor", () => tradeExecutor.stop(), 100);
 
+      // Ribbon-geometry recorder — per-candle MA/SMA5 angle/slope for the locked
+      // ATM contract → ribbon_geometry time-series collection (paper/live/replay).
+      const { startRibbonGeometryRecorder, stopRibbonGeometryRecorder } = await import(
+        "../analytics/ribbonGeometryRecorder"
+      );
+      startRibbonGeometryRecorder();
+      registerShutdownHook("ribbonGeometryRecorder", () => stopRibbonGeometryRecorder(), 100);
+
       // Discipline Agent — Module 8 (Capital Protection) carry-forward
       // scheduler. Two timers (NSE 15:15, MCX 23:15 — operator-tunable)
       // fire at the configured IST times. The cap evaluator itself runs

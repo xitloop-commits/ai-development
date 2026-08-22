@@ -73,6 +73,9 @@ export interface RibbonBucket {
   line: number;
   trend: -1 | 0 | 1;
   deg: number;
+  /** Raw % lean of the line over the lookback (before scaling to degrees).
+   *  Reproducible slope, used by the ribbon-geometry recorder. */
+  pct: number;
 }
 
 /**
@@ -183,5 +186,5 @@ export function maRibbonSignal(
     }
   }
 
-  return idx.map((i) => ({ t: signal[i].t, line: line[i], trend: trend[i], deg: deg[i] }));
+  return idx.map((i) => ({ t: signal[i].t, line: line[i], trend: trend[i], deg: deg[i], pct: pctAt[i] ?? 0 }));
 }
