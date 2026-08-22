@@ -546,8 +546,18 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   // import avoids a static cycle (tickReplay imports this module).
   const { isReplayActive } = await import("./replay/tickReplay");
   let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean }>;
+  // During a replay, SEA's detector candle size follows the REPLAY timeframe so
+  // the chart, indicators, and SEA signals all run on ONE timeframe (Partha
+  // 2026-08-23). null → paper/live use the common signal timeframe.
+  let replayTfSec: number | null = null;
   if (isReplayActive()) {
     cohortsOf = [getAiConfig("replay", "ai").cohorts];
+    const { getActiveRunId, getRun } = await import("./replay/replayRuns");
+    const rid = getActiveRunId();
+    if (rid) {
+      const run = await getRun(rid);
+      if (run?.timeframeSec) replayTfSec = run.timeframeSec;
+    }
   } else {
     const { getUserSettings } = await import("./userSettings");
     const tm = (await getUserSettings(1)).tradingMode;
@@ -578,9 +588,12 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setSma5EntryWatch(getCommonConfig().sma5EntryWatch);
   // SMA5 premium-confirm entry gate (on/off) — same.
   setSma5EntryGate(getCommonConfig().sma5EntryGate);
-  // Candle timeframes (seconds) for the SMA5 + MA detectors — same.
-  setSma5CandleSec(getCommonConfig().sma5CandleSec);
-  setMaCandleSec(getCommonConfig().maCandleSec);
+  // Candle timeframes (seconds) for the SMA5 + MA detectors. Replay → the run's
+  // chosen timeframe (chart + indicators + SEA all in sync); paper/live → the
+  // common signal timeframe. One timeframe drives everything, in every mode.
+  const tfSec = replayTfSec ?? getCommonConfig().sma5CandleSec;
+  setSma5CandleSec(tfSec);
+  setMaCandleSec(tfSec);
   // T163 — premium-ribbon knobs follow Settings ▸ Trend angle (one source of
   // truth for chart AND engine, Partha 2026-08-13).
   const ta = getCommonConfig().trendAngle;

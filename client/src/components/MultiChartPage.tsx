@@ -515,9 +515,8 @@ export default function MultiChartPage() {
             <button
               key={iv.seconds}
               className={`${btn(intervalSec === iv.seconds)} disabled:opacity-30 disabled:cursor-not-allowed`}
-              disabled={!isSim}
-              onClick={() => { if (isSim) setReplayTf(iv.seconds); }}
-              title={isSim ? "Chart timeframe (replay)" : "Locked to the MA signal-detector timeframe during paper/live trading"}
+              disabled
+              title="Timeframe is one value for chart + indicators + SEA: the signal-detector setting in paper/live, the Replay panel's timeframe in replay (chosen before start)."
             >{iv.label}</button>
           ))}
         </div>
