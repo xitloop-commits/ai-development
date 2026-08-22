@@ -137,3 +137,34 @@ def test_relock_reset_rewarms() -> None:
     _run(det, "CE", prices)
     det.reset_leg("CE")
     assert det.leg("CE").state == 0
+
+
+def test_drain_closed_emits_closed_candle_lines() -> None:
+    """T169-B — every CLOSED candle (once the line exists) queues one line
+    sample for the chart; warm-up candles (no line yet) do not, and drain
+    clears the queue."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60, gray_pctile=0.0)
+    prices, _, _ = _series()
+    _run(det, "CE", prices)
+    samples = det.drain_closed()
+    assert samples, "expected closed-candle line samples"
+    # Shape: (leg, t_epoch, line, state, close).
+    leg, t, line, state, close = samples[0]
+    assert leg == "CE"
+    assert t % 60 == 0                 # bucket-aligned epoch seconds
+    assert isinstance(line, float) and line > 0
+    assert state in (-1, 0, 1)
+    # Every sample is bucket-aligned and the series is time-ordered per leg.
+    ce = [s for s in samples if s[0] == "CE"]
+    assert all(s[1] % 60 == 0 for s in ce)
+    assert [s[1] for s in ce] == sorted(s[1] for s in ce)
+    # Draining again returns nothing (queue was cleared).
+    assert det.drain_closed() == []
+
+
+def test_warm_does_not_queue_chart_lines() -> None:
+    """History replayed via warm() must not spam the chart store."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60, gray_pctile=0.0)
+    prices, _, _ = _series()
+    det.warm("CE", _ticks(prices))
+    assert det.drain_closed() == []

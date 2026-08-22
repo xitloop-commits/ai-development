@@ -79,6 +79,11 @@ class RibbonLeg:
         self.state: int = 0
         self.last_pct: float | None = None
         self.last_ltp: float | None = None
+        # T169-B — the last CLOSED candle's line value + its bucket, so the engine
+        # can push the authoritative line to the chart (set in _close_candle).
+        self.last_line: float | None = None
+        self.last_close: float = 0.0
+        self.last_bucket: int | None = None
 
     def set_candle_sec(self, sec: int) -> None:
         sec = max(1, int(sec))
@@ -141,6 +146,13 @@ class RibbonLeg:
             )
         self._line.append(line)
 
+        # T169-B — remember this closed candle's line so the engine can push the
+        # authoritative value to the chart (bucket is still the CLOSING one here;
+        # on_tick advances it after this returns). Line is None during warmup.
+        self.last_line = line
+        self.last_close = close
+        self.last_bucket = self._bucket
+
         # Slope over the lookback + the causal noise floor.
         if (
             len(self._line) <= self.lookback
@@ -199,6 +211,10 @@ class PremiumRibbonDetector:
             source, candle_sec, lookback, gray_pctile, min_samples, min_noise_pct,
         )
         self._legs = {"CE": mk(), "PE": mk()}
+        # T169-B — closed-candle line samples pending push to the chart:
+        # (leg, t_epoch, line, state, close). Filled in on_leg_tick, drained by
+        # the engine each loop.
+        self.closed_samples: list[tuple[str, int, float, int, float]] = []
 
     def leg(self, leg: str) -> RibbonLeg:
         return self._legs[leg]
@@ -240,6 +256,17 @@ class PremiumRibbonDetector:
         leg_state = self._legs[leg]
         prev = leg_state.state
         st = leg_state.on_tick(ts, price)
+        # T169-B — a candle closed (st is not None) → queue its line for the chart,
+        # even when the state didn't change (the line still moves). Warmup candles
+        # (line None) are skipped. Independent of the event logic below.
+        if st is not None and leg_state.last_line is not None and leg_state.last_bucket is not None:
+            self.closed_samples.append((
+                leg,
+                int(leg_state.last_bucket) * int(leg_state.candle_sec),
+                float(leg_state.last_line),
+                int(leg_state.state),
+                float(leg_state.last_close),
+            ))
         if st is None or st == prev:
             return []
         if st == 1:
@@ -259,6 +286,17 @@ class PremiumRibbonDetector:
         leg_state = self._legs[leg]
         for ts, price in ticks:
             leg_state.on_tick(ts, price)
+        # T169-B — warm-up must NOT push history to the chart (that would spam the
+        # store with the whole session every restart); drop anything queued while
+        # replaying the past. Live ticks (on_leg_tick) queue as normal after this.
+        self.closed_samples.clear()
+
+    def drain_closed(self) -> list[tuple[str, int, float, int, float]]:
+        """T169-B — pull + clear the queued closed-candle line samples
+        (leg, t_epoch, line, state, close) for the engine to push to the chart."""
+        out = self.closed_samples
+        self.closed_samples = []
+        return out
 
 
 class LockedPremiumFeed:
@@ -286,6 +324,9 @@ class LockedPremiumFeed:
         self.strikes: dict[str, float | None] = {"CE": None, "PE": None}
         self.last_ltp: dict[str, float | None] = {"CE": None, "PE": None}
         self.lock_seen = False
+        # T169-B — the lock's DATE (today live, or the replayed date in a live
+        # simulation), so the pushed chart line lands under the day the chart shows.
+        self.date: str | None = None
         self._thread: threading.Thread | None = None
 
     # ── lifecycle ────────────────────────────────────────────────────
@@ -301,6 +342,11 @@ class LockedPremiumFeed:
         self._stop.set()
 
     # ── engine side ──────────────────────────────────────────────────
+    def sec_id(self, leg: str) -> str | None:
+        """T169-B — the locked contract's securityId for a leg (CE/PE), so a
+        pushed chart line can be keyed to the pane showing that contract."""
+        return self._sec_ids.get(leg)
+
     def drain(self) -> list[tuple[str, bool, bool, list[tuple[float, float]]]]:
         with self._mu:
             out = list(self._q)
@@ -344,6 +390,7 @@ class LockedPremiumFeed:
         if not body.get("success") or not body.get("lock"):
             return
         self.lock_seen = True
+        self.date = str((body.get("lock") or {}).get("date") or self.date or "") or None
         for leg, key in (("CE", "ce"), ("PE", "pe")):
             d = body.get(key)
             if not d:

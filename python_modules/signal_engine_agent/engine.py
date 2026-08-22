@@ -1492,6 +1492,33 @@ def run(
                 except Exception as exc:
                     print(f"  premium-ribbon feed error: {exc}", file=sys.stderr)
 
+                # ── T169-B: push each CLOSED ribbon candle's line to the chart ──
+                # Server-authoritative line: the chart draws these exact values
+                # (the numbers the ribbon decision used) instead of recomputing.
+                # Always drain (so the queue can't grow); emit only once the lock
+                # date + contract id are known. Fire-and-forget, short timeout.
+                try:
+                    from signal_engine_agent.risk_control_client import send_line
+                    _emit_date = premium_feed.date
+                    for _det in (ma_ribbon, sma5_ribbon):
+                        if _det is None:
+                            continue
+                        for (_leg, _t, _line, _state, _close) in _det.drain_closed():
+                            _sid = premium_feed.sec_id(_leg)
+                            if _emit_date and _sid:
+                                send_line({
+                                    "instrument": instrument,
+                                    "date": _emit_date,
+                                    "securityId": _sid,
+                                    "kind": _det.source,
+                                    "t": _t,
+                                    "line": _line,
+                                    "state": _state,
+                                    "close": _close,
+                                })
+                except Exception as exc:
+                    print(f"  ribbon line push error: {exc}", file=sys.stderr)
+
             # ── MA-Signal cohort (2026-07-14) ──────────────────────
             # Independent of the scalp/trend gates. Pure 20-EMA slope
             # segmentation (sticky) on the underlying — fires LONG_CE /

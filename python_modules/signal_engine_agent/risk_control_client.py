@@ -272,6 +272,27 @@ def send_heartbeat(instrument: str, timeout: float = 3.0, ribbon: dict | None = 
     return resp.status_code < 400
 
 
+# ─── /api/sea/line ──────────────────────────────────────────────
+
+
+def send_line(payload: dict[str, Any], timeout: float = 2.0) -> bool:
+    """
+    T169-B — push ONE closed-candle ribbon line value to the server so the chart
+    draws the EXACT number the signal decision used (server-authoritative, no
+    client re-calc). Called once per candle close per traded contract+source —
+    light. Fire-and-forget with a short timeout: a server hiccup must never stall
+    the engine loop. Returns True on HTTP 2xx.
+    """
+    url = f"{_broker_url()}/api/sea/line"
+    try:
+        resp = requests.post(
+            url, headers=_headers(), data=json.dumps(_json_safe(payload)), timeout=timeout
+        )
+        return resp.status_code < 400
+    except Exception:
+        return False
+
+
 # ─── /api/risk-control/ai-signal ────────────────────────────────
 
 
