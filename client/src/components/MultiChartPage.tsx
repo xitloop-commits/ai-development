@@ -287,6 +287,21 @@ function InstrumentPane({
     trendS.minuteState.forEach((s, k) => m.set(k, trendReadoutText(s, "sma5")));
     return m;
   }, [trendS]);
+  // Per-minute ribbon LINE price, for TickChart's geometric-angle readout (the
+  // real on-screen angle, measured in pixels). Keyed by epoch-minute like the
+  // readout maps above.
+  const trendLine = useMemo(() => {
+    if (!trendA) return undefined;
+    const m = new Map<number, number>();
+    trendA.minuteState.forEach((s, k) => m.set(k, s.line));
+    return m;
+  }, [trendA]);
+  const trendLineRight = useMemo(() => {
+    if (!trendS) return undefined;
+    const m = new Map<number, number>();
+    trendS.minuteState.forEach((s, k) => m.set(k, s.line));
+    return m;
+  }, [trendS]);
 
   const sideColor = side === "CE" ? CHART_UP : CHART_DOWN;
   const label = INSTRUMENT_CHART_META[instKey]?.displayName ?? instKey;
@@ -325,6 +340,8 @@ function InstrumentPane({
         tslIgnoredTimes={shown?.tslIgnoredTimes ?? undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
+        trendLine={trendLine}
+        trendLineRight={trendLineRight}
         className="h-full"
         onToggleFullscreen={onToggleFs}
         fullscreenActive={fs}

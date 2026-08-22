@@ -169,6 +169,11 @@ export interface TickChartProps {
   trendReadout?: Map<number, { text: string; color: string }>;
   /** Second readout, rendered bottom-RIGHT (the SMA5 twin of the MA readout). */
   trendReadoutRight?: Map<number, { text: string; color: string }>;
+  /** Per-minute ribbon LINE price (MA / SMA5). Enables the geometric-angle
+   *  sub-readout: the line's REAL on-screen angle in pixels over the last 2
+   *  completed candles (recomputed on zoom/pan). Keyed by epoch-minute. */
+  trendLine?: Map<number, number>;
+  trendLineRight?: Map<number, number>;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -212,6 +217,8 @@ export function TickChart({
   hoverAngleStrip,
   trendReadout,
   trendReadoutRight,
+  trendLine,
+  trendLineRight,
   header,
   loading,
   emptyText,
@@ -247,6 +254,8 @@ export function TickChart({
   const legendRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<HTMLDivElement>(null);
   const angleRightRef = useRef<HTMLDivElement>(null);
+  const geomRef = useRef<HTMLDivElement>(null);
+  const geomRightRef = useRef<HTMLDivElement>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
   const { theme } = useTheme(); // re-theme the chart when the operator toggles
@@ -709,6 +718,42 @@ export function TickChart({
     };
     if (hoverAngleStrip || trendReadout) renderAngle(candles.length - 1);
 
+    // Geometric-angle sub-readout — the ribbon line's REAL on-screen angle in
+    // pixels over the last 2 COMPLETED candles (the current forming candle at
+    // length-1 is left out). Pixel-based, so it changes with zoom/pan; recomputed
+    // below on every visible-range change. atan2 uses screen coords (y grows
+    // downward), so priceToCoordinate(older) − priceToCoordinate(newer) makes an
+    // up-sloping line read positive.
+    const geomAngle = (map: Map<number, number> | undefined): number | null => {
+      if (!map || candles.length < 3) return null;
+      const iB = candles.length - 2; // last completed candle
+      const iA = candles.length - 3; // the one before it
+      const pB = map.get(Math.floor((candles[iB].time as number) / 60));
+      const pA = map.get(Math.floor((candles[iA].time as number) / 60));
+      if (pB == null || pA == null) return null;
+      const ts = chart.timeScale();
+      const xB = ts.timeToCoordinate(candles[iB].time as UTCTimestamp);
+      const xA = ts.timeToCoordinate(candles[iA].time as UTCTimestamp);
+      const yB = series.priceToCoordinate(pB);
+      const yA = series.priceToCoordinate(pA);
+      if (xA == null || xB == null || yA == null || yB == null || xB === xA) return null;
+      return (Math.atan2((yA as number) - (yB as number), (xB as number) - (xA as number)) * 180) / Math.PI;
+    };
+    const renderGeom = () => {
+      const fill = (el: HTMLDivElement | null, map: Map<number, number> | undefined) => {
+        if (!el) return;
+        const d = geomAngle(map);
+        el.style.display = d == null ? "none" : "";
+        if (d == null) return;
+        el.textContent = `∠ geom ${d >= 0 ? "+" : ""}${d.toFixed(1)}°`;
+        el.style.color = d > 2 ? "#4ADE80" : d < -2 ? "#F87171" : "";
+      };
+      fill(geomRef.current, trendLine);
+      fill(geomRightRef.current, trendLineRight);
+    };
+    renderGeom();
+    if (trendLine || trendLineRight) chart.timeScale().subscribeVisibleLogicalRangeChange(renderGeom);
+
     // Guards the teardown/echo paths (declared up here so the crosshair-sync
     // callback below can read it).
     let disposed = false;
@@ -807,7 +852,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
@@ -893,20 +938,35 @@ export function TickChart({
           ref={legendRef}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
-        {/* SMA5 hover-angle readout (test chart) — filled from the crosshair. */}
+        {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
         {trendReadoutRight && (
-          <div
-            ref={angleRightRef}
-            className="absolute bottom-1 right-1 z-10 pointer-events-none rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
-            title="SMA5 trend state at the hovered candle"
-          />
+          <div className="absolute bottom-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-0.5">
+            <div
+              ref={angleRightRef}
+              className="rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
+              title="SMA5 trend state at the hovered candle"
+            />
+            <div
+              ref={geomRightRef}
+              className="rounded bg-background/70 px-2 py-0.5 text-[0.625rem] font-semibold tabular-nums backdrop-blur-sm"
+              title="SMA5 line's real on-screen angle over the last 2 completed candles (changes with zoom)"
+            />
+          </div>
         )}
+        {/* MA readout (bottom-left) + its geometric-angle line underneath. */}
         {(hoverAngleStrip || trendReadout) && (
-          <div
-            ref={angleRef}
-            className="absolute bottom-1 left-1 z-10 pointer-events-none rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
-            title="SMA5 slope at the hovered candle: % over 5 candles → degrees (0.2%/5c ≈ 45°)"
-          />
+          <div className="absolute bottom-1 left-1 z-10 pointer-events-none flex flex-col items-start gap-0.5">
+            <div
+              ref={angleRef}
+              className="rounded bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums text-muted-foreground backdrop-blur-sm border border-border/40"
+              title="SMA5 slope at the hovered candle: % over 5 candles → degrees (0.2%/5c ≈ 45°)"
+            />
+            <div
+              ref={geomRef}
+              className="rounded bg-background/70 px-2 py-0.5 text-[0.625rem] font-semibold tabular-nums backdrop-blur-sm"
+              title="MA line's real on-screen angle over the last 2 completed candles (changes with zoom)"
+            />
+          </div>
         )}
         <div ref={containerRef} className="h-full w-full" />
         {/* Bottom controls bar — reset-zoom (always) + maximize (when the parent
