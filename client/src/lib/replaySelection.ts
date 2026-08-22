@@ -11,23 +11,23 @@
 import { useSyncExternalStore } from "react";
 
 let selectedRunId: string | null = null;
-/** Bumped to ask the left drawer to switch to the Replay tab. A counter rather
- *  than a boolean so a second request still fires after the user navigates away. */
-let openTabNonce = 0;
+/** Which section the desk shows: the live book (paper/live), or the Replay
+ *  section (runs picker + the selected run's trades). The app-bar Paper/Live/
+ *  Replay tabs set this. */
+let deskMode: "book" | "replay" = "book";
 const listeners = new Set<() => void>();
 
-/** Ask the left drawer to show the Replay tab (used when a replay starts). */
-export function openReplayTab(): void {
-  openTabNonce += 1;
+/** Switch the desk between the live book and the Replay section. Leaving Replay
+ *  clears any selected run so the book comes back clean. */
+export function setDeskMode(mode: "book" | "replay"): void {
+  if (deskMode === mode) return;
+  deskMode = mode;
+  if (mode === "book") selectedRunId = null;
   listeners.forEach((l) => l());
 }
 
-export function useReplayTabNonce(): number {
-  return useSyncExternalStore(
-    subscribe,
-    () => openTabNonce,
-    () => openTabNonce,
-  );
+export function useDeskMode(): "book" | "replay" {
+  return useSyncExternalStore(subscribe, () => deskMode, () => deskMode);
 }
 
 export function setSelectedRunId(runId: string | null): void {

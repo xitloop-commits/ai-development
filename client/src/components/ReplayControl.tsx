@@ -10,7 +10,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Play, Square, Rewind } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { setSelectedRunId, openReplayTab } from '@/lib/replaySelection';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { toast } from 'sonner';
 
@@ -90,18 +89,14 @@ export function ReplayControl() {
 
   const refresh = () => void utils.replay.status.invalidate();
   const startMut = trpc.replay.start.useMutation({
-    onSuccess: (res: any) => {
+    onSuccess: () => {
       refresh();
       void utils.replay.runs.invalidate();
-      // Jump straight to the run: switch the left drawer to Replay and select
-      // the new run, so the desk shows the experiment as it fills rather than
-      // leaving you to go and find it.
       setOpen(false);
-      if (res?.runId) {
-        openReplayTab();
-        setSelectedRunId(res.runId);
-      }
-      toast.success(`Replay started · ${selectedDate} @ ${speed}×`);
+      // The run is created server-side; view it on the desk's Replay tab (which
+      // lists runs from the server). This control now lives on the standalone
+      // chart window, so it can't drive the desk directly.
+      toast.success(`Replay started · ${selectedDate} @ ${speed}× — open the desk's Replay tab to watch it`);
     },
     onError: (e: any) => toast.error(e?.message ?? 'Replay failed to start'),
   });

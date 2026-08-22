@@ -26,7 +26,8 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
-import { useSelectedRunId, setSelectedRunId } from '@/lib/replaySelection';
+import { useSelectedRunId, setSelectedRunId, useDeskMode } from '@/lib/replaySelection';
+import { ReplayPane } from '@/components/ReplayPane';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -102,6 +103,9 @@ export default function TradingDesk({
   // unchanged. Read-only: these trades belong to an experiment, and exiting one
   // would route the call to a real channel.
   const selectedRunId = useSelectedRunId();
+  // Replay is now a peer of Paper/Live (app-bar REPLAY tab). In replay mode the
+  // desk shows the runs picker + the selected run's trades instead of the book.
+  const deskMode = useDeskMode();
   const runQuery = trpc.replay.run.useQuery(
     { runId: selectedRunId ?? '' },
     { enabled: !!selectedRunId, refetchInterval: selectedRunId ? 4000 : false },
@@ -271,6 +275,15 @@ export default function TradingDesk({
           narrower than the top bar it sits under, leaving dead space after the
           Rating column. The scroll perf it bought is not worth a table that
           doesn't fill. */}
+      {/* Replay section (app-bar REPLAY tab) — the runs picker / compare / delete,
+          moved here from the old watchlist Replay tab. Selecting a run fills the
+          table below with its trades. A bounded strip so the trades stay visible. */}
+      {deskMode === 'replay' && (
+        <div className="shrink-0 max-h-[38vh] overflow-hidden flex flex-col border-b border-border">
+          <ReplayPane />
+        </div>
+      )}
+
       {/* Unmissable banner while a run is on the desk. Without it the desk looks
           like the live book showing unfamiliar numbers — the worst possible
           ambiguity on a trading screen. */}
@@ -297,7 +310,11 @@ export default function TradingDesk({
           workspace === 'my' ? 'scrollbar-bullish' :
           'scrollbar-violet'
         }`}>
-          {allDays.length === 0 ? (
+          {deskMode === 'replay' && !run ? (
+            <div className="flex h-full items-center justify-center p-6 text-center text-[0.6875rem] text-muted-foreground">
+              Select a replay run above to view its trades — or start one from the chart window's Replay control.
+            </div>
+          ) : allDays.length === 0 ? (
             <NoCapitalEmpty onOpenSettings={() => {
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
             }} />

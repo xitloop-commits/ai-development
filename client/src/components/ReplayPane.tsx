@@ -1,5 +1,6 @@
 /**
- * ReplayPane — the Replay tab in the left drawer (T97).
+ * ReplayPane — the runs picker for the desk's Replay section (app-bar REPLAY
+ * tab). Was the left-drawer Replay tab (T97); moved into the desk 2026-08-21.
  *
  * Lists every replay run newest-first with the model it tested, its id and its
  * result. Selecting a run puts the desk into a read-only view of that
@@ -119,8 +120,8 @@ export function ReplayPane() {
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
         {runs.length === 0 ? (
           <p className="px-2.5 py-3 text-[0.5625rem] text-muted-foreground leading-relaxed">
-            No replay runs yet. Start one from the AppBar's Replay control — its trades are kept
-            here, separate from the paper book.
+            No replay runs yet. Start one from the chart window's Replay control — its trades
+            appear here, separate from the paper &amp; live books.
           </p>
         ) : (
           runs.map((r) => {

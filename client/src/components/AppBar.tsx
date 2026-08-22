@@ -18,6 +18,7 @@ import { holidayCue } from '@/lib/holidayCue';
 import { StrikeDriftAlert } from './StrikeDriftAlert';
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
+import { setDeskMode, useDeskMode } from '@/lib/replaySelection';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
@@ -354,25 +355,27 @@ const MODES_FOR: Record<Workspace, Mode[]> = {
 function ChannelModeToggle() {
   // Channel-only subscription — does NOT re-render on capital/P&L churn.
   const { channel, setChannel } = useChannel();
+  const deskMode = useDeskMode();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
   // CLEAR moved into the desk's day-jump bar (T130) — a destructive control
   // shouldn't sit permanently in the app-bar chrome.
 
-  // Full-height PAPER / LIVE tabs (T87 point 17 — styled like the old workspace
-  // tabs). Switching is IMMEDIATE (no confirm): new orders route to the target
-  // broker; open positions on the source book stay put.
+  // Full-height PAPER / LIVE / REPLAY tabs. Paper/Live switch the book (immediate,
+  // no confirm); Replay puts the desk into the replay section (runs picker + the
+  // selected run's trades). A run is STARTED from the chart window's Replay
+  // control; here you only view its trades.
   return (
     <div className="flex items-stretch shrink-0">
       {MODES_FOR[currentWs].map((m) => {
-        const active = m === currentMode;
+        const active = deskMode === 'book' && m === currentMode;
         const activeTone = m === 'live'
           ? 'text-bullish border-bullish bg-bullish/10'
           : 'text-warning-amber border-warning-amber bg-warning-amber/10';
         return (
           <button
             key={m}
-            onClick={() => { if (m !== currentMode) setChannel(channelOf(currentWs, m)); }}
+            onClick={() => { setDeskMode('book'); if (m !== currentMode) setChannel(channelOf(currentWs, m)); }}
             className={`px-4 flex items-center justify-center text-[0.6875rem] font-bold tracking-wider border-b-2 transition-colors ${
               active ? activeTone : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
             }`}
@@ -382,6 +385,17 @@ function ChannelModeToggle() {
           </button>
         );
       })}
+      <button
+        onClick={() => setDeskMode('replay')}
+        className={`px-4 flex items-center justify-center text-[0.6875rem] font-bold tracking-wider border-b-2 transition-colors ${
+          deskMode === 'replay'
+            ? 'text-info-cyan border-info-cyan bg-info-cyan/10'
+            : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
+        }`}
+        title="Replay — view replay-run trades (start a run from the chart window)"
+      >
+        REPLAY
+      </button>
     </div>
   );
 }
