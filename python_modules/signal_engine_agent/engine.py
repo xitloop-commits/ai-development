@@ -1478,11 +1478,14 @@ def run(
                             print(f"  [ribbon] {instrument.upper()} {_leg} relocked — re-warming on the new contract", flush=True)
                             continue
                         if not _rb_live:
-                            # Session history — warm up, never fire on the past.
+                            # Session history — warm up, don't fire on past turns.
+                            # EXCEPTION: if the leg finishes warm-up already UP,
+                            # warm() returns a LONG so an into-green turn that
+                            # completed inside the history isn't missed.
                             if ma_ribbon is not None:
-                                ma_ribbon.warm(_leg, _rb_ticks)
+                                _rb_ma_events.extend(ma_ribbon.warm(_leg, _rb_ticks))
                             if sma5_ribbon is not None:
-                                sma5_ribbon.warm(_leg, _rb_ticks)
+                                _rb_s5_events.extend(sma5_ribbon.warm(_leg, _rb_ticks))
                             continue
                         for _pts, _pltp in _rb_ticks:
                             if ma_ribbon is not None:

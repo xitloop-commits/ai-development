@@ -292,9 +292,12 @@ class PremiumRibbonDetector:
             return [f"EXIT_{leg}"]
         return []  # gray — hold, never enter (legacy rule)
 
-    def warm(self, leg: str, ticks: list[tuple[float, float]]) -> None:
-        """Replay history silently: state ends where the past leaves it, so
-        only NEW transitions (after the warm-up) fire signals."""
+    def warm(self, leg: str, ticks: list[tuple[float, float]]) -> list[RibbonEvent]:
+        """Replay history silently: state ends where the past leaves it, so past
+        transitions don't fire. BUT if the leg finishes warm-up already UP, fire
+        a LONG now — an into-green turn that completed INSIDE the warm-up history
+        would otherwise be missed (Partha 2026-08-23: "when the MA line starts
+        green after warm-up, fire the signal"). Returns [] otherwise."""
         leg_state = self._legs[leg]
         for ts, price in ticks:
             leg_state.on_tick(ts, price)
@@ -302,6 +305,12 @@ class PremiumRibbonDetector:
         # store with the whole session every restart); drop anything queued while
         # replaying the past. Live ticks (on_leg_tick) queue as normal after this.
         self.closed_samples.clear()
+        warmed = (
+            leg_state.last_pct is not None
+            if leg_state.gray_pctile <= 0
+            else len(leg_state._abs_hist) >= leg_state.min_samples
+        )
+        return [f"LONG_{leg}"] if warmed and leg_state.state == 1 else []
 
     def drain_closed(self) -> list[tuple[str, int, float, int, float, float]]:
         """T169-B — pull + clear the queued closed-candle line samples

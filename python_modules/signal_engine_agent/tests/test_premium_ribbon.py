@@ -90,6 +90,26 @@ def test_warm_is_silent_and_state_carries() -> None:
     assert "EXIT_CE" in events and "LONG_CE" not in events
 
 
+def test_warm_fires_long_if_ends_up() -> None:
+    # Partha 2026-08-23: if warm-up completes with the ribbon already UP, warm()
+    # fires a LONG so an into-green turn INSIDE the history isn't missed.
+    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    prices, _, fall_start = _series()
+    up_hist = prices[:fall_start]           # ends mid-uptrend (state UP)
+    evs = det.warm("CE", _ticks(up_hist))
+    assert det.leg("CE").state == 1
+    assert evs == ["LONG_CE"]
+
+
+def test_warm_silent_if_not_ending_up() -> None:
+    # Replaying through the fall ends the leg DOWN → warm fires nothing.
+    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    prices, _, _ = _series()
+    evs = det.warm("CE", _ticks(prices))    # full series ends in the downtrend
+    assert det.leg("CE").state != 1
+    assert evs == []
+
+
 def test_gray_exit_fires_on_plateau() -> None:
     """Partha 2026-08-13: a ride ends the moment the ribbon LEAVES UP — a flat
     plateau (gray) after a rise must fire the EXIT without any DOWN turn."""
