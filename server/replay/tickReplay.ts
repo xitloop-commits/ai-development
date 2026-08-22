@@ -20,7 +20,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { spawn, type ChildProcess } from "child_process";
 import { tickBus } from "../broker/tickBus";
-import { setModelVersion, getCohortState } from "../seaControl";
+import { setModelVersion, getCohortState, syncCohortsFromAiConfig } from "../seaControl";
 import { startRun, endRun } from "./replayRuns";
 import type { TickData, ExchangeSegment, MarketDepthLevel } from "../broker/types";
 import { createLogger } from "../broker/logger";
@@ -386,6 +386,10 @@ export async function startReplay(
 
   log.important(`Replay START ${date} @ ${speed}× (${files.length} streams · ${ran.join(", ")})`);
 
+  // Now that `running` is true, re-sync SEA's cohorts to the REPLAY book (the
+  // run honors its own cohort selection, not the paper/live union).
+  void syncCohortsFromAiConfig();
+
   // Drive SEA too: spawn the Python feature feeders for the instruments actually
   // being replayed (best-effort, non-blocking).
   startFeatureReplay(date, speed, ran);
@@ -397,6 +401,8 @@ export async function startReplay(
     // Close the run so it stops being the trade sink — otherwise a live signal
     // arriving after the replay finished would be filed into this experiment.
     await endRun(aborted ? "ABORTED" : "COMPLETED");
+    // Replay over → revert SEA's cohorts to the paper/live union.
+    void syncCohortsFromAiConfig();
     log.important(`Replay END ${date} — ${ticksEmitted} ticks emitted${aborted ? " (stopped)" : ""}`);
   });
 

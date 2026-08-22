@@ -541,16 +541,25 @@ export function setModelVersion(instrument: string, version: string): CohortStat
  * the whole system, so there is no per-book ambiguity to resolve.
  */
 export async function syncCohortsFromAiConfig(): Promise<void> {
-  const { getUserSettings } = await import("./userSettings");
-  const tm = (await getUserSettings(1)).tradingMode;
-  const paperOn = tm?.aiPaperEnabled ?? (tm?.aiTradesMode ?? "paper") === "paper";
-  const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
+  // During a REPLAY, honor the replay book's cohorts EXACTLY — a simulation is
+  // its own experiment, not the paper/live union (Partha 2026-08-23). Dynamic
+  // import avoids a static cycle (tickReplay imports this module).
+  const { isReplayActive } = await import("./replay/tickReplay");
+  let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean }>;
+  if (isReplayActive()) {
+    cohortsOf = [getAiConfig("replay", "ai").cohorts];
+  } else {
+    const { getUserSettings } = await import("./userSettings");
+    const tm = (await getUserSettings(1)).tradingMode;
+    const paperOn = tm?.aiPaperEnabled ?? (tm?.aiTradesMode ?? "paper") === "paper";
+    const liveOn = tm?.aiLiveEnabled ?? (tm?.aiTradesMode ?? "paper") === "live";
 
-  const books: Array<"paper" | "live"> = [
-    ...(paperOn ? (["paper"] as const) : []),
-    ...(liveOn ? (["live"] as const) : []),
-  ];
-  const cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
+    const books: Array<"paper" | "live"> = [
+      ...(paperOn ? (["paper"] as const) : []),
+      ...(liveOn ? (["live"] as const) : []),
+    ];
+    cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
+  }
   const anyWants = (k: "scalp" | "trend" | "ma" | "sma5") => cohortsOf.some((c) => c[k]);
 
   setCohort("scalp", anyWants("scalp"));
