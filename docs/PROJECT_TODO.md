@@ -38,17 +38,20 @@ per candle close (~1/min) → light; the same SEA→Node→UI path signals alrea
   `date`/`sec_id()`; the engine drains BOTH ribbons (SEA runs ma AND sma5) and POSTs each
   closed sample fire-and-forget via `send_line()`. Additive — no change to ribbon events /
   decisions. Tests +2 (10 ribbon tests pass); existing SEA tests green.
-- **Slice 3 — client ✅ SHIPPED 2026-08-21.** `ribbonLineFromSea()` maps SEA's samples onto
-  the pane's display candles; MultiChartPage draws SEA's line per contract (kind ma + sma5),
-  falling back to the client compute for non-traded strikes / before SEA pushes. Refetches
-  while live. (Bottom readout still client-computed — informational follow-up. Live WS push
-  via `tickBus.emitSeaLine` exists but the pane currently POLLs `seaLines` every 4s — WS
-  wiring is a follow-up.)
+- **Slice 3 — client ✅ SHIPPED 2026-08-21.** `ribbonFromSea()` maps SEA's samples through
+  `ribbonFromServerBuckets`, so the LINE **and** the trend/angle/run readout both come from
+  SEA (server-authoritative); MultiChartPage draws it per contract (ma + sma5), client compute
+  only as fallback (non-traded strikes / pre-push). Refetches while live.
+- **Readout server-authoritative ✅ SHIPPED 2026-08-21** (Partha: the readout is important and
+  must be server-computed). SEA now emits the slope ANGLE per candle (`last_deg`); the readout
+  is built from SEA's state+angle+run, not a client re-calc.
+- **Multichart Indicators list trimmed ✅** to ONLY the two SEA ribbons (MA Ribbon, SMA5
+  Ribbon); every other client-computed indicator removed from that bar (Partha 2026-08-21).
 - ✅ **VERIFIABLE via the T165 LIVE SIMULATION** (SEA runs against a replayed day → emits →
   store fills → pane draws it) — no need to wait for Monday. Fallback means no regression if
   the feed isn't flowing.
-- **Remaining polish (later):** drive the bottom readout from SEA too (needs SEA to emit the
-  slope angle); switch the pane from 4s polling to the `seaLine` WS push.
+- **Remaining polish (later):** switch the pane from 4s polling to the `seaLine` WS push
+  (`tickBus.emitSeaLine` already fires; the client store + pane just need to consume it).
 
 ### T168 [UI] — Chart higher-high / lower-low swing markers ✅ BUILT 2026-08-21 (needs client rebuild)
 - **✅ BUILT + verified (tsc clean, 4 swing tests green).** New `swings` indicator in the
