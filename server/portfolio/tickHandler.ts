@@ -343,9 +343,13 @@ class TickHandler extends EventEmitter {
     // candle that just closed). In "ignore" mode we count progress candles only,
     // so the stop HOLDS through sideways chop. Ratchet UP only — a lower candle
     // never loosens it.
-    const arr = sideways === "ignore" ? (st.progress ?? []) : st.completed;
-    const idx = arr.length - Math.max(1, xBack);
-    if (idx >= 0) {
+    // Prefer the progress list (sideways=ignore), but FALL BACK to all completed
+    // candles when there aren't yet `xBack` progress candles — so the trailing
+    // stop ALWAYS has a level (a trade is never left with no TSL). Fixed 2026-08-23.
+    const primary = sideways === "ignore" ? (st.progress ?? []) : st.completed;
+    const arr = primary.length >= Math.max(1, xBack) ? primary : st.completed;
+    const idx = Math.max(0, arr.length - Math.max(1, xBack));
+    if (arr.length > 0) {
       const c0 = arr[idx];
       st.anchorTime = c0.t ?? null; // viz — the candle the stop is pinned to
       let candidate = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
@@ -469,13 +473,17 @@ class TickHandler extends EventEmitter {
         ? nearestSupportBelow(st.completed.map((c) => ({ t: c.t ?? 0, high: c.high, low: c.low })), entry, 2)
         : null;
       const back = Math.max(1, xBack);
-      const seedArr = sideways === "ignore" ? st.progress : st.completed;
-      const idx = seedArr.length - back; // the x-back candle at the entry boundary
+      // Prefer the progress list (sideways=ignore); fall back to ALL completed
+      // candles when there aren't yet `back` progress candles, so a stop ALWAYS
+      // seeds at entry (never a null/absent TSL). Fixed 2026-08-23.
+      const primary = sideways === "ignore" ? st.progress : st.completed;
+      const seedArr = primary.length >= back ? primary : st.completed;
+      const idx = Math.max(0, seedArr.length - back); // the x-back candle at the entry boundary
       if (support != null) {
         st.stop = st.stop === null ? support : isBuy ? Math.max(st.stop, support) : Math.min(st.stop, support);
         const supCandle = st.completed.find((c) => c.low === support);
         st.anchorTime = supCandle?.t ?? null; // viz — pin to the support candle
-      } else if (idx >= 0) {
+      } else if (seedArr.length > 0) {
         const c0 = seedArr[idx];
         st.anchorTime = c0.t ?? null; // viz — the candle the seeded stop is pinned to
         const cand = src === "open" ? c0.open : src === "close" ? c0.close : src === "high" ? c0.high : c0.low;
