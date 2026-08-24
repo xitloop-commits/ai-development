@@ -455,23 +455,28 @@ const clampCandleSec = (v: number): number =>
 
 /** Set the SMA5 candle timeframe (s). Persisted + pushed; the detector resets its
  *  candle aggregation on the change and the SMA re-warms. */
-export function setSma5CandleSec(value: number): CohortState {
+// `persist` (default true) writes the value to the SEA config files. A REPLAY
+// passes persist=false so its timeframe is a RUNTIME-ONLY override and never
+// leaks into the live paper/live config (Partha 2026-08-24 — a 5m replay had
+// been writing candle_sec:300 into nifty50.json etc.).
+export function setSma5CandleSec(value: number, persist = true): CohortState {
   const v = clampCandleSec(value);
   if (state.sma5CandleSec === v) return { ...state };
   state.sma5CandleSec = v;
-  persistCandleSec("sma5_signal", v);
+  if (persist) persistCandleSec("sma5_signal", v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
 }
 
-/** Set the MA-Signal candle timeframe (s). Persisted + pushed; the detector resets
+/** Set the MA-Signal candle timeframe (s). Pushed to SEA; persisted to config
+ *  only when `persist` (replay overrides are runtime-only). The detector resets
  *  its candle aggregation on the change and the slope re-warms. */
-export function setMaCandleSec(value: number): CohortState {
+export function setMaCandleSec(value: number, persist = true): CohortState {
   const v = clampCandleSec(value);
   if (state.maCandleSec === v) return { ...state };
   state.maCandleSec = v;
-  persistCandleSec("ma_signal", v);
+  if (persist) persistCandleSec("ma_signal", v);
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
@@ -592,8 +597,11 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   // chosen timeframe (chart + indicators + SEA all in sync); paper/live → the
   // common signal timeframe. One timeframe drives everything, in every mode.
   const tfSec = replayTfSec ?? getCommonConfig().sma5CandleSec;
-  setSma5CandleSec(tfSec);
-  setMaCandleSec(tfSec);
+  // A replay's timeframe is a runtime-only override — never persist it to the SEA
+  // config, or it leaks into paper/live after the replay ends.
+  const persistTf = replayTfSec == null;
+  setSma5CandleSec(tfSec, persistTf);
+  setMaCandleSec(tfSec, persistTf);
   // T163 — premium-ribbon knobs follow Settings ▸ Trend angle (one source of
   // truth for chart AND engine, Partha 2026-08-13).
   const ta = getCommonConfig().trendAngle;

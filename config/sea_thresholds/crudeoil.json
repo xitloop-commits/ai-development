@@ -33,6 +33,6 @@
     "sl_pct": 12,
     "candle_sec": 60,
     "ribbon_lookback": 3,
-    "ribbon_gray_pctile": 10
+    "ribbon_gray_pctile": 40
   }
 }
