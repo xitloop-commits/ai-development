@@ -204,6 +204,10 @@ interface DynTslCandleState {
    *  xBack live minutes. "pending" while the fetch runs; "done"/"failed"
    *  after. Failure = today's behaviour (warm from entry). */
   seed?: "pending" | "done" | "failed";
+  /** TSL config fingerprint (xBack|candle_sec|anchor|useHa|sideways) the state
+   *  was built with. When the common TSL config changes mid-trade, the state is
+   *  rebuilt so the new settings apply to OPEN trades (Partha 2026-08-24). */
+  cfgSig?: string;
 }
 
 class TickHandler extends EventEmitter {
@@ -277,11 +281,20 @@ class TickHandler extends EventEmitter {
     // was hardcoded 60s / 1-min; now the SMA5/MA candle_sec so "everything works
     // on the same candle"). Guard against a bad value.
     const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
-    const cur = this.dynTslState.get(tradeId);
+    // Fingerprint the state-shaping TSL config. If it changed since this trade's
+    // state was built (operator edited xBack / timeframe / anchor / sideways in
+    // common settings), DROP the state so it rebuilds on the new config — the
+    // change then applies to the OPEN trade. (value/mode/enabled are read live.)
+    const cfgSig = `${Math.max(1, xBack)}|${cs}|${src}|${useHa ? 1 : 0}|${sideways}`;
+    let cur = this.dynTslState.get(tradeId);
+    if (cur && cur.cfgSig !== undefined && cur.cfgSig !== cfgSig) {
+      this.dynTslState.delete(tradeId);
+      cur = undefined;
+    }
     if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
     let st = cur;
     if (!st) {
-      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null, progress: [], runFav: null };
+      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null, progress: [], runFav: null, cfgSig };
       this.dynTslState.set(tradeId, st);
       // History seed (2026-08-14): the chart's candles exist before entry —
       // use them, so the x-back trail is live from the first tick.
