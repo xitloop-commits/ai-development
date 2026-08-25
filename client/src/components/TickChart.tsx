@@ -174,6 +174,9 @@ export interface TickChartProps {
    *  completed candles (recomputed on zoom/pan). Keyed by epoch-minute. */
   trendLine?: Map<number, number>;
   trendLineRight?: Map<number, number>;
+  /** Current SMA5 ribbon level — drawn as a GREEN marker on the price scale so
+   *  you can read the live premium vs its SMA5 (T: entry-gate confirmation). */
+  sma5Level?: number | null;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -219,6 +222,7 @@ export function TickChart({
   trendReadoutRight,
   trendLine,
   trendLineRight,
+  sma5Level,
   header,
   loading,
   emptyText,
@@ -660,6 +664,15 @@ export function TickChart({
     if (indicators.has("maRibbon")) drawProjection(trendLine, "#22c55e", "#ef4444");
     if (indicators.has("sma5Ribbon")) drawProjection(trendLineRight, "#60a5fa", "#f59e0b");
 
+    // Current SMA5 level — a GREEN marker on the price scale, so the live premium
+    // vs its SMA5 (the entry-gate confirmation) is readable at a glance.
+    if (indicators.has("sma5Ribbon") && sma5Level != null && sma5Level > 0) {
+      series.createPriceLine({
+        price: sma5Level, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true, title: "SMA5",
+      });
+    }
+
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
       const rsiSeries = chart.addSeries(
@@ -880,7 +893,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

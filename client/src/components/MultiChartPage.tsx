@@ -332,6 +332,21 @@ function InstrumentPane({
     return { have: Math.min(15, c.candles.length), need: 15 };
   }, [indicators, c.candles, optLinesQ.data]);
 
+  // Current SMA5 level (latest ribbon value) — for the price-scale marker + the
+  // open/ltp-vs-SMA5 readout (the entry-gate condition).
+  const sma5Level = useMemo(() => {
+    if (!trendLineRight || !trendLineRight.size || !c.candles.length) return null;
+    const lastM = Math.floor((c.candles[c.candles.length - 1].time as number) / 60);
+    if (trendLineRight.has(lastM)) return trendLineRight.get(lastM) ?? null;
+    let maxM = -Infinity; let val: number | null = null;
+    trendLineRight.forEach((v, k) => { if (k > maxM) { maxM = k; val = v; } });
+    return val;
+  }, [trendLineRight, c.candles]);
+  const curOpen = c.candles.length ? (c.candles[c.candles.length - 1].open as number) : null;
+  const openBelow = sma5Level != null && curOpen != null && curOpen < sma5Level;
+  const ltpBelow = sma5Level != null && last != null && last < sma5Level;
+  const showSma5Tag = indicators.has("sma5Ribbon") && sma5Level != null;
+
   return (
     <div
       className="min-h-0 h-full relative rounded border border-border/60"
@@ -340,6 +355,14 @@ function InstrumentPane({
       {maWarmup && (
         <div className="absolute top-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-warning-amber/40 bg-warning-amber/20 px-2 py-0.5 text-[0.625rem] font-bold tabular-nums text-warning-amber">
           MA warm-up {maWarmup.have}/{maWarmup.need}
+        </div>
+      )}
+      {showSma5Tag && (
+        <div className="absolute top-5 left-1 z-20 pointer-events-none rounded border border-border/40 bg-background/80 px-2 py-0.5 text-[0.625rem] font-bold tabular-nums backdrop-blur-sm">
+          <span className="text-muted-foreground">SMA5 {sma5Level!.toFixed(2)} · </span>
+          <span style={{ color: openBelow ? "#ef4444" : "#22c55e" }}>open {openBelow ? "▼ below" : "▲ above"}</span>
+          <span className="text-muted-foreground"> · </span>
+          <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
         </div>
       )}
       <TickChart
@@ -364,6 +387,7 @@ function InstrumentPane({
         trendReadoutRight={trendReadoutRight}
         trendLine={trendLine}
         trendLineRight={trendLineRight}
+        sma5Level={sma5Level}
         className="h-full"
         onToggleFullscreen={onToggleFs}
         fullscreenActive={fs}
