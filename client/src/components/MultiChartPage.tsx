@@ -241,6 +241,10 @@ function InstrumentPane({
     {
       enabled: !!secId && (indicators.has("maRibbon") || indicators.has("sma5Ribbon")),
       staleTime: Infinity,
+      // The contract's recorded/live ticks GROW as the session/replay advances,
+      // so re-fetch periodically or the ribbon freezes where it was first read
+      // (Partha 2026-08-25 — MA/SMA5 lines stopped mid-chart). Faster in replay.
+      refetchInterval: activeReplayRunId ? 4000 : 15000,
       refetchOnWindowFocus: false,
     },
   );
