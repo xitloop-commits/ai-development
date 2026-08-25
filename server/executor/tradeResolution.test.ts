@@ -28,7 +28,7 @@ import { resolveLotSize, resolveUnderlyingForExpiry, resolveNearestExpiry } from
 beforeEach(() => {
   vi.clearAllMocks();
   getLotSizeMock.mockResolvedValue(65);
-  getExpiryListMock.mockResolvedValue(["2026-07-24", "2026-07-31"]);
+  getExpiryListMock.mockResolvedValue(["2099-01-24", "2099-01-31"]);
 });
 
 describe("instrument spelling is normalised across all three forms", () => {
@@ -50,8 +50,13 @@ describe("instrument spelling is normalised across all three forms", () => {
     expect(r?.underlying).toBe("BANKNIFTY");
   });
 
-  it("resolveNearestExpiry picks the earliest expiry for the underscore form", async () => {
-    await expect(resolveNearestExpiry("NIFTY_50")).resolves.toBe("2026-07-24");
+  it("resolveNearestExpiry picks the earliest NON-EXPIRED expiry", async () => {
+    await expect(resolveNearestExpiry("NIFTY_50")).resolves.toBe("2099-01-24");
+  });
+
+  it("resolveNearestExpiry SKIPS an already-expired series (uses the next live one)", async () => {
+    getExpiryListMock.mockResolvedValueOnce(["2000-01-01", "2099-01-24"]);
+    await expect(resolveNearestExpiry("NIFTY_50")).resolves.toBe("2099-01-24");
   });
 
   it("still returns null for a genuinely unknown instrument", async () => {

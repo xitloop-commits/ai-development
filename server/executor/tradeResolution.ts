@@ -111,7 +111,12 @@ export async function resolveNearestExpiry(instrument: string): Promise<string |
     const sorted = [...list].sort(
       (a, b) => new Date(`${a}T00:00:00`).getTime() - new Date(`${b}T00:00:00`).getTime(),
     );
-    return sorted[0];
+    // Skip already-EXPIRED series — the day after expiry the broker's list still
+    // carries the just-expired date, so sorted[0] would be a dead contract with
+    // no ticks (Partha 2026-08-25 — gas locked on 24-Aug after it expired). Pick
+    // the earliest expiry >= today IST; fall back to the latest if all are past.
+    const todayIST = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    return sorted.find((e) => e >= todayIST) ?? sorted[sorted.length - 1];
   } catch {
     return null;
   }
