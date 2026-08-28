@@ -361,6 +361,14 @@ function InstrumentPane({
   }, [trendA, c.candles]);
   const maLevel = maState?.line ?? null;
 
+  // Distance from the current LTP to the drawn TSL (open trade) — value + %.
+  const tslVal = shown
+    ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
+    : null;
+  const tslDiff = tslVal != null && last != null ? last - tslVal : null;
+  const tslDiffPct = tslDiff != null && last ? (tslDiff / last) * 100 : null;
+  const showTslDist = shown?.status === "OPEN" && tslDiff != null;
+
   return (
     <div
       className="min-h-0 h-full relative rounded border border-border/60"
@@ -369,6 +377,15 @@ function InstrumentPane({
       {maWarmup && (
         <div className="absolute top-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-warning-amber/40 bg-warning-amber/20 px-2 py-0.5 text-[0.625rem] font-bold tabular-nums text-warning-amber">
           MA warm-up {maWarmup.have}/{maWarmup.need}
+        </div>
+      )}
+      {showTslDist && (
+        <div
+          className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums backdrop-blur-sm"
+          style={{ color: tslDiff! >= 0 ? "#22c55e" : "#ef4444" }}
+          title="Current LTP minus the trailing stop (value + % of LTP)"
+        >
+          TSL Δ {tslDiff! >= 0 ? "+" : ""}{tslDiff!.toFixed(2)} ({tslDiffPct! >= 0 ? "+" : ""}{tslDiffPct!.toFixed(2)}%)
         </div>
       )}
       {showSma5Tag && (
