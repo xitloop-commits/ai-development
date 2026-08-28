@@ -19,7 +19,7 @@
     "confirm_candles": 1,
     "entry_watch": 0,
     "entry_gate": false,
-    "candle_sec": 60,
+    "candle_sec": 120,
     "ribbon_lookback": 3,
     "ribbon_gray_pctile": 0
   },
@@ -31,7 +31,7 @@
     "thr_lo": 0.006,
     "rev_pct": 0.18,
     "sl_pct": 12,
-    "candle_sec": 60,
+    "candle_sec": 120,
     "ribbon_lookback": 3,
     "ribbon_gray_pctile": 40
   }

@@ -367,21 +367,22 @@ function InstrumentPane({
   // the low→TSL label shows even with NO open trade. An open trade's real
   // dynTslLevel takes over when present.
   const back = Math.max(1, tslXBack ?? 5);
-  const liveTsl = useMemo(() => {
-    if (c.candles.length <= back) return null;
-    let tsl: number | null = null;
+  const liveTslInfo = useMemo(() => {
+    if (c.candles.length <= back) return { tsl: null as number | null, anchorTime: null as number | null };
+    let tsl: number | null = null; let anchorTime: number | null = null;
     for (let i = back; i < c.candles.length; i++) {
-      const cand = c.candles[i - back].low as number;
-      tsl = tsl == null ? cand : Math.max(tsl, cand);
+      const c0 = c.candles[i - back];
+      const cand = c0.low as number;
+      if (tsl == null || cand > tsl) { tsl = cand; anchorTime = (c0.time as number) - IST_OFFSET_SECONDS; }
     }
-    return tsl;
+    return { tsl, anchorTime };
   }, [c.candles, back]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
   // The candle-TSL exits on the low crossing the level, so measure from the low.
   const curLow = c.candles.length ? (c.candles[c.candles.length - 1].low as number) : null;
-  const tslVal = tradeTsl ?? liveTsl;
+  const tslVal = tradeTsl ?? liveTslInfo.tsl;
   const tslLive = tradeTsl == null; // showing the hypothetical live TSL, not a trade's
   const tslDiff = tslVal != null && curLow != null ? curLow - tslVal : null;
   const tslDiffPct = tslDiff != null && curLow ? (tslDiff / curLow) * 100 : null;
@@ -432,7 +433,7 @@ function InstrumentPane({
         loading={!!secId && seedQ.isLoading}
         serverLevels={swingsQ.data}
         extraLines={extraLines}
-        tslAnchorTime={shown?.tslAnchorTime ?? null}
+        tslAnchorTime={tradeTsl != null ? (shown?.tslAnchorTime ?? null) : liveTslInfo.anchorTime}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
