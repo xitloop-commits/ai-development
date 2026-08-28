@@ -347,6 +347,17 @@ function InstrumentPane({
   const ltpBelow = sma5Level != null && last != null && last < sma5Level;
   const showSma5Tag = indicators.has("sma5Ribbon") && sma5Level != null;
 
+  // Current MA level + trend colour — for the MA price-scale marker.
+  const maState = useMemo(() => {
+    if (!trendA || !trendA.minuteState.size || !c.candles.length) return null;
+    const lastM = Math.floor((c.candles[c.candles.length - 1].time as number) / 60);
+    let st = trendA.minuteState.get(lastM);
+    if (!st) { let maxM = -Infinity; trendA.minuteState.forEach((v, k) => { if (k > maxM) { maxM = k; st = v; } }); }
+    return st ?? null;
+  }, [trendA, c.candles]);
+  const maLevel = maState?.line ?? null;
+  const maLevelColor = maState ? (maState.trend > 0 ? "#22c55e" : maState.trend < 0 ? "#ef4444" : "#9ca3af") : undefined;
+
   return (
     <div
       className="min-h-0 h-full relative rounded border border-border/60"
@@ -388,6 +399,8 @@ function InstrumentPane({
         trendLine={trendLine}
         trendLineRight={trendLineRight}
         sma5Level={sma5Level}
+        maLevel={maLevel}
+        maLevelColor={maLevelColor}
         className="h-full"
         onToggleFullscreen={onToggleFs}
         fullscreenActive={fs}

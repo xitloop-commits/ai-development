@@ -177,6 +177,10 @@ export interface TickChartProps {
   /** Current SMA5 ribbon level — drawn as a GREEN marker on the price scale so
    *  you can read the live premium vs its SMA5 (T: entry-gate confirmation). */
   sma5Level?: number | null;
+  /** Current MA ribbon level + its trend colour — drawn as a price-scale marker
+   *  (green up / red down / grey sideways), same as the SMA5 marker. */
+  maLevel?: number | null;
+  maLevelColor?: string;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -223,6 +227,8 @@ export function TickChart({
   trendLine,
   trendLineRight,
   sma5Level,
+  maLevel,
+  maLevelColor,
   header,
   loading,
   emptyText,
@@ -672,6 +678,13 @@ export function TickChart({
         axisLabelVisible: true, title: "SMA5",
       });
     }
+    // Current MA level — price-scale marker coloured by the MA trend.
+    if (indicators.has("maRibbon") && maLevel != null && maLevel > 0) {
+      series.createPriceLine({
+        price: maLevel, color: maLevelColor ?? "#9ca3af", lineWidth: 1, lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true, title: "MA",
+      });
+    }
 
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
@@ -893,7 +906,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, maLevel, maLevelColor, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
