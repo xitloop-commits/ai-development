@@ -119,7 +119,7 @@ type AtmShape = {
 
 function InstrumentPane({
   instKey, intervalSec, style, indicators, markerFilter, activeOnly, crosshairSync,
-  taOpts, chartDate, simCutoffRef, activeReplayRunId, fs, onToggleFs, forceSide,
+  taOpts, tslXBack, chartDate, simCutoffRef, activeReplayRunId, fs, onToggleFs, forceSide,
 }: {
   instKey: string;
   intervalSec: number;
@@ -130,6 +130,8 @@ function InstrumentPane({
   activeOnly: boolean;
   crosshairSync: CrosshairSync;
   taOpts?: Partial<TrendAngleOptions>;
+  /** Candle-TSL x-back (masterExits.tsl.xBack) — for the always-on live TSL. */
+  tslXBack?: number;
   chartDate: string;
   simCutoffRef?: MutableRefObject<number | null>;
   /** T172 — when a replay run is active, draw ITS trades (entry/TSL/target/
@@ -361,15 +363,29 @@ function InstrumentPane({
   }, [trendA, c.candles]);
   const maLevel = maState?.line ?? null;
 
-  // Distance from the CURRENT CANDLE'S LOW to the drawn TSL (open trade) — the
-  // candle-TSL exits on the low crossing the level, so the low is what matters.
-  const curLow = c.candles.length ? (c.candles[c.candles.length - 1].low as number) : null;
-  const tslVal = shown
+  // Always-on live candle-TSL: the ratcheting x-back candle low (never down), so
+  // the low→TSL label shows even with NO open trade. An open trade's real
+  // dynTslLevel takes over when present.
+  const back = Math.max(1, tslXBack ?? 5);
+  const liveTsl = useMemo(() => {
+    if (c.candles.length <= back) return null;
+    let tsl: number | null = null;
+    for (let i = back; i < c.candles.length; i++) {
+      const cand = c.candles[i - back].low as number;
+      tsl = tsl == null ? cand : Math.max(tsl, cand);
+    }
+    return tsl;
+  }, [c.candles, back]);
+  const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
+  // The candle-TSL exits on the low crossing the level, so measure from the low.
+  const curLow = c.candles.length ? (c.candles[c.candles.length - 1].low as number) : null;
+  const tslVal = tradeTsl ?? liveTsl;
+  const tslLive = tradeTsl == null; // showing the hypothetical live TSL, not a trade's
   const tslDiff = tslVal != null && curLow != null ? curLow - tslVal : null;
   const tslDiffPct = tslDiff != null && curLow ? (tslDiff / curLow) * 100 : null;
-  const showTslDist = shown?.status === "OPEN" && tslDiff != null;
+  const showTslDist = tslDiff != null;
 
   return (
     <div
@@ -385,9 +401,11 @@ function InstrumentPane({
         <div
           className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums backdrop-blur-sm"
           style={{ color: tslDiff! >= 0 ? "#22c55e" : "#ef4444" }}
-          title="Current candle's low minus the trailing stop (value + %) — the room before the low hits the TSL"
+          title={tslLive
+            ? "Current candle's low minus the LIVE candle-TSL (x-back candle low) — no trade open"
+            : "Current candle's low minus the trade's trailing stop (value + %)"}
         >
-          low→TSL {tslDiff! >= 0 ? "+" : ""}{tslDiff!.toFixed(2)} ({tslDiffPct! >= 0 ? "+" : ""}{tslDiffPct!.toFixed(2)}%)
+          low→TSL{tslLive ? "·live" : ""} {tslDiff! >= 0 ? "+" : ""}{tslDiff!.toFixed(2)} ({tslDiffPct! >= 0 ? "+" : ""}{tslDiffPct!.toFixed(2)}%)
         </div>
       )}
       {showSma5Tag && (
@@ -484,6 +502,7 @@ export default function MultiChartPage() {
 
   const taCfgQ = trpc.trading.aiConfig.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
   const taOpts = (taCfgQ.data as { common?: { trendAngle?: Partial<TrendAngleOptions> } } | undefined)?.common?.trendAngle;
+  const tslXBack = ((taCfgQ.data as { common?: { masterExits?: { tsl?: { xBack?: number } } } } | undefined)?.common?.masterExits?.tsl?.xBack) ?? 5;
   const cohortQ = trpc.trading.seaCohortState.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: false });
 
   // T165 — live-simulation clock.
@@ -563,6 +582,7 @@ export default function MultiChartPage() {
         activeOnly={activeOnly}
         crosshairSync={crosshairSync}
         taOpts={taOpts}
+        tslXBack={tslXBack}
         chartDate={chartDate}
         simCutoffRef={isSim ? simCutoffRef : undefined}
         activeReplayRunId={activeReplayRunId}
