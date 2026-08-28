@@ -23,7 +23,7 @@ export const RSI_COLOR = "#a855f7";
 export const MA_PERIOD = 20;
 
 export type ChartStyle = "candle" | "ha" | "line";
-export type IndicatorKey = "ma" | "reversals" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "sma9" | "sma10" | "rsi" | "supertrend" | "maRibbon" | "sma5Ribbon" | "swings";
+export type IndicatorKey = "ma" | "reversals" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "sma9" | "sma10" | "rsi" | "supertrend" | "maRibbon" | "sma5Ribbon" | "swings" | "dimSideways";
 
 export const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
   { key: "maRibbon", label: "MA Ribbon (slope trend)" },
@@ -31,6 +31,7 @@ export const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
   { key: "ma", label: "MA (trend colour)" },
   { key: "reversals", label: "Reversals (tops / bottoms)" },
   { key: "swings", label: "Swing levels (T1-3 / S1-3 S/R)" },
+  { key: "dimSideways", label: "Dim sideways candles (TSL)" },
   { key: "sma5", label: "SMA 5" },
   { key: "ema5", label: "EMA 5" },
   { key: "sma9", label: "SMA 9 (blue)" },

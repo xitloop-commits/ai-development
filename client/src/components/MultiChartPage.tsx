@@ -382,7 +382,7 @@ function InstrumentPane({
         serverLevels={swingsQ.data}
         extraLines={extraLines}
         tslAnchorTime={shown?.tslAnchorTime ?? null}
-        tslIgnoredTimes={shown?.tslIgnoredTimes ?? undefined}
+        tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
         trendLine={trendLine}
@@ -419,7 +419,7 @@ export default function MultiChartPage() {
   const [replayTf, setReplayTf] = useState(() => loadReplayDefaultTf() ?? 60);
   const [style, setStyle] = useState<ChartStyle>(saved.style ?? "ha");
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings"]),
+    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings", "dimSideways"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
@@ -590,7 +590,7 @@ export default function MultiChartPage() {
                 {/* T169-B — the multichart carries the two SEA ribbons + the S/R
                     swing lines (toggleable, on by default); other client-computed
                     indicators stay removed. */}
-                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon" || o.key === "swings").map((o) => (
+                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon" || o.key === "swings" || o.key === "dimSideways").map((o) => (
                   <label key={o.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[0.6875rem] hover:bg-secondary/60">
                     <input type="checkbox" checked={indicators.has(o.key)} onChange={() => toggleIndicator(o.key)} />
                     {o.label}
