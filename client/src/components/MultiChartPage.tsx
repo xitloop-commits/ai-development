@@ -44,6 +44,7 @@ import { ReplayControl } from "@/components/ReplayControl";
 import { AiControl } from "@/components/AiControl";
 import { loadReplayDefaultTf } from "@/lib/replaySelection";
 import { buildTradeMarkers, buildTradeLines, type TradePriceLine } from "@/lib/chartOverlays";
+import { resolveCohortHex } from "@/lib/tradeThemes";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
 import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
@@ -346,8 +347,11 @@ function InstrumentPane({
   const openBelow = sma5Level != null && curOpen != null && curOpen < sma5Level;
   const ltpBelow = sma5Level != null && last != null && last < sma5Level;
   const showSma5Tag = indicators.has("sma5Ribbon") && sma5Level != null;
+  // Price-scale markers are coloured to MATCH each cohort's label colour.
+  const sma5LevelColor = resolveCohortHex("sma5_signal");
+  const maLevelColor = resolveCohortHex("ma_signal");
 
-  // Current MA level + trend colour — for the MA price-scale marker.
+  // Current MA level — for the MA price-scale marker.
   const maState = useMemo(() => {
     if (!trendA || !trendA.minuteState.size || !c.candles.length) return null;
     const lastM = Math.floor((c.candles[c.candles.length - 1].time as number) / 60);
@@ -356,7 +360,6 @@ function InstrumentPane({
     return st ?? null;
   }, [trendA, c.candles]);
   const maLevel = maState?.line ?? null;
-  const maLevelColor = maState ? (maState.trend > 0 ? "#22c55e" : maState.trend < 0 ? "#ef4444" : "#9ca3af") : undefined;
 
   return (
     <div
@@ -370,7 +373,7 @@ function InstrumentPane({
       )}
       {showSma5Tag && (
         <div className="absolute top-5 left-1 z-20 pointer-events-none rounded border border-border/40 bg-background/80 px-2 py-0.5 text-[0.625rem] font-bold tabular-nums backdrop-blur-sm">
-          <span className="text-muted-foreground">SMA5 {sma5Level!.toFixed(2)} · </span>
+          <span style={{ color: sma5LevelColor }}>SMA5 {sma5Level!.toFixed(2)} · </span>
           <span style={{ color: openBelow ? "#ef4444" : "#22c55e" }}>open {openBelow ? "▼ below" : "▲ above"}</span>
           <span className="text-muted-foreground"> · </span>
           <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
@@ -399,6 +402,7 @@ function InstrumentPane({
         trendLine={trendLine}
         trendLineRight={trendLineRight}
         sma5Level={sma5Level}
+        sma5LevelColor={sma5LevelColor}
         maLevel={maLevel}
         maLevelColor={maLevelColor}
         className="h-full"

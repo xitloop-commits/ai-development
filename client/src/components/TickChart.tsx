@@ -174,11 +174,10 @@ export interface TickChartProps {
    *  completed candles (recomputed on zoom/pan). Keyed by epoch-minute. */
   trendLine?: Map<number, number>;
   trendLineRight?: Map<number, number>;
-  /** Current SMA5 ribbon level — drawn as a GREEN marker on the price scale so
-   *  you can read the live premium vs its SMA5 (T: entry-gate confirmation). */
+  /** Current SMA5 / MA ribbon levels — drawn as price-scale markers, coloured to
+   *  match each cohort's label (SMA5 = sma5_signal, MA = ma_signal). */
   sma5Level?: number | null;
-  /** Current MA ribbon level + its trend colour — drawn as a price-scale marker
-   *  (green up / red down / grey sideways), same as the SMA5 marker. */
+  sma5LevelColor?: string;
   maLevel?: number | null;
   maLevelColor?: string;
   header?: ReactNode;
@@ -227,6 +226,7 @@ export function TickChart({
   trendLine,
   trendLineRight,
   sma5Level,
+  sma5LevelColor,
   maLevel,
   maLevelColor,
   header,
@@ -674,14 +674,14 @@ export function TickChart({
     // vs its SMA5 (the entry-gate confirmation) is readable at a glance.
     if (indicators.has("sma5Ribbon") && sma5Level != null && sma5Level > 0) {
       series.createPriceLine({
-        price: sma5Level, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dotted,
+        price: sma5Level, color: sma5LevelColor ?? "#FB923C", lineWidth: 1, lineStyle: LineStyle.Dotted,
         axisLabelVisible: true, title: "SMA5",
       });
     }
     // Current MA level — price-scale marker coloured by the MA trend.
     if (indicators.has("maRibbon") && maLevel != null && maLevel > 0) {
       series.createPriceLine({
-        price: maLevel, color: maLevelColor ?? "#9ca3af", lineWidth: 1, lineStyle: LineStyle.Dotted,
+        price: maLevel, color: maLevelColor ?? "#F472B6", lineWidth: 1, lineStyle: LineStyle.Dotted,
         axisLabelVisible: true, title: "MA",
       });
     }
@@ -906,7 +906,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, maLevel, maLevelColor, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
