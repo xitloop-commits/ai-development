@@ -271,10 +271,10 @@ function InstrumentPane({
   }, [c.candles, taOpts, indicators, intervalSec, optLinesQ.data]);
   const extraLines = useMemo(() => {
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
-    const arr: { data: { time: UTCTimestamp; value?: number }[]; color: string; order?: number }[] = [
+    const arr: Array<{ data: { time: UTCTimestamp; value?: number }[]; color: string; order?: number }> = [
       ...(trendS?.lines ?? []).map((l) => ({ ...l, order: 1000 })),
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
-    ];
+    ] as never;
     // Higher-lows trendline (Partha 2026-08-30): once a swing low prints HIGHER
     // than the previous swing low, anchor it and keep connecting each next swing
     // low that is higher again — a rising line through the low points. A swing low
