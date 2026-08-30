@@ -512,6 +512,127 @@ class TickHandler extends EventEmitter {
     }
   }
 
+  /** Structure-based TSL (2026-08-30, "swing" trailMode — REPLAY first). The stop
+   *  sits on the LAST CONFIRMED SWING LOW (the blue candle on the chart: a candle
+   *  whose low is below the previous candle's, confirmed once the NEXT candle does
+   *  not go lower). It ratchets UP on every higher confirmed swing low, never down,
+   *  and the trade EXITS when a candle CLOSES below the current level. Seeded at
+   *  entry to the most recent confirmed swing low at/below entry. Raw candles (no
+   *  HA) so the levels match the blue candles the operator watches. Short = mirror
+   *  on swing HIGHS. `closedBelow` is a one-tick close-confirmed breach pulse. */
+  private swingTslLevel(
+    tradeId: string,
+    lttSec: number,
+    ltp: number,
+    isBuy: boolean,
+    candleSec: number,
+    entry: number,
+    instrument?: string,
+    securityId?: string | null,
+  ): { level: number | null; closedBelow: boolean } {
+    const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
+    const cfgSig = `swing|${cs}`;
+    let cur = this.dynTslState.get(tradeId);
+    if (cur && cur.cfgSig !== undefined && cur.cfgSig !== cfgSig) { this.dynTslState.delete(tradeId); cur = undefined; }
+    if (!Number.isFinite(lttSec) || !Number.isFinite(ltp)) return { level: cur?.stop ?? null, closedBelow: false };
+    let st = cur;
+    if (!st) {
+      st = { minute: null, o: ltp, h: ltp, l: ltp, c: ltp, haOpenPrev: null, haClosePrev: null, completed: [], stop: null, progress: [], runFav: null, cfgSig };
+      this.dynTslState.set(tradeId, st);
+      if (instrument && securityId) {
+        st.seed = "pending";
+        void this.seedSwingTsl(tradeId, st, instrument, securityId, Math.floor(lttSec / cs), isBuy, cs, entry);
+      }
+    }
+    const minute = Math.floor(lttSec / cs);
+    if (st.minute === null) { st.minute = minute; st.o = st.h = st.l = st.c = ltp; return { level: st.stop, closedBelow: false }; }
+    if (minute === st.minute) {
+      st.c = ltp; if (ltp > st.h) st.h = ltp; if (ltp < st.l) st.l = ltp;
+      return { level: st.stop, closedBelow: false }; // intra-candle: level frozen, exit only on close
+    }
+    // A new bucket began → the candle just closed. Close-confirmed breach first.
+    const candleClose = st.c;
+    const levelDuringCandle = st.stop;
+    const closedBelow = levelDuringCandle !== null && (isBuy ? candleClose < levelDuringCandle : candleClose > levelDuringCandle);
+    st.completed.push({ open: st.o, close: st.c, high: st.h, low: st.l, t: st.minute * cs });
+    const keep = 240;
+    if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
+    this.ratchetSwingStop(st, isBuy);
+    st.minute = minute; st.o = st.h = st.l = st.c = ltp;
+    return { level: st.stop, closedBelow };
+  }
+
+  /** On a candle close, confirm the candle at index len-2 (it now has a next
+   *  candle) as a swing low/high and ratchet the stop toward it — never loosening. */
+  private ratchetSwingStop(st: DynTslCandleState, isBuy: boolean): void {
+    const a = st.completed;
+    const i = a.length - 2;
+    if (i < 1) return;
+    if (isBuy) {
+      const swingLow = a[i].low < a[i - 1].low && a[i + 1].low >= a[i].low;
+      if (swingLow && (st.stop === null || a[i].low > st.stop)) { st.stop = a[i].low; st.anchorTime = a[i].t ?? null; }
+    } else {
+      const swingHigh = a[i].high > a[i - 1].high && a[i + 1].high <= a[i].high;
+      if (swingHigh && (st.stop === null || a[i].high < st.stop)) { st.stop = a[i].high; st.anchorTime = a[i].t ?? null; }
+    }
+  }
+
+  /** One-shot history seed for the swing TSL: build raw pre-entry candles and set
+   *  the initial stop to the MOST RECENT confirmed swing low at/below entry (the
+   *  nearest real support). Best-effort — any failure warms from entry. */
+  private async seedSwingTsl(
+    tradeId: string,
+    st: DynTslCandleState,
+    instrument: string,
+    securityId: string,
+    firstLiveMinute: number,
+    isBuy: boolean,
+    candleSec: number,
+    entry: number,
+  ): Promise<void> {
+    try {
+      const cs = Number.isFinite(candleSec) && candleSec >= 1 ? Math.round(candleSec) : 60;
+      const { readOptionContractTicks } = await import("../chartData");
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const ticks = await readOptionContractTicks(instrument, today, securityId);
+      if (this.dynTslState.get(tradeId) !== st) return;
+      const n = Math.min(ticks.t.length, ticks.ltp.length);
+      if (n === 0) { st.seed = "failed"; return; }
+      type C = { minute: number; o: number; h: number; l: number; c: number };
+      const raw: C[] = [];
+      for (let i = 0; i < n; i++) {
+        const m = Math.floor(ticks.t[i] / cs);
+        if (m >= firstLiveMinute) break;
+        const p = ticks.ltp[i];
+        if (!(p > 0)) continue;
+        const last = raw[raw.length - 1];
+        if (!last || last.minute !== m) raw.push({ minute: m, o: p, h: p, l: p, c: p });
+        else { last.c = p; if (p > last.h) last.h = p; if (p < last.l) last.l = p; }
+      }
+      if (raw.length === 0) { st.seed = "failed"; return; }
+      const seeded = raw.map((k) => ({ open: k.o, close: k.c, high: k.h, low: k.l, t: k.minute * cs }));
+      st.completed = [...seeded, ...st.completed];
+      if (st.stop === null) {
+        const a = st.completed;
+        let seedStop: number | null = null;
+        let seedT: number | null = null;
+        for (let i = 1; i < a.length - 1; i++) {
+          if (isBuy) {
+            const swingLow = a[i].low < a[i - 1].low && a[i + 1].low >= a[i].low;
+            if (swingLow && (entry <= 0 || a[i].low <= entry)) { seedStop = a[i].low; seedT = a[i].t ?? null; }
+          } else {
+            const swingHigh = a[i].high > a[i - 1].high && a[i + 1].high <= a[i].high;
+            if (swingHigh && (entry <= 0 || a[i].high >= entry)) { seedStop = a[i].high; seedT = a[i].t ?? null; }
+          }
+        }
+        if (seedStop != null) { st.stop = seedStop; st.anchorTime = seedT; }
+      }
+      const keep = 240;
+      if (st.completed.length > keep) st.completed.splice(0, st.completed.length - keep);
+      st.seed = "done";
+    } catch { st.seed = "failed"; }
+  }
+
   /** T167 viz — read the candle-TSL highlight state for a trade: the anchor
    *  candle's bucket time (to outline gold on the chart) + the ignored sideways
    *  candle times (to dim). Empty when the trade has no candle-TSL state. */
@@ -958,12 +1079,28 @@ class TickHandler extends EventEmitter {
               : (isBuy ? tick.ltp <= pctLevel(master.sl.value, false) : tick.ltp >= pctLevel(master.sl.value, false));
             if (hit) masterHit = { reason: "SL_HIT", exitPrice: tick.ltp };
           }
+          // Structure-based swing TSL — REPLAY first (2026-08-30). While a replay
+          // run is active it OVERRIDES the configured trailMode; paper/live keep
+          // their current TSL until this is validated and flipped on.
+          const useSwing = getActiveRunId() != null;
           if (!masterHit && mTSL) {
             // T167 — armed at ENTRY (no profit-gate). Mode B (candle) trails to the
             // O/H/L/C of the x-back candle; Mode A (peak) trails a % / ₹ distance
             // below the running peak.
             let hit = false;
-            if (master.tsl.trailMode === "candle") {
+            if (useSwing) {
+              // Swing mode — stop on the last confirmed swing low, exit on a candle
+              // CLOSE below it (not intra-tick).
+              const cs = trade.cohort === "ma_signal" ? cc.maCandleSec : cc.sma5CandleSec;
+              const sw = this.swingTslLevel(
+                trade.id, tick.ltt, tick.ltp, isBuy, cs, trade.entryPrice,
+                trade.instrument, trade.contractSecurityId,
+              );
+              trade.dynTslLevel = sw.level ?? null;
+              trade.tslAnchorTime = this.dynTslViz(trade.id).anchorTime;
+              trade.tslIgnoredTimes = [];
+              hit = sw.closedBelow;
+            } else if (master.tsl.trailMode === "candle") {
               // Mode B (Rider) — the candle trailer ratchets the level UP on candle
               // CLOSES (to the x-back candle low), but the EXIT fires INTRA-CANDLE
               // the instant a tick crosses below the current level (T167 2026-08-21).
@@ -1024,7 +1161,7 @@ class TickHandler extends EventEmitter {
             // Armed at entry — draw the trailing stop from the first tick (no
             // profit gate). Candle mode uses the ratcheted x-back level set above.
             let tslStop: number | null = null;
-            if (master.tsl.trailMode === "candle") {
+            if (useSwing || master.tsl.trailMode === "candle") {
               tslStop = trade.dynTslLevel ?? null;
             } else {
               tslStop = master.tsl.mode === "rupees"

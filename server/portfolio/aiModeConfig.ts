@@ -198,7 +198,7 @@ export interface MasterLevel {
 
 /** TSL trailing style. "peak" = Mode A (trail a % / ₹ distance below the running
  *  peak). "candle" = Mode B (trail to the O/H/L/C of the candle x bars back). */
-export type TslTrailMode = "peak" | "candle";
+export type TslTrailMode = "peak" | "candle" | "swing";
 /** Which point of the x-back candle the candle-TSL anchors to. LOW = loosest
  *  (most room), HIGH = tightest; OPEN/CLOSE in between. Default LOW. */
 export type CandleAnchor = "open" | "high" | "low" | "close";
