@@ -448,12 +448,15 @@ function InstrumentPane({
   // blue arrow), so it follows the current structure both up and down. Independent
   // of any trade; a TSL line is ALWAYS on the chart from session open.
   const swingTsl = useMemo(() => {
-    let stop: number | null = null;
     const a = c.candles;
-    for (let i = 1; i < a.length - 1; i++) {
+    const n = a.length;
+    let stop: number | null = null;
+    for (let i = 1; i < n - 1; i++) {
       const isLow = (a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number);
-      if (isLow) stop = a[i].low as number; // keep the latest, not the highest
+      if (isLow) stop = a[i].low as number; // latest confirmed blue arrow
     }
+    // If the CURRENT (forming) candle is itself the low, stick to it too.
+    if (n >= 2 && (a[n - 1].low as number) < (a[n - 2].low as number)) stop = a[n - 1].low as number;
     return stop;
   }, [c.candles]);
   const tradeTsl = shown?.status === "OPEN"
