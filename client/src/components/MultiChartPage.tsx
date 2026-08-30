@@ -219,15 +219,20 @@ function InstrumentPane({
   const markers = useMemo(() => {
     const times = c.candles.map((cd) => cd.time as number);
     if (!times.length) return NO_MARKERS as SeriesMarker<UTCTimestamp>[];
-    if (focused) return buildTradeMarkers([focused], times, Infinity, true);
-    const onThis = rows.filter(
-      (t) => t.side === side
-        && ((t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike))
-        && tradePassesMarkerFilter(t, markerFilter)
-        && (!activeOnly || t.status === "OPEN"),
-    );
-    return buildTradeMarkers(onThis, times, Infinity, true);
-  }, [c.candles, rows, secId, strike, side, markerFilter, activeOnly, focused]);
+    const raw = focused
+      ? buildTradeMarkers([focused], times, Infinity, true)
+      : buildTradeMarkers(
+          rows.filter(
+            (t) => t.side === side
+              && ((t.contractSecurityId && t.contractSecurityId === secId) || (strike != null && t.strike === strike))
+              && tradePassesMarkerFilter(t, markerFilter)
+              && (!activeOnly || t.status === "OPEN"),
+          ),
+          times, Infinity, true,
+        );
+    // Entry markers are arrows, exit markers are circles — toggle each.
+    return raw.filter((m) => (m.shape === "circle" ? indicators.has("exit") : indicators.has("entry")));
+  }, [c.candles, rows, secId, strike, side, markerFilter, activeOnly, focused, indicators]);
 
   // One shared timeframe: the ribbons + S/R are computed on the SERVER at the
   // chart's display timeframe (intervalSec), so candles and every indicator
@@ -319,9 +324,16 @@ function InstrumentPane({
     if (!shown) return NO_LINES as TradePriceLine[];
     // REPLAY-only: draw the real rolling candle-TSL (dynTslLevel). Paper/live keep
     // the existing stopLossPrice-as-TSL line.
-    return buildTradeLines(shown, { dynTsl: !!activeReplayRunId });
+    const all = buildTradeLines(shown, { dynTsl: !!activeReplayRunId });
+    // Toggle each line by title: Entry / Exit / TSL+SL. Target always shown.
+    return all.filter((l) => {
+      if (l.title === "Entry") return indicators.has("entry");
+      if (l.title === "Exit") return indicators.has("exit");
+      if (l.title === "TSL" || l.title === "SL") return indicators.has("tsl");
+      return true;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on primitive levels, not row identity
-  }, [shown?.entryPrice, shown?.stopLossPrice, shown?.dynTslLevel, shown?.targetPrice, shown?.exitPrice, shown?.status, activeReplayRunId]);
+  }, [shown?.entryPrice, shown?.stopLossPrice, shown?.dynTslLevel, shown?.targetPrice, shown?.exitPrice, shown?.status, activeReplayRunId, indicators]);
 
   const hasOpen = openTrade != null;
 
@@ -538,9 +550,15 @@ export default function MultiChartPage() {
   // config below. `intervalSec` (derived, further down) is what the panes use.
   const [replayTf, setReplayTf] = useState(() => loadReplayDefaultTf() ?? 60);
   const [style, setStyle] = useState<ChartStyle>(saved.style ?? "ha");
-  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings", "dimSideways"]),
-  );
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => {
+    const base = new Set<IndicatorKey>(saved.indicators ?? ["maRibbon", "sma5Ribbon", "swings", "dimSideways"]);
+    // Migrate pre-toggle saved sets: entry/exit/TSL always showed before, so
+    // turn them on if none of the three is present yet.
+    if (!base.has("entry") && !base.has("exit") && !base.has("tsl")) {
+      base.add("entry"); base.add("exit"); base.add("tsl");
+    }
+    return base;
+  });
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
   const [activeOnly, setActiveOnly] = useState(saved.activeOnly ?? false);
@@ -712,7 +730,7 @@ export default function MultiChartPage() {
                 {/* T169-B — the multichart carries the two SEA ribbons + the S/R
                     swing lines (toggleable, on by default); other client-computed
                     indicators stay removed. */}
-                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon" || o.key === "swings" || o.key === "dimSideways").map((o) => (
+                {INDICATOR_OPTIONS.filter((o) => o.key === "maRibbon" || o.key === "sma5Ribbon" || o.key === "swings" || o.key === "dimSideways" || o.key === "entry" || o.key === "exit" || o.key === "tsl").map((o) => (
                   <label key={o.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[0.6875rem] hover:bg-secondary/60">
                     <input type="checkbox" checked={indicators.has(o.key)} onChange={() => toggleIndicator(o.key)} />
                     {o.label}
