@@ -276,14 +276,6 @@ function InstrumentPane({
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ] as never;
     const labels: { t: number; text: string; color: string; above?: boolean }[] = [];
-    // Anchor line drawn segment-by-segment, coloured by direction: a rising
-    // segment is green, a falling one is red (adaptive). Used for both anchor lines.
-    const pushAdaptive = (anchors: { time: UTCTimestamp; value: number }[]) => {
-      for (let i = 1; i < anchors.length; i++) {
-        const up = anchors[i].value > anchors[i - 1].value;
-        arr.push({ data: [anchors[i - 1], anchors[i]], color: up ? "#22c55e" : "#ef4444", order: 1101 });
-      }
-    };
     // Higher-lows trendline (Partha 2026-08-30): once a swing low prints HIGHER
     // than the previous swing low, anchor it and keep connecting each next swing
     // low that is higher again — a rising line through the low points. A swing low
@@ -297,13 +289,11 @@ function InstrumentPane({
       }
     }
     let run: { time: UTCTimestamp; value: number }[] = [];
-    const cyanAnchors: { time: UTCTimestamp; value: number }[] = []; // point-1 of each cyan run
     const flush = () => {
       if (run.length >= 2) {
         arr.push({ data: run, color: "#22d3ee", order: 1100 });
         const last = run[run.length - 1];
         labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(run.length), color: "#22d3ee", above: false });
-        cyanAnchors.push(run[0]); // its first higher-low (point 1)
       }
       run = [];
     };
@@ -316,8 +306,6 @@ function InstrumentPane({
       }
     }
     flush();
-    // Line connecting the point-1 (anchor) of each successive cyan run — adaptive.
-    pushAdaptive(cyanAnchors);
     // Opposite side — lower-highs trendline: once a swing high prints LOWER than
     // the previous swing high, anchor it and keep connecting each next lower swing
     // high into a falling line through the high points.
@@ -328,13 +316,11 @@ function InstrumentPane({
       }
     }
     let hrun: { time: UTCTimestamp; value: number }[] = [];
-    const orangeAnchors: { time: UTCTimestamp; value: number }[] = []; // point-1 of each orange run
     const hflush = () => {
       if (hrun.length >= 2) {
         arr.push({ data: hrun, color: "#f97316", order: 1100 });
         const last = hrun[hrun.length - 1];
         labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(hrun.length), color: "#f97316", above: true });
-        orangeAnchors.push(hrun[0]); // its first lower-high (point 1)
       }
       hrun = [];
     };
@@ -347,8 +333,6 @@ function InstrumentPane({
       }
     }
     hflush();
-    // Line connecting the point-1 (anchor) of each successive orange run — adaptive.
-    pushAdaptive(orangeAnchors);
     return { lines: arr, labels };
   }, [trendA, trendS, c.candles]);
   const extraLines = trendOverlay.lines.length ? (trendOverlay.lines as never) : undefined;
