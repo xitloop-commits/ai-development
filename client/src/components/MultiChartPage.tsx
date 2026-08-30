@@ -289,12 +289,13 @@ function InstrumentPane({
       }
     }
     let run: { time: UTCTimestamp; value: number }[] = [];
-    const cyanLbls: { t: number; color: string; above: boolean }[] = [];
+    let cyanNo = 0; // set number of each cyan (higher-lows) line
     const flush = () => {
       if (run.length >= 2) {
+        cyanNo += 1;
         arr.push({ data: run, color: "#22d3ee", order: 1100 });
-        const mid = run[Math.floor(run.length / 2)]; // middle of the line
-        cyanLbls.push({ t: (mid.time as number) - IST_OFFSET_SECONDS, color: "#22d3ee", above: false });
+        const last = run[run.length - 1];
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: `${cyanNo}·${run.length}`, color: "#22d3ee", above: false });
       }
       run = [];
     };
@@ -317,12 +318,13 @@ function InstrumentPane({
       }
     }
     let hrun: { time: UTCTimestamp; value: number }[] = [];
-    const orangeLbls: { t: number; color: string; above: boolean }[] = [];
+    let orangeNo = 0; // set number of each orange (lower-highs) line
     const hflush = () => {
       if (hrun.length >= 2) {
+        orangeNo += 1;
         arr.push({ data: hrun, color: "#f97316", order: 1100 });
-        const mid = hrun[Math.floor(hrun.length / 2)]; // middle of the line
-        orangeLbls.push({ t: (mid.time as number) - IST_OFFSET_SECONDS, color: "#f97316", above: false });
+        const last = hrun[hrun.length - 1];
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: `${orangeNo}·${hrun.length}`, color: "#f97316", above: true });
       }
       hrun = [];
     };
@@ -335,10 +337,6 @@ function InstrumentPane({
       }
     }
     hflush();
-    // Number only the LAST 3 lines per side, 1..3 (oldest of the three = 1).
-    for (const lbls of [cyanLbls, orangeLbls]) {
-      lbls.slice(-3).forEach((l, i) => labels.push({ ...l, text: String(i + 1) }));
-    }
     return { lines: arr, labels };
   }, [trendA, trendS, c.candles]);
   const extraLines = trendOverlay.lines.length ? (trendOverlay.lines as never) : undefined;
