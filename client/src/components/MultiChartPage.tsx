@@ -429,17 +429,18 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Always-on TSL — moves to a candle's LOW only when that candle's OPEN and
-  // CLOSE are BOTH above the previous candle's open and close (a confirmed step
-  // up); otherwise it holds. Completed candles only (forming candle excluded).
+  // Always-on TSL — moves to a candle's BODY MIDPOINT (½(open+close)) only when
+  // that candle's OPEN and CLOSE are BOTH above the previous candle's open and
+  // close (a confirmed step up); otherwise it holds. Completed candles only.
+  const bodyMid = (k: { open: number; close: number }) => ((k.open as number) + (k.close as number)) / 2;
   const swingTsl = useMemo(() => {
     const a = c.candles;
     const lastIdx = a.length - 2; // n-1 is still forming
     if (lastIdx < 0) return null;
-    let tsl = a[0].low as number; // seed so a line always shows
+    let tsl = bodyMid(a[0]); // seed so a line always shows
     for (let i = 1; i <= lastIdx; i++) {
       if ((a[i].open as number) > (a[i - 1].open as number) && (a[i].close as number) > (a[i - 1].close as number)) {
-        tsl = a[i].low as number; // step the TSL onto this confirmed-up candle
+        tsl = bodyMid(a[i]); // step the TSL onto this confirmed-up candle's body midpoint
       }
     }
     return tsl;
