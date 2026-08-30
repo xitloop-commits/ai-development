@@ -271,12 +271,35 @@ function InstrumentPane({
   }, [c.candles, taOpts, indicators, intervalSec, optLinesQ.data]);
   const extraLines = useMemo(() => {
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
-    const arr = [
+    const arr: { data: { time: UTCTimestamp; value?: number }[]; color: string; order?: number }[] = [
       ...(trendS?.lines ?? []).map((l) => ({ ...l, order: 1000 })),
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ];
+    // Higher-lows trendline (Partha 2026-08-30): once a swing low prints HIGHER
+    // than the previous swing low, anchor it and keep connecting each next swing
+    // low that is higher again — a rising line through the low points. A swing low
+    // that isn't higher ends the run; a new run may start later.
+    const a = c.candles;
+    const n = a.length;
+    const lows: { t: UTCTimestamp; v: number }[] = [];
+    for (let i = 1; i < n - 1; i++) {
+      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) {
+        lows.push({ t: a[i].time as UTCTimestamp, v: a[i].low as number });
+      }
+    }
+    let run: { time: UTCTimestamp; value: number }[] = [];
+    const flush = () => { if (run.length >= 2) arr.push({ data: run, color: "#22d3ee", order: 1100 }); run = []; };
+    for (let k = 1; k < lows.length; k++) {
+      if (lows[k].v > lows[k - 1].v) {
+        if (run.length === 0) run.push({ time: lows[k - 1].t, value: lows[k - 1].v });
+        run.push({ time: lows[k].t, value: lows[k].v });
+      } else {
+        flush();
+      }
+    }
+    flush();
     return arr.length ? (arr as never) : undefined;
-  }, [trendA, trendS]);
+  }, [trendA, trendS, c.candles]);
   // T172 — SERVER-AUTHORITATIVE S/R zones for this pane's contract (merged,
   // retest-counted). TickChart splits them by current price into T/S levels.
   // cutoffTs = last closed candle's raw epoch, so during a replay the levels
