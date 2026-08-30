@@ -289,13 +289,11 @@ function InstrumentPane({
       }
     }
     let run: { time: UTCTimestamp; value: number }[] = [];
-    let cyanNo = 0; // set number of each cyan (higher-lows) line
     const flush = () => {
       if (run.length >= 2) {
-        cyanNo += 1;
         arr.push({ data: run, color: "#22d3ee", order: 1100 });
         const last = run[run.length - 1];
-        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: `${cyanNo}·${run.length}`, color: "#22d3ee", above: false });
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(run.length), color: "#22d3ee", above: false });
       }
       run = [];
     };
@@ -318,13 +316,11 @@ function InstrumentPane({
       }
     }
     let hrun: { time: UTCTimestamp; value: number }[] = [];
-    let orangeNo = 0; // set number of each orange (lower-highs) line
     const hflush = () => {
       if (hrun.length >= 2) {
-        orangeNo += 1;
         arr.push({ data: hrun, color: "#f97316", order: 1100 });
         const last = hrun[hrun.length - 1];
-        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: `${orangeNo}·${hrun.length}`, color: "#f97316", above: true });
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(hrun.length), color: "#f97316", above: true });
       }
       hrun = [];
     };
