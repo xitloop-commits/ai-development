@@ -454,6 +454,21 @@ function InstrumentPane({
     if (n < 2) return null;
     return a[n - 2].low as number; // n-1 is still forming
   }, [c.candles]);
+  // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL climbed up (a
+  // higher-low candle). Resets to 0 on a lower-low candle. Completed candles only.
+  const climbLabels = useMemo(() => {
+    const a = c.candles;
+    const n = a.length;
+    const out: { t: number; text: string }[] = [];
+    let climbs = 0;
+    for (let i = 1; i < n - 1; i++) {
+      const lo = a[i].low as number;
+      const prev = a[i - 1].low as number;
+      if (lo > prev) { climbs += 1; out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, text: `s${climbs}` }); }
+      else if (lo < prev) { climbs = 0; }
+    }
+    return out;
+  }, [c.candles]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
@@ -523,6 +538,7 @@ function InstrumentPane({
         blueCandleTimes={blueCandleTimes}
         greenCandleTimes={greenCandleTimes}
         tslLevel={swingTsl}
+        climbLabels={climbLabels}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}

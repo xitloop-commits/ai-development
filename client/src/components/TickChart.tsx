@@ -192,6 +192,9 @@ export interface TickChartProps {
   /** Always-on TSL level (the live candle-TSL when no trade is open) — drawn as a
    *  solid red price line so a TSL line is always on the chart. */
   tslLevel?: number | null;
+  /** TSL climb labels (s1, s2, …) — how many consecutive up-climbs the TSL did.
+   *  Placed below the climbing candle. Raw bucket epoch sec (IST added here). */
+  climbLabels?: { t: number; text: string }[];
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -245,6 +248,7 @@ export function TickChart({
   maLevel,
   maLevelColor,
   tslLevel,
+  climbLabels,
   header,
   loading,
   emptyText,
@@ -383,6 +387,11 @@ export function TickChart({
       ...(greenCandleTimes ?? []).map((t) => ({
         time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
         position: "aboveBar" as const, shape: "arrowDown" as const, color: "#22c55e",
+      })),
+      // TSL climb labels (s1, s2, …) below the climbing candle.
+      ...(climbLabels ?? []).map((c) => ({
+        time: (c.t + IST_OFFSET_SECONDS) as UTCTimestamp,
+        position: "belowBar" as const, shape: "circle" as const, color: "#f23645", text: c.text,
       })),
     ];
     const allMarkers = swingMarks.length
@@ -949,7 +958,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
