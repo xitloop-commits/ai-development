@@ -429,9 +429,21 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
-  // lower anchor and UP on a higher one; the forming candle never moves it.
-  const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
+  // Always-on TSL — moves to a candle's LOW only when that candle's OPEN and
+  // CLOSE are BOTH above the previous candle's open and close (a confirmed step
+  // up); otherwise it holds. Completed candles only (forming candle excluded).
+  const swingTsl = useMemo(() => {
+    const a = c.candles;
+    const lastIdx = a.length - 2; // n-1 is still forming
+    if (lastIdx < 0) return null;
+    let tsl = a[0].low as number; // seed so a line always shows
+    for (let i = 1; i <= lastIdx; i++) {
+      if ((a[i].open as number) > (a[i - 1].open as number) && (a[i].close as number) > (a[i - 1].close as number)) {
+        tsl = a[i].low as number; // step the TSL onto this confirmed-up candle
+      }
+    }
+    return tsl;
+  }, [c.candles]);
   const replayMarker = useReplayMarker();
   // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
   const breakoutLevel = useMemo(() => {
