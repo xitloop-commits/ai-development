@@ -364,7 +364,7 @@ export function TickChart({
           if (blueSet && blueSet.has(ct)) {
             d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // bottom of down-run — BLUE (no border)
           } else if (greenSet && greenSet.has(ct)) {
-            d.color = "#22c55e"; d.borderColor = "#22c55e"; d.wickColor = "#22c55e"; // top of up-run — bright GREEN (no border)
+            d.color = "#22c55e"; // top of up-run — body only bright GREEN, natural border/wick
           } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
