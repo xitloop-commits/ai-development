@@ -289,11 +289,13 @@ function InstrumentPane({
       }
     }
     let run: { time: UTCTimestamp; value: number }[] = [];
+    const cyanAnchors: { time: UTCTimestamp; value: number }[] = []; // point-1 of each cyan run
     const flush = () => {
       if (run.length >= 2) {
         arr.push({ data: run, color: "#22d3ee", order: 1100 });
         const last = run[run.length - 1];
         labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(run.length), color: "#22d3ee", above: false });
+        cyanAnchors.push(run[0]); // its first higher-low (point 1)
       }
       run = [];
     };
@@ -306,6 +308,10 @@ function InstrumentPane({
       }
     }
     flush();
+    // Green line connecting the point-1 (anchor) of each successive cyan run.
+    if (cyanAnchors.length >= 2) {
+      arr.push({ data: cyanAnchors, color: "#22c55e", order: 1101 });
+    }
     // Opposite side — lower-highs trendline: once a swing high prints LOWER than
     // the previous swing high, anchor it and keep connecting each next lower swing
     // high into a falling line through the high points.
