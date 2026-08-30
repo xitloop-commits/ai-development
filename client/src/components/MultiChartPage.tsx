@@ -276,6 +276,14 @@ function InstrumentPane({
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ] as never;
     const labels: { t: number; text: string; color: string; above?: boolean }[] = [];
+    // Anchor line drawn segment-by-segment, coloured by direction: a rising
+    // segment is green, a falling one is red (adaptive). Used for both anchor lines.
+    const pushAdaptive = (anchors: { time: UTCTimestamp; value: number }[]) => {
+      for (let i = 1; i < anchors.length; i++) {
+        const up = anchors[i].value > anchors[i - 1].value;
+        arr.push({ data: [anchors[i - 1], anchors[i]], color: up ? "#22c55e" : "#ef4444", order: 1101 });
+      }
+    };
     // Higher-lows trendline (Partha 2026-08-30): once a swing low prints HIGHER
     // than the previous swing low, anchor it and keep connecting each next swing
     // low that is higher again — a rising line through the low points. A swing low
@@ -308,10 +316,8 @@ function InstrumentPane({
       }
     }
     flush();
-    // Green line connecting the point-1 (anchor) of each successive cyan run.
-    if (cyanAnchors.length >= 2) {
-      arr.push({ data: cyanAnchors, color: "#22c55e", order: 1101 });
-    }
+    // Line connecting the point-1 (anchor) of each successive cyan run — adaptive.
+    pushAdaptive(cyanAnchors);
     // Opposite side — lower-highs trendline: once a swing high prints LOWER than
     // the previous swing high, anchor it and keep connecting each next lower swing
     // high into a falling line through the high points.
@@ -341,10 +347,8 @@ function InstrumentPane({
       }
     }
     hflush();
-    // Red line connecting the point-1 (anchor) of each successive orange run.
-    if (orangeAnchors.length >= 2) {
-      arr.push({ data: orangeAnchors, color: "#ef4444", order: 1101 });
-    }
+    // Line connecting the point-1 (anchor) of each successive orange run — adaptive.
+    pushAdaptive(orangeAnchors);
     return { lines: arr, labels };
   }, [trendA, trendS, c.candles]);
   const extraLines = trendOverlay.lines.length ? (trendOverlay.lines as never) : undefined;
