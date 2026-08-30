@@ -325,11 +325,12 @@ function InstrumentPane({
     // REPLAY-only: draw the real rolling candle-TSL (dynTslLevel). Paper/live keep
     // the existing stopLossPrice-as-TSL line.
     const all = buildTradeLines(shown, { dynTsl: !!activeReplayRunId });
-    // Toggle each line by title: Entry / Exit / TSL+SL. Target always shown.
+    // Toggle Entry / Exit by title; Target always. TSL/SL are DROPPED here — the
+    // TSL is drawn as an always-on, trade-independent line (swingTsl) instead.
     return all.filter((l) => {
       if (l.title === "Entry") return indicators.has("entry");
       if (l.title === "Exit") return indicators.has("exit");
-      if (l.title === "TSL" || l.title === "SL") return indicators.has("tsl");
+      if (l.title === "TSL" || l.title === "SL") return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on primitive levels, not row identity
