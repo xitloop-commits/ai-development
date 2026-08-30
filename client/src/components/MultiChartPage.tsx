@@ -478,17 +478,6 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Per-candle TSL anchor (completed candles only) — plain jump to each candle's
-  // LOW. n-1 is still forming, so it's excluded.
-  const tslAnchors = useMemo(() => {
-    const a = c.candles;
-    const n = a.length;
-    const out: { t: number; v: number }[] = [];
-    for (let i = 0; i < n - 1; i++) {
-      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v: a[i].low as number });
-    }
-    return out;
-  }, [c.candles]);
   // Always-on TSL — moves to a candle's BODY MIDPOINT (½(open+close)) only when
   // that candle's OPEN and CLOSE are BOTH above the previous candle's open and
   // close (a confirmed step up); otherwise it holds. Completed candles only.
@@ -532,17 +521,6 @@ function InstrumentPane({
     const last = lows.slice(-6);
     return last.length ? last.reduce((s, v) => s + v, 0) / last.length : null;
   }, [c.candles]);
-  // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL anchor climbed up.
-  // Resets to 0 when the anchor drops.
-  const climbLabels = useMemo(() => {
-    const out: { t: number; text: string }[] = [];
-    let climbs = 0;
-    for (let i = 1; i < tslAnchors.length; i++) {
-      if (tslAnchors[i].v > tslAnchors[i - 1].v) { climbs += 1; out.push({ t: tslAnchors[i].t, text: `s${climbs}` }); }
-      else if (tslAnchors[i].v < tslAnchors[i - 1].v) { climbs = 0; }
-    }
-    return out;
-  }, [tslAnchors]);
 
   return (
     <div
@@ -608,7 +586,6 @@ function InstrumentPane({
         blueCandleTimes={blueCandleTimes}
         greenCandleTimes={greenCandleTimes}
         tslLevel={swingTsl}
-        climbLabels={climbLabels}
         countLabels={countLabels}
         breakoutLevel={breakoutLevel}
         breakinLevel={breakinLevel}
