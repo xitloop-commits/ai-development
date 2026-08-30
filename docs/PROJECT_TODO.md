@@ -3078,6 +3078,28 @@ are not yet validated for that case.
 
 ---
 
+## Swing TSL — flip to paper/live after replay validation (2026-08-30)
+
+New structure-based TSL (`trailMode: "swing"`) built and LIVE **in replay only**.
+Rules (locked with Partha): stop sits on the **last confirmed swing low** (the blue
+candle: low < prev candle's low, confirmed once the next candle doesn't go lower);
+**seed** = most recent swing low at/below entry; **ratchet up** on every higher
+confirmed swing low, never down; **exit** on a candle **CLOSE** below the level.
+Raw candles (no HA) so levels match the on-chart blue candles. Short = mirror on
+swing highs. **Q4 deferred:** optional sideways filter (only lift the stop after a
+green swing-high confirms a leg up) — currently NO filter (every higher swing low
+lifts it).
+
+Implementation: `swingTslLevel` + `seedSwingTsl` + `ratchetSwingStop` in
+[tickHandler.ts](server/portfolio/tickHandler.ts). Gated by `getActiveRunId() != null`
+(replay active) — this OVERRIDES the configured trailMode in replay; paper/live keep
+their existing candle/peak TSL.
+
+**To flip on for paper/live:** replace the `useSwing = getActiveRunId() != null`
+gate with a real config switch (e.g. `master.tsl.trailMode === "swing"`) once
+validated on complete replay runs. **Blocker:** validate edge on COMPLETED runs
+first (win rate / net-of-charges vs the current candle TSL).
+
 ## How to use this file
 
 - **Adding a new TODO:** Append at the appropriate priority slot. Keep entries tight — what / status / blocker / link.
