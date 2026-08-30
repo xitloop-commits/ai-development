@@ -316,11 +316,13 @@ function InstrumentPane({
       }
     }
     let hrun: { time: UTCTimestamp; value: number }[] = [];
+    const orangeAnchors: { time: UTCTimestamp; value: number }[] = []; // point-1 of each orange run
     const hflush = () => {
       if (hrun.length >= 2) {
         arr.push({ data: hrun, color: "#f97316", order: 1100 });
         const last = hrun[hrun.length - 1];
         labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(hrun.length), color: "#f97316", above: true });
+        orangeAnchors.push(hrun[0]); // its first lower-high (point 1)
       }
       hrun = [];
     };
@@ -333,6 +335,10 @@ function InstrumentPane({
       }
     }
     hflush();
+    // Red line connecting the point-1 (anchor) of each successive orange run.
+    if (orangeAnchors.length >= 2) {
+      arr.push({ data: orangeAnchors, color: "#ef4444", order: 1101 });
+    }
     return { lines: arr, labels };
   }, [trendA, trendS, c.candles]);
   const extraLines = trendOverlay.lines.length ? (trendOverlay.lines as never) : undefined;
