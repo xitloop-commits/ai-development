@@ -216,7 +216,7 @@ async function firstRecvTs(file: string): Promise<number | null> {
 }
 
 /** Stream one .ndjson.gz, paced by recv_ts from the shared anchor, into tickBus. */
-async function streamFile(file: string, t0RecvTs: number, t0Wall: number, speed: number): Promise<void> {
+async function streamFile(file: string, t0RecvTs: number, t0Wall: number, speed: number, skipBeforeTs = 0): Promise<void> {
   if (!fs.existsSync(file)) return;
   activeStreams++;
   const rl = readline.createInterface({
@@ -234,6 +234,8 @@ async function streamFile(file: string, t0RecvTs: number, t0Wall: number, speed:
       }
       const recvTs = rec.recv_ts;
       if (typeof recvTs !== "number") continue;
+      // Seek: fast-skip everything before the marker time (no emit, no delay).
+      if (recvTs < skipBeforeTs) continue;
       // Pace: this event should fire at t0Wall + elapsed/speed.
       const target = t0Wall + ((recvTs - t0RecvTs) * 1000) / speed;
       const wait = target - Date.now();
@@ -315,7 +317,7 @@ export function nowMs(): number {
 export async function startReplay(
   date: string,
   speed = 1,
-  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number; instruments?: string[]; timeframeSec?: number } = {},
+  opts: { models?: Record<string, string>; note?: string | null; openingCapital?: number; instruments?: string[]; timeframeSec?: number; startFromTs?: number } = {},
 ): Promise<{ runId: string }> {
   if (running) throw new Error("A replay is already running — stop it first.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Bad date: ${date}`);
@@ -357,7 +359,10 @@ export async function startReplay(
   // Shared anchor = earliest recv_ts across all files → mapped to "now".
   const firsts = (await Promise.all(files.map(firstRecvTs))).filter((t): t is number => t != null);
   if (firsts.length === 0) throw new Error(`No usable ticks in ${date}`);
-  const t0RecvTs = Math.min(...firsts);
+  const sessionStart = Math.min(...firsts);
+  // Seek: if a valid marker time is given, anchor the sim clock there and skip
+  // everything before it (fast, no re-stream). Else start at session open.
+  const t0RecvTs = opts.startFromTs != null && opts.startFromTs > sessionStart ? opts.startFromTs : sessionStart;
   const t0Wall = Date.now();
 
   // Record what this run is testing. Models come from the live SEA control state
@@ -395,7 +400,7 @@ export async function startReplay(
   startFeatureReplay(date, speed, ran);
 
   // Fire all streams concurrently; flip `running` off when the last one ends.
-  void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(async () => {
+  void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed, t0RecvTs))).then(async () => {
     running = false;
     anchorRecvTs = null;
     // Close the run so it stops being the trade sink — otherwise a live signal

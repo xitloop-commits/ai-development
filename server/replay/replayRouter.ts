@@ -61,6 +61,9 @@ export const replayRouter = router({
         /** Chart/analysis timeframe (seconds) the replay opens at — stored on
          *  the run so the ribbon-geometry recorder uses it (fixed at start). */
         timeframeSec: z.number().int().positive().max(3600).optional(),
+        /** Seek: recv_ts epoch SECONDS to start the replay from (marker line).
+         *  Ticks before it are fast-skipped; omitted = start at session open. */
+        startFromTs: z.number().int().positive().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -116,6 +119,7 @@ export const replayRouter = router({
           openingCapital: input.openingCapital,
           note: input.note ?? null,
           timeframeSec: input.timeframeSec,
+          startFromTs: input.startFromTs,
         });
         return { ...getReplayStatus(), runId };
       } catch (e: unknown) {
