@@ -71,6 +71,12 @@ class RibbonLeg:
         """Fresh contract / timeframe: drop candles, line, noise history."""
         self._bucket: int | None = None
         self._close = 0.0
+        # Candle LOW tracking (sma5 swing-entry): running low of the current
+        # bucket, the last-closed candle's low, and the one before it — so we can
+        # tell "the candle that just closed made a lower low" (a pullback dip).
+        self._low: float | None = None
+        self.last_low: float | None = None
+        self.prev_low: float | None = None
         self._ema: float | None = None
         self._n_closes = 0
         self._line: deque[float | None] = deque(maxlen=self.lookback + 1)
@@ -121,14 +127,30 @@ class RibbonLeg:
         if self._bucket is None:
             self._bucket = bucket
             self._close = price
+            self._low = price
             return None
         if bucket == self._bucket:
             self._close = price
+            if self._low is None or price < self._low:
+                self._low = price
             return None
+        # A candle just closed — shift the candle-low history before rolling over.
+        self.prev_low = self.last_low
+        self.last_low = self._low
         st = self._close_candle()
         self._bucket = bucket
         self._close = price
+        self._low = price  # start the new bucket's low
         return st
+
+    def is_low_candle(self) -> bool:
+        """True when the candle that just closed made a LOWER low than the one
+        before it — a pullback dip (used by the sma5 swing entry)."""
+        return (
+            self.last_low is not None
+            and self.prev_low is not None
+            and self.last_low < self.prev_low
+        )
 
     def _close_candle(self) -> int:
         close = self._close
@@ -216,7 +238,7 @@ class PremiumRibbonDetector:
         min_noise_pct: float = 0.002,
         exit_on_gray: bool = True,
     ) -> None:
-        self.source = source
+        self.source = source  # "sma5" | "ma" — sma5 uses the swing (low-candle) entry
         self.exit_on_gray = bool(exit_on_gray)
         mk: Callable[[], RibbonLeg] = lambda: RibbonLeg(
             source, candle_sec, lookback, gray_pctile, min_samples, min_noise_pct,
@@ -279,7 +301,23 @@ class PremiumRibbonDetector:
                 float(leg_state.last_close),
                 float(leg_state.last_deg),
             ))
-        if st is None or st == prev:
+        if st is None:
+            return []
+        # SMA5 swing entry (Partha 2026-08-30): enter only when the ribbon is GREEN
+        # (up) AND the candle that just closed made a lower low — a pullback dip —
+        # so the fill lands on the NEXT candle. Fires even without a state change
+        # (a dip inside an ongoing green run is a valid entry). Exit unchanged:
+        # leaving green (gray/down) ends the ride.
+        if self.source == "sma5":
+            if st == 1 and leg_state.is_low_candle():
+                return [f"LONG_{leg}"]
+            if prev == 1 and st != 1 and self.exit_on_gray:
+                return [f"EXIT_{leg}"]
+            if st == -1:
+                return [f"EXIT_{leg}"]
+            return []
+        # MA cohort — unchanged: fire on the transition INTO up, exit on leaving up.
+        if st == prev:
             return []
         if st == 1:
             return [f"LONG_{leg}"]
@@ -310,7 +348,12 @@ class PremiumRibbonDetector:
             if leg_state.gray_pctile <= 0
             else len(leg_state._abs_hist) >= leg_state.min_samples
         )
-        return [f"LONG_{leg}"] if warmed and leg_state.state == 1 else []
+        if not (warmed and leg_state.state == 1):
+            return []
+        # sma5 also requires the last candle to be a pullback low (same gate as live).
+        if self.source == "sma5" and not leg_state.is_low_candle():
+            return []
+        return [f"LONG_{leg}"]
 
     def drain_closed(self) -> list[tuple[str, int, float, int, float, float]]:
         """T169-B — pull + clear the queued closed-candle line samples

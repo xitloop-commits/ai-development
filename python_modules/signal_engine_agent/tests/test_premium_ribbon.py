@@ -72,7 +72,7 @@ def test_quiet_series_stays_gray_no_events() -> None:
 
 
 def test_warm_is_silent_and_state_carries() -> None:
-    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    det = PremiumRibbonDetector("ma", candle_sec=60)
     prices, _, fall_start = _series()
     up_hist = prices[:fall_start]          # ends mid-uptrend (state UP)
     det.warm("CE", _ticks(up_hist))
@@ -93,7 +93,7 @@ def test_warm_is_silent_and_state_carries() -> None:
 def test_warm_fires_long_if_ends_up() -> None:
     # Partha 2026-08-23: if warm-up completes with the ribbon already UP, warm()
     # fires a LONG so an into-green turn INSIDE the history isn't missed.
-    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    det = PremiumRibbonDetector("ma", candle_sec=60)
     prices, _, fall_start = _series()
     up_hist = prices[:fall_start]           # ends mid-uptrend (state UP)
     evs = det.warm("CE", _ticks(up_hist))
@@ -113,10 +113,12 @@ def test_warm_silent_if_not_ending_up() -> None:
 def test_gray_exit_fires_on_plateau() -> None:
     """Partha 2026-08-13: a ride ends the moment the ribbon LEAVES UP — a flat
     plateau (gray) after a rise must fire the EXIT without any DOWN turn."""
-    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    det = PremiumRibbonDetector("ma", candle_sec=60)
     prices, _, fall_start = _series()
     up = prices[:fall_start]               # quiet + strong rise (ends UP)
-    plateau = [up[-1]] * 15                # dead flat — slope decays into gray
+    # ma is a 20-EMA (slower than the 5-SMA), so it needs a longer flat stretch
+    # for the slope to decay below the noise floor into gray.
+    plateau = [up[-1]] * 60                # dead flat — slope decays into gray
     events = _run(det, "CE", up + plateau)
     names = [e for _, e in events]
     assert "LONG_CE" in names
@@ -126,7 +128,7 @@ def test_gray_exit_fires_on_plateau() -> None:
 def test_hold_through_gray_when_disabled() -> None:
     """exit_on_gray=False restores the legacy rule: the plateau holds, only a
     DOWN turn exits."""
-    det = PremiumRibbonDetector("sma5", candle_sec=60, exit_on_gray=False)
+    det = PremiumRibbonDetector("ma", candle_sec=60, exit_on_gray=False)
     prices, _, fall_start = _series()
     up = prices[:fall_start]
     plateau = [up[-1]] * 15
@@ -189,3 +191,25 @@ def test_warm_does_not_queue_chart_lines() -> None:
     prices, _, _ = _series()
     det.warm("CE", _ticks(prices))
     assert det.drain_closed() == []
+
+
+def test_sma5_enters_on_green_pullback_low() -> None:
+    """sma5 swing entry (Partha 2026-08-30): while the SMA5 ribbon is GREEN, a
+    candle that makes a LOWER low (a pullback dip) fires LONG — enter next candle."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    det.set_gray_pctile(0.0)  # binary SMA5 (no gray, no 15-sample warm-up) as in prod
+    prices = [100.0 + i for i in range(11)]   # 100..110, SMA5 rising (green)
+    prices.append(109.5)                       # pullback low (below 110), SMA5 still up
+    prices.append(111.0)                       # next tick closes the dip candle → entry
+    names = [e for _, e in _run(det, "CE", prices)]
+    assert "LONG_CE" in names, f"no LONG on the green pullback dip: {names}"
+
+
+def test_sma5_no_entry_without_low_candle() -> None:
+    """A strictly rising series is green but never dips, so the sma5 swing entry
+    never fires (no low candle)."""
+    det = PremiumRibbonDetector("sma5", candle_sec=60)
+    det.set_gray_pctile(0.0)  # binary SMA5
+    prices = [100.0 + i for i in range(20)]   # monotonic rise, no lower-low candle
+    names = [e for _, e in _run(det, "CE", prices)]
+    assert "LONG_CE" not in names, f"unexpected LONG without a low candle: {names}"
