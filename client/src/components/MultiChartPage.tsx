@@ -499,6 +499,20 @@ function InstrumentPane({
           <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
         </div>
       )}
+      {swingTsl != null && c.candles.length > 0 && (() => {
+        const ltp = c.candles[c.candles.length - 1].close as number;
+        const diff = ltp - swingTsl;
+        const pct = ltp ? (diff / ltp) * 100 : 0;
+        return (
+          <div
+            className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums backdrop-blur-sm"
+            style={{ color: diff >= 0 ? "#22c55e" : "#ef4444" }}
+            title="Current price (LTP) minus the TSL line (value + %)"
+          >
+            ltp→TSL {diff >= 0 ? "+" : ""}{diff.toFixed(2)} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%)
+          </div>
+        );
+      })()}
       <button
         className="absolute bottom-1 left-1 z-20 rounded border border-border/50 bg-background/80 px-1.5 py-0.5 text-[0.625rem] font-semibold backdrop-blur-sm hover:bg-accent"
         title={replayMarker != null
