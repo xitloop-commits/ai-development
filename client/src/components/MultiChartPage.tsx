@@ -453,6 +453,18 @@ function InstrumentPane({
     }
     return cnt ? sum / cnt : null;
   }, [c.candles]);
+  // Breakin line — average of the previous swing-low (blue arrow) lows.
+  const breakinLevel = useMemo(() => {
+    const a = c.candles;
+    const n = a.length;
+    let sum = 0; let cnt = 0;
+    for (let i = 1; i < n - 1; i++) {
+      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) {
+        sum += a[i].low as number; cnt += 1;
+      }
+    }
+    return cnt ? sum / cnt : null;
+  }, [c.candles]);
   // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL anchor climbed up.
   // Resets to 0 when the anchor drops.
   const climbLabels = useMemo(() => {
@@ -505,6 +517,7 @@ function InstrumentPane({
         tslLevel={swingTsl}
         climbLabels={climbLabels}
         breakoutLevel={breakoutLevel}
+        breakinLevel={breakinLevel}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}

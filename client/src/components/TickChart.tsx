@@ -198,6 +198,8 @@ export interface TickChartProps {
   /** Breakout line — the average of the previous swing-high (green arrow) prices,
    *  drawn as a dashed horizontal line. */
   breakoutLevel?: number | null;
+  /** Breakin line — the average of the previous swing-low (blue arrow) prices. */
+  breakinLevel?: number | null;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -253,6 +255,7 @@ export function TickChart({
   tslLevel,
   climbLabels,
   breakoutLevel,
+  breakinLevel,
   header,
   loading,
   emptyText,
@@ -748,6 +751,13 @@ export function TickChart({
         axisLabelVisible: true, title: "Breakout",
       });
     }
+    // Breakin line — average of the previous swing-low (blue arrow) prices.
+    if (breakinLevel != null && breakinLevel > 0) {
+      series.createPriceLine({
+        price: breakinLevel, color: "#3b82f6", lineWidth: 1, lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true, title: "Breakin",
+      });
+    }
 
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
@@ -969,7 +979,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, breakoutLevel, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, breakoutLevel, breakinLevel, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
