@@ -350,8 +350,6 @@ export function TickChart({
       const whiteT = whiteCandleTime != null ? whiteCandleTime + IST_OFFSET_SECONDS : null;
       const blueSet = blueCandleTimes && blueCandleTimes.length
         ? new Set(blueCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
-      const greenSet = greenCandleTimes && greenCandleTimes.length
-        ? new Set(greenCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
         ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
@@ -363,8 +361,6 @@ export function TickChart({
           const ct = c.time as number;
           if (blueSet && blueSet.has(ct)) {
             d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // bottom of down-run — BLUE (no border)
-          } else if (greenSet && greenSet.has(ct)) {
-            d.color = "#22c55e"; // top of up-run — body only bright GREEN, natural border/wick
           } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
@@ -376,7 +372,18 @@ export function TickChart({
         }),
       );
     }
-    if (markers.length) createSeriesMarkers(series, markers);
+    // Swing-high (top of up-run) markers — a red down-arrow ABOVE the candle,
+    // no body recolour. Merged with the trade markers, sorted ascending.
+    const greenMarks: SeriesMarker<UTCTimestamp>[] = (greenCandleTimes ?? []).map((t) => ({
+      time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
+      position: "aboveBar",
+      shape: "arrowDown",
+      color: "#ef4444",
+    }));
+    const allMarkers = greenMarks.length
+      ? [...markers, ...greenMarks].sort((a, b) => (a.time as number) - (b.time as number))
+      : markers;
+    if (allMarkers.length) createSeriesMarkers(series, allMarkers);
     // Free-form gap overlays (steep/trend MA parallels). Whitespace points do
     // NOT reliably break a LineSeries (observed: it connected across gaps), so
     // each contiguous valued run becomes its OWN tiny series — guaranteed gaps.
