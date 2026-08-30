@@ -418,32 +418,26 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Per-candle TSL anchor (completed candles only) — plain jump to each candle's
-  // LOW. n-1 is still forming, so it's excluded.
-  const tslAnchors = useMemo(() => {
+  // TSL series (completed candles only). Each step: the candle's LOW, but never
+  // closer than 5% below that candle's close (min-gap), then RATCHET UP only — the
+  // running max — so the stop NEVER falls under any condition. Lagged by 2 candles
+  // (jmp -2): the newest 2 candles are excluded from the trail.
+  const TSL_BACK = 2;
+  const TSL_MIN_GAP = 0.05;
+  const tslSeries = useMemo(() => {
     const a = c.candles;
-    const n = a.length;
-    const out: { t: number; v: number }[] = [];
-    for (let i = 0; i < n - 1; i++) {
-      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v: a[i].low as number });
+    const lastIdx = a.length - 1 - TSL_BACK; // 2 bars back from the forming candle
+    const out: { t: number; v: number; climbed: boolean }[] = [];
+    let tsl: number | null = null;
+    for (let i = 0; i <= lastIdx; i++) {
+      const capped = Math.min(a[i].low as number, (a[i].close as number) * (1 - TSL_MIN_GAP));
+      const prev = tsl;
+      tsl = tsl == null ? capped : Math.max(tsl, capped); // ratchet up, never down
+      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v: tsl, climbed: prev != null && tsl > prev });
     }
     return out;
   }, [c.candles]);
-  // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
-  // lower anchor and UP on a higher one; the forming candle never moves it.
-  // Trail the low of the candle 2 bars back (jmp -2) — a looser lag than the last
-  // completed candle — but keep AT LEAST a 5% gap below the current price, so the
-  // stop is never pinned too close after a jump.
-  const TSL_BACK = 2;
-  const TSL_MIN_GAP = 0.05;
-  const swingTsl = useMemo(() => {
-    if (!tslAnchors.length) return null;
-    const anchor = tslAnchors[Math.max(0, tslAnchors.length - TSL_BACK)].v;
-    const ltp = c.candles.length ? (c.candles[c.candles.length - 1].close as number) : null;
-    if (ltp == null) return anchor;
-    const maxAllowed = ltp * (1 - TSL_MIN_GAP); // ≥5% below price
-    return Math.min(anchor, maxAllowed);
-  }, [tslAnchors, c.candles]);
+  const swingTsl = tslSeries.length ? tslSeries[tslSeries.length - 1].v : null;
   const replayMarker = useReplayMarker();
   // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
   const breakoutLevel = useMemo(() => {
@@ -476,12 +470,11 @@ function InstrumentPane({
   const climbLabels = useMemo(() => {
     const out: { t: number; text: string }[] = [];
     let climbs = 0;
-    for (let i = 1; i < tslAnchors.length; i++) {
-      if (tslAnchors[i].v > tslAnchors[i - 1].v) { climbs += 1; out.push({ t: tslAnchors[i].t, text: `s${climbs}` }); }
-      else if (tslAnchors[i].v < tslAnchors[i - 1].v) { climbs = 0; }
+    for (const p of tslSeries) {
+      if (p.climbed) { climbs += 1; out.push({ t: p.t, text: `s${climbs}` }); }
     }
     return out;
-  }, [tslAnchors]);
+  }, [tslSeries]);
 
   return (
     <div
