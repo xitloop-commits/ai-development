@@ -444,20 +444,26 @@ function InstrumentPane({
     }
     return { tsl, anchorTime, dir };
   }, [c.candles, back, maDir]);
-  // Always-on TSL — placed at the MOST RECENT confirmed swing low (the latest
-  // blue arrow), so it follows the current structure both up and down. Independent
-  // of any trade; a TSL line is ALWAYS on the chart from session open.
+  // Always-on TSL — placed when a low candle forms and keeps jumping DOWN to each
+  // new candle low, until a swing HIGH (green arrow) confirms the turn, which
+  // resets the leg so the TSL re-anchors to the next leg's lows. In effect: the
+  // lowest low since the most recent confirmed swing high. Independent of any
+  // trade; a TSL line is ALWAYS on the chart from session open.
   const swingTsl = useMemo(() => {
     const a = c.candles;
     const n = a.length;
-    let stop: number | null = null;
-    for (let i = 1; i < n - 1; i++) {
-      const isLow = (a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number);
-      if (isLow) stop = a[i].low as number; // latest confirmed blue arrow
+    let legMin: number | null = null;
+    let tsl: number | null = null;
+    for (let i = 0; i < n; i++) {
+      const lo = a[i].low as number;
+      legMin = legMin == null ? lo : Math.min(legMin, lo); // jump down to new lows
+      tsl = legMin;
+      // Confirmed swing high (green arrow) ends the leg → next candle starts fresh.
+      if (i >= 1 && i < n - 1 && (a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
+        legMin = null;
+      }
     }
-    // If the CURRENT (forming) candle is itself the low, stick to it too.
-    if (n >= 2 && (a[n - 1].low as number) < (a[n - 2].low as number)) stop = a[n - 1].low as number;
-    return stop;
+    return tsl;
   }, [c.candles]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
