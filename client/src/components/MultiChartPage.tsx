@@ -441,6 +441,18 @@ function InstrumentPane({
   // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
   // lower anchor and UP on a higher one; the forming candle never moves it.
   const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
+  // Breakout line — average of the previous swing-high (green arrow) highs.
+  const breakoutLevel = useMemo(() => {
+    const a = c.candles;
+    const n = a.length;
+    let sum = 0; let cnt = 0;
+    for (let i = 1; i < n - 1; i++) {
+      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
+        sum += a[i].high as number; cnt += 1;
+      }
+    }
+    return cnt ? sum / cnt : null;
+  }, [c.candles]);
   // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL anchor climbed up.
   // Resets to 0 when the anchor drops.
   const climbLabels = useMemo(() => {
@@ -492,6 +504,7 @@ function InstrumentPane({
         greenCandleTimes={greenCandleTimes}
         tslLevel={swingTsl}
         climbLabels={climbLabels}
+        breakoutLevel={breakoutLevel}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}

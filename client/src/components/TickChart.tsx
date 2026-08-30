@@ -195,6 +195,9 @@ export interface TickChartProps {
   /** TSL climb labels (s1, s2, …) — how many consecutive up-climbs the TSL did.
    *  Placed below the climbing candle. Raw bucket epoch sec (IST added here). */
   climbLabels?: { t: number; text: string }[];
+  /** Breakout line — the average of the previous swing-high (green arrow) prices,
+   *  drawn as a dashed horizontal line. */
+  breakoutLevel?: number | null;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -249,6 +252,7 @@ export function TickChart({
   maLevelColor,
   tslLevel,
   climbLabels,
+  breakoutLevel,
   header,
   loading,
   emptyText,
@@ -737,6 +741,13 @@ export function TickChart({
         axisLabelVisible: true, title: "TSL",
       });
     }
+    // Breakout line — average of the previous swing-high (green arrow) prices.
+    if (breakoutLevel != null && breakoutLevel > 0) {
+      series.createPriceLine({
+        price: breakoutLevel, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true, title: "Breakout",
+      });
+    }
 
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
@@ -958,7 +969,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, breakoutLevel, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
