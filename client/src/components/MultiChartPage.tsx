@@ -390,6 +390,17 @@ function InstrumentPane({
       }
       if (pivot) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
     }
+    // The current (forming) candle has no right side yet, so mark it blue live
+    // when its low is below the `back` bars to its left — a provisional new low.
+    const last = n - 1;
+    if (last >= back) {
+      const lo = c.candles[last].low as number;
+      let isLow = true;
+      for (let j = last - back; j < last; j++) {
+        if (!((c.candles[j].low as number) > lo)) { isLow = false; break; }
+      }
+      if (isLow) out.push((c.candles[last].time as number) - IST_OFFSET_SECONDS);
+    }
     return out;
   }, [c.candles, back]);
   // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
