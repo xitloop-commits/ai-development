@@ -443,32 +443,30 @@ function InstrumentPane({
   // lower anchor and UP on a higher one; the forming candle never moves it.
   const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
   const replayMarker = useReplayMarker();
-  // Breakout line — average of the previous swing-high (green arrow) highs from
-  // the PAST HOUR only (rolling 3600s window ending at the latest candle).
+  // Breakout line — average of the swing-high (green arrow) highs among the LAST
+  // 20 candles only.
   const breakoutLevel = useMemo(() => {
     const a = c.candles;
     const n = a.length;
     if (n < 2) return null;
-    const cutoff = (a[n - 1].time as number) - 3600;
+    const start = Math.max(1, n - 20);
     let sum = 0; let cnt = 0;
-    for (let i = 1; i < n - 1; i++) {
-      if ((a[i].time as number) < cutoff) continue;
+    for (let i = start; i < n - 1; i++) {
       if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
         sum += a[i].high as number; cnt += 1;
       }
     }
     return cnt ? sum / cnt : null;
   }, [c.candles]);
-  // Breakin line — average of the previous swing-low (blue arrow) lows from the
-  // PAST HOUR only (rolling 3600s window ending at the latest candle).
+  // Breakin line — average of the swing-low (blue arrow) lows among the LAST 20
+  // candles only.
   const breakinLevel = useMemo(() => {
     const a = c.candles;
     const n = a.length;
     if (n < 2) return null;
-    const cutoff = (a[n - 1].time as number) - 3600;
+    const start = Math.max(1, n - 20);
     let sum = 0; let cnt = 0;
-    for (let i = 1; i < n - 1; i++) {
-      if ((a[i].time as number) < cutoff) continue;
+    for (let i = start; i < n - 1; i++) {
       if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) {
         sum += a[i].low as number; cnt += 1;
       }
