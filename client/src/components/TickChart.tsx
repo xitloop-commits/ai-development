@@ -348,8 +348,6 @@ export function TickChart({
       // IST-shifted, so add the offset to match.
       const anchorT = tslAnchorTime != null ? tslAnchorTime + IST_OFFSET_SECONDS : null;
       const whiteT = whiteCandleTime != null ? whiteCandleTime + IST_OFFSET_SECONDS : null;
-      const blueSet = blueCandleTimes && blueCandleTimes.length
-        ? new Set(blueCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
         ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
@@ -359,9 +357,7 @@ export function TickChart({
             color?: string; borderColor?: string; wickColor?: string;
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
-          if (blueSet && blueSet.has(ct)) {
-            d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // bottom of down-run — BLUE (no border)
-          } else if (whiteT != null && ct === whiteT) {
+          if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
             d.color = "#eab308"; d.borderColor = "#fde047"; d.wickColor = "#fde047"; // anchor — SOLID gold
@@ -372,16 +368,21 @@ export function TickChart({
         }),
       );
     }
-    // Swing-high (top of up-run) markers — a red down-arrow ABOVE the candle,
-    // no body recolour. Merged with the trade markers, sorted ascending.
-    const greenMarks: SeriesMarker<UTCTimestamp>[] = (greenCandleTimes ?? []).map((t) => ({
-      time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
-      position: "aboveBar",
-      shape: "arrowDown",
-      color: "#ef4444",
-    }));
-    const allMarkers = greenMarks.length
-      ? [...markers, ...greenMarks].sort((a, b) => (a.time as number) - (b.time as number))
+    // Swing markers instead of candle recolour: swing LOW = blue up-arrow below
+    // the bar, swing HIGH = red down-arrow above. Merged with the trade markers,
+    // sorted ascending (lightweight-charts requires ascending marker times).
+    const swingMarks: SeriesMarker<UTCTimestamp>[] = [
+      ...(blueCandleTimes ?? []).map((t) => ({
+        time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
+        position: "belowBar" as const, shape: "arrowUp" as const, color: "#3b82f6",
+      })),
+      ...(greenCandleTimes ?? []).map((t) => ({
+        time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
+        position: "aboveBar" as const, shape: "arrowDown" as const, color: "#ef4444",
+      })),
+    ];
+    const allMarkers = swingMarks.length
+      ? [...markers, ...swingMarks].sort((a, b) => (a.time as number) - (b.time as number))
       : markers;
     if (allMarkers.length) createSeriesMarkers(series, allMarkers);
     // Free-form gap overlays (steep/trend MA parallels). Whitespace points do

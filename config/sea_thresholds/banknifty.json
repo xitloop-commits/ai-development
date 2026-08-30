@@ -31,7 +31,7 @@
     "maxhold_candles": 20
   },
   "ma_signal": {
-    "enabled": true,
+    "enabled": false,
     "ema_period": 20,
     "slope_lookback": 10,
     "thr_hi": 0.015,
@@ -43,7 +43,7 @@
     "ribbon_gray_pctile": 40
   },
   "trend": {
-    "enabled": true,
+    "enabled": false,
     "dir_prob_min": 0.55,
     "continues_min": 0,
     "breakout_min": 0,
