@@ -14,6 +14,8 @@ import { useSeaStatus } from '@/stores/seaStatusStore';
 import { toast } from 'sonner';
 import { CHART_INTERVALS } from '@/lib/instrumentChart';
 import { loadReplayDefaultTf, saveReplayDefaultTf } from '@/lib/replaySelection';
+import { useReplayMarker } from '@/stores/replayMarkerStore';
+import { IST_OFFSET_SECONDS } from '@/lib/signalChart';
 
 /** Shown when SEA is down — replay would record ticks with zero signals, so the
  *  server refuses it (T136). We disable the button up front with this reason. */
@@ -127,6 +129,34 @@ export function ReplayControl() {
     onError: (e: any) => toast.error(e?.message ?? 'Stop failed'),
   });
 
+  // Replay from the chart marker (◎). Marker time is IST-shifted → recv_ts is
+  // marker − IST offset. If a run is live, stop it and wait for the streams to
+  // drain (else start throws "already running") before starting the seeked run.
+  const marker = useReplayMarker();
+  const startFromMarker = async () => {
+    if (marker == null) { toast.error('Drop a marker on a chart first (◎ marker), then drag it where you want to start.'); return; }
+    const runDate = (running ? status?.date : selectedDate) || selectedDate;
+    if (!runDate || insts.length === 0) { toast.error('Pick a date and at least one instrument first.'); return; }
+    const startFromTs = Math.round(marker - IST_OFFSET_SECONDS);
+    try {
+      if (running) {
+        await stopMut.mutateAsync();
+        for (let i = 0; i < 40; i++) {
+          const s = await utils.replay.status.fetch();
+          if (!s?.running) break;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+      startMut.mutate({
+        date: runDate, speed, instruments: insts,
+        models: Object.keys(chosenModels).length ? chosenModels : undefined,
+        timeframeSec: defaultTf, startFromTs,
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not restart from marker');
+    }
+  };
+
   // A RUNNING replay stays visible on the bar rather than hiding in the menu:
   // every tick the desk shows is simulated while it runs, so that must never be
   // one click away from being noticed.
@@ -148,6 +178,15 @@ export function ReplayControl() {
           title="Stop the replay"
         >
           <Square className="h-2.5 w-2.5" /> Stop
+        </button>
+        <button
+          type="button"
+          onClick={() => void startFromMarker()}
+          disabled={marker == null || startMut.isPending || stopMut.isPending}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.5625rem] font-bold text-primary hover:bg-primary/15 transition-colors disabled:opacity-40"
+          title={marker == null ? 'Drop a marker (◎) on a chart first' : 'Stop and restart the replay from the marker line'}
+        >
+          <Play className="h-2.5 w-2.5" /> From marker
         </button>
       </div>
     );
@@ -261,6 +300,15 @@ export function ReplayControl() {
         title={seaOff ? SEA_OFF_TIP : 'Replay this day\'s recorded ticks as a live simulation (available outside market hours)'}
       >
         <Play className="h-3 w-3" /> Start replay
+      </button>
+      <button
+        type="button"
+        onClick={() => void startFromMarker()}
+        disabled={marker == null || !selectedDate || insts.length === 0 || startMut.isPending || seaOff}
+        className="w-full flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-40"
+        title={marker == null ? 'Drop a marker (◎) on a chart and drag it to where you want to start' : 'Start the replay from the marker line (fast-skips earlier ticks)'}
+      >
+        <Play className="h-3 w-3" /> From marker
       </button>
       </div>
       )}

@@ -48,6 +48,7 @@ import { resolveCohortHex } from "@/lib/tradeThemes";
 import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } from "@/lib/tradeMarkerFilter";
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
 import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
+import { useReplayMarker, setReplayMarker } from "@/stores/replayMarkerStore";
 import { subscribeChartFocus } from "@/lib/chartFocusBus";
 
 /** The four panes, in 2×2 order: top row, then bottom row. */
@@ -441,6 +442,7 @@ function InstrumentPane({
   // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
   // lower anchor and UP on a higher one; the forming candle never moves it.
   const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
+  const replayMarker = useReplayMarker();
   // Breakout line — average of the previous swing-high (green arrow) highs from
   // the PAST HOUR only (rolling 3600s window ending at the latest candle).
   const breakoutLevel = useMemo(() => {
@@ -503,6 +505,18 @@ function InstrumentPane({
           <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
         </div>
       )}
+      <button
+        className="absolute bottom-1 left-1 z-20 rounded border border-border/50 bg-background/80 px-1.5 py-0.5 text-[0.625rem] font-semibold backdrop-blur-sm hover:bg-accent"
+        title={replayMarker != null
+          ? "Clear the replay start marker"
+          : "Drop a replay-start marker at the latest candle — drag it to move, then use ▶ From marker in the Replay panel"}
+        onClick={() => {
+          if (replayMarker != null) setReplayMarker(null);
+          else if (c.candles.length) setReplayMarker(c.candles[c.candles.length - 1].time as number);
+        }}
+      >
+        {replayMarker != null ? "✕ marker" : "◎ marker"}
+      </button>
       <TickChart
         candles={c.candles}
         markers={markers}
@@ -526,6 +540,8 @@ function InstrumentPane({
         climbLabels={climbLabels}
         breakoutLevel={breakoutLevel}
         breakinLevel={breakinLevel}
+        replayMarkerTime={replayMarker}
+        onReplayMarkerChange={setReplayMarker}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}

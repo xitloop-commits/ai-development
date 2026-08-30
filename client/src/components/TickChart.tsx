@@ -36,6 +36,7 @@ import {
   MA_PERIOD,
 } from "@/lib/instrumentChart";
 import { sma, ema, rsi, supertrend, type OHLC } from "@/lib/indicators";
+import { VertLine } from "@/lib/vertLine";
 import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
 
@@ -200,6 +201,11 @@ export interface TickChartProps {
   breakoutLevel?: number | null;
   /** Breakin line — the average of the previous swing-low (blue arrow) prices. */
   breakinLevel?: number | null;
+  /** Replay "start from here" marker — IST-shifted epoch sec (candle time), or
+   *  null for none. Drawn as a draggable dashed vertical line. */
+  replayMarkerTime?: number | null;
+  /** Called with the new IST-shifted time when the marker is dragged (committed). */
+  onReplayMarkerChange?: (t: number) => void;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -256,6 +262,8 @@ export function TickChart({
   climbLabels,
   breakoutLevel,
   breakinLevel,
+  replayMarkerTime,
+  onReplayMarkerChange,
   header,
   loading,
   emptyText,
@@ -279,6 +287,11 @@ export function TickChart({
   onLineDragRef.current = onLineDrag;
   const dragTitleRef = useRef<string | null>(null);
   const handleRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Replay "start here" marker — the vertical-line primitive + drag state.
+  const markerRef = useRef<VertLine | null>(null);
+  const draggingMarkerRef = useRef(false);
+  const onMarkerChangeRef = useRef(onReplayMarkerChange);
+  onMarkerChangeRef.current = onReplayMarkerChange;
   // The chart is rebuilt on every data change; stash the user's visible window on
   // teardown so the rebuild can restore it (instead of resetting the zoom every
   // tick). `count` is the bar count at teardown — used to tell "default full-fit"
@@ -758,6 +771,13 @@ export function TickChart({
         axisLabelVisible: true, title: "Breakin",
       });
     }
+    // Replay "start here" marker — a draggable dashed vertical line.
+    markerRef.current = null;
+    if (replayMarkerTime != null) {
+      const vl = new VertLine(replayMarkerTime as UTCTimestamp, "#eab308");
+      series.attachPrimitive(vl);
+      markerRef.current = vl;
+    }
 
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
@@ -979,7 +999,56 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, breakoutLevel, breakinLevel, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, breakoutLevel, breakinLevel, replayMarkerTime, crosshairSync, selfId]);
+
+  // Drag the replay marker line. Mounted once; reads live state via refs so it
+  // survives the chart's frequent rebuilds. Moves the primitive smoothly during
+  // the drag and commits the new time to the parent on release.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const timeAt = (clientX: number): UTCTimestamp | null => {
+      const chart = chartRef.current;
+      if (!chart) return null;
+      const x = clientX - el.getBoundingClientRect().left;
+      const t = chart.timeScale().coordinateToTime(x);
+      return (t as UTCTimestamp) ?? null;
+    };
+    const nearMarker = (clientX: number): boolean => {
+      const chart = chartRef.current;
+      const vl = markerRef.current;
+      if (!chart || !vl) return false;
+      const lineX = chart.timeScale().timeToCoordinate(vl.time);
+      if (lineX == null) return false;
+      const x = clientX - el.getBoundingClientRect().left;
+      return Math.abs(x - lineX) <= 8;
+    };
+    const onDown = (e: MouseEvent) => {
+      if (!markerRef.current || !nearMarker(e.clientX)) return;
+      draggingMarkerRef.current = true;
+      e.preventDefault(); e.stopPropagation();
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!draggingMarkerRef.current || !markerRef.current) return;
+      const t = timeAt(e.clientX);
+      if (t != null) markerRef.current.setTime(t);
+      e.preventDefault();
+    };
+    const onUp = (e: MouseEvent) => {
+      if (!draggingMarkerRef.current) return;
+      draggingMarkerRef.current = false;
+      const t = timeAt(e.clientX);
+      if (t != null) onMarkerChangeRef.current?.(t as number);
+    };
+    el.addEventListener("mousedown", onDown, true);
+    window.addEventListener("mousemove", onMove, true);
+    window.addEventListener("mouseup", onUp, true);
+    return () => {
+      el.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("mousemove", onMove, true);
+      window.removeEventListener("mouseup", onUp, true);
+    };
+  }, []);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(
