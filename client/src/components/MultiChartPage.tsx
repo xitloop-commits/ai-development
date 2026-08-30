@@ -374,31 +374,18 @@ function InstrumentPane({
     if (idx < 0) return null;
     return (c.candles[idx].time as number) - IST_OFFSET_SECONDS;
   }, [c.candles, back]);
-  // Confirmed swing lows — a candle whose low is strictly below the `back` bars
-  // on each side. Only candles with `back` bars after them qualify, so a low is
-  // confirmed exactly when it becomes the white (-x) candle. Recomputed from the
-  // full array each render, so blue marks are stable and persist all session.
+  // Blue candles — independent of the white (-x) marker: ANY candle whose low is
+  // below the previous candle's low is blue (a lower low). Persists all session,
+  // recomputed deterministically from the full array.
   const blueCandleTimes = useMemo(() => {
     const out: number[] = [];
-    const n = c.candles.length;
-    for (let i = back; i < n - back; i++) {
-      const lo = c.candles[i].low as number;
-      let pivot = true;
-      for (let j = i - back; j <= i + back; j++) {
-        if (j === i) continue;
-        if (!((c.candles[j].low as number) > lo)) { pivot = false; break; }
+    for (let i = 1; i < c.candles.length; i++) {
+      if ((c.candles[i].low as number) < (c.candles[i - 1].low as number)) {
+        out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
       }
-      if (pivot) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
-    }
-    // The current (forming) candle has no right side yet, so mark it blue live
-    // the instant it prints a lower low than the previous candle — and reset the
-    // moment it doesn't. Responsive per tick, not waiting to beat `back` bars.
-    const last = n - 1;
-    if (last >= 1 && (c.candles[last].low as number) < (c.candles[last - 1].low as number)) {
-      out.push((c.candles[last].time as number) - IST_OFFSET_SECONDS);
     }
     return out;
-  }, [c.candles, back]);
+  }, [c.candles]);
   // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
   const maDir = useMemo<-1 | 0 | 1>(() => {
     if (!trendA || !trendA.minuteState.size) return 1;
