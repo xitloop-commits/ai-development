@@ -378,7 +378,7 @@ export function TickChart({
       })),
       ...(greenCandleTimes ?? []).map((t) => ({
         time: (t + IST_OFFSET_SECONDS) as UTCTimestamp,
-        position: "aboveBar" as const, shape: "arrowDown" as const, color: "#ef4444",
+        position: "aboveBar" as const, shape: "arrowDown" as const, color: "#22c55e",
       })),
     ];
     const allMarkers = swingMarks.length
