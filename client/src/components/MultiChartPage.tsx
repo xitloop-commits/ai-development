@@ -298,6 +298,26 @@ function InstrumentPane({
       }
     }
     flush();
+    // Opposite side — lower-highs trendline: once a swing high prints LOWER than
+    // the previous swing high, anchor it and keep connecting each next lower swing
+    // high into a falling line through the high points.
+    const highs: { t: UTCTimestamp; v: number }[] = [];
+    for (let i = 1; i < n - 1; i++) {
+      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
+        highs.push({ t: a[i].time as UTCTimestamp, v: a[i].high as number });
+      }
+    }
+    let hrun: { time: UTCTimestamp; value: number }[] = [];
+    const hflush = () => { if (hrun.length >= 2) arr.push({ data: hrun, color: "#f97316", order: 1100 }); hrun = []; };
+    for (let k = 1; k < highs.length; k++) {
+      if (highs[k].v < highs[k - 1].v) {
+        if (hrun.length === 0) hrun.push({ time: highs[k - 1].t, value: highs[k - 1].v });
+        hrun.push({ time: highs[k].t, value: highs[k].v });
+      } else {
+        hflush();
+      }
+    }
+    hflush();
     return arr.length ? (arr as never) : undefined;
   }, [trendA, trendS, c.candles]);
   // T172 — SERVER-AUTHORITATIVE S/R zones for this pane's contract (merged,

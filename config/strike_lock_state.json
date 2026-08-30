@@ -42,7 +42,7 @@
       "strike": 57700,
       "securityId": "69827"
     },
-    "lockedAt": 1788103736856
+    "lockedAt": 1788108183671
   },
   "nifty50": {
     "date": "2026-08-30",
@@ -57,6 +57,6 @@
       "strike": 24300,
       "securityId": "46998"
     },
-    "lockedAt": 1788103741822
+    "lockedAt": 1788108188635
   }
 }
