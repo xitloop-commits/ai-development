@@ -374,15 +374,18 @@ function InstrumentPane({
     if (idx < 0) return null;
     return (c.candles[idx].time as number) - IST_OFFSET_SECONDS;
   }, [c.candles, back]);
-  // Blue candles — independent of the white (-x) marker: ANY candle whose low is
-  // below the previous candle's low is blue (a lower low). Persists all session,
-  // recomputed deterministically from the full array.
+  // Blue candles — the bottom of each down-run. A candle is blue when it made a
+  // lower low than the previous one AND nothing after it has gone lower yet, so
+  // while price keeps dropping only the newest low is blue (earlier ones reset)
+  // and when the up-move starts a single blue candle is left at the bottom.
   const blueCandleTimes = useMemo(() => {
     const out: number[] = [];
-    for (let i = 1; i < c.candles.length; i++) {
-      if ((c.candles[i].low as number) < (c.candles[i - 1].low as number)) {
-        out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
-      }
+    const n = c.candles.length;
+    for (let i = 1; i < n; i++) {
+      const lo = c.candles[i].low as number;
+      const lowerLow = lo < (c.candles[i - 1].low as number);
+      const stillLowest = i === n - 1 || (c.candles[i + 1].low as number) >= lo;
+      if (lowerLow && stillLowest) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
     }
     return out;
   }, [c.candles]);
