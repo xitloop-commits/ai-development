@@ -441,24 +441,32 @@ function InstrumentPane({
   // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
   // lower anchor and UP on a higher one; the forming candle never moves it.
   const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
-  // Breakout line — average of the previous swing-high (green arrow) highs.
+  // Breakout line — average of the previous swing-high (green arrow) highs from
+  // the PAST HOUR only (rolling 3600s window ending at the latest candle).
   const breakoutLevel = useMemo(() => {
     const a = c.candles;
     const n = a.length;
+    if (n < 2) return null;
+    const cutoff = (a[n - 1].time as number) - 3600;
     let sum = 0; let cnt = 0;
     for (let i = 1; i < n - 1; i++) {
+      if ((a[i].time as number) < cutoff) continue;
       if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
         sum += a[i].high as number; cnt += 1;
       }
     }
     return cnt ? sum / cnt : null;
   }, [c.candles]);
-  // Breakin line — average of the previous swing-low (blue arrow) lows.
+  // Breakin line — average of the previous swing-low (blue arrow) lows from the
+  // PAST HOUR only (rolling 3600s window ending at the latest candle).
   const breakinLevel = useMemo(() => {
     const a = c.candles;
     const n = a.length;
+    if (n < 2) return null;
+    const cutoff = (a[n - 1].time as number) - 3600;
     let sum = 0; let cnt = 0;
     for (let i = 1; i < n - 1; i++) {
+      if ((a[i].time as number) < cutoff) continue;
       if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) {
         sum += a[i].low as number; cnt += 1;
       }
