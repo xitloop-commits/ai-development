@@ -429,21 +429,9 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
-  // lower anchor and UP on a higher one; the forming candle never moves it.
-  // Trail the low of the candle 2 bars back (jmp -2) — a looser lag than the last
-  // completed candle — but keep AT LEAST a 5% gap below the current price, so the
-  // stop is never pinned too close after a jump.
-  const TSL_BACK = 2;
-  const TSL_MIN_GAP = 0.05;
-  const swingTsl = useMemo(() => {
-    if (!tslAnchors.length) return null;
-    const anchor = tslAnchors[Math.max(0, tslAnchors.length - TSL_BACK)].v;
-    const ltp = c.candles.length ? (c.candles[c.candles.length - 1].close as number) : null;
-    if (ltp == null) return anchor;
-    const maxAllowed = ltp * (1 - TSL_MIN_GAP); // ≥5% below price
-    return Math.min(anchor, maxAllowed);
-  }, [tslAnchors, c.candles]);
+  // Always-on TSL — plain jump to the last completed candle's low. Jumps DOWN on a
+  // lower low and UP on a higher one; the forming candle never moves it.
+  const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
   const replayMarker = useReplayMarker();
   // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
   const breakoutLevel = useMemo(() => {
