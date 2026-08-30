@@ -391,15 +391,11 @@ function InstrumentPane({
       if (pivot) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
     }
     // The current (forming) candle has no right side yet, so mark it blue live
-    // when its low is below the `back` bars to its left — a provisional new low.
+    // the instant it prints a lower low than the previous candle — and reset the
+    // moment it doesn't. Responsive per tick, not waiting to beat `back` bars.
     const last = n - 1;
-    if (last >= back) {
-      const lo = c.candles[last].low as number;
-      let isLow = true;
-      for (let j = last - back; j < last; j++) {
-        if (!((c.candles[j].low as number) > lo)) { isLow = false; break; }
-      }
-      if (isLow) out.push((c.candles[last].time as number) - IST_OFFSET_SECONDS);
+    if (last >= 1 && (c.candles[last].low as number) < (c.candles[last - 1].low as number)) {
+      out.push((c.candles[last].time as number) - IST_OFFSET_SECONDS);
     }
     return out;
   }, [c.candles, back]);
