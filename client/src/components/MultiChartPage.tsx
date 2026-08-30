@@ -444,15 +444,15 @@ function InstrumentPane({
     }
     return { tsl, anchorTime, dir };
   }, [c.candles, back, maDir]);
-  // Always-on swing TSL (mirrors the server swing logic): ratchet up over the
-  // confirmed swing lows (blue arrows), never down. Independent of any trade so a
-  // TSL line is ALWAYS on the chart.
+  // Always-on TSL — placed at the MOST RECENT confirmed swing low (the latest
+  // blue arrow), so it follows the current structure both up and down. Independent
+  // of any trade; a TSL line is ALWAYS on the chart from session open.
   const swingTsl = useMemo(() => {
     let stop: number | null = null;
     const a = c.candles;
     for (let i = 1; i < a.length - 1; i++) {
       const isLow = (a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number);
-      if (isLow && (stop === null || (a[i].low as number) > stop)) stop = a[i].low as number;
+      if (isLow) stop = a[i].low as number; // keep the latest, not the highest
     }
     return stop;
   }, [c.candles]);
