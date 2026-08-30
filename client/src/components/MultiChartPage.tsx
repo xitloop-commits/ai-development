@@ -444,31 +444,41 @@ function InstrumentPane({
     }
     return { tsl, anchorTime, dir };
   }, [c.candles, back, maDir]);
-  // Always-on TSL — sits on the LAST COMPLETED candle's low, jumping DOWN on a
-  // lower-low candle and UP on a higher-low candle (follows the candle lows in
-  // both directions). The current forming candle never moves it until it closes.
-  // Independent of any trade; a TSL line is ALWAYS on the chart from session open.
-  const swingTsl = useMemo(() => {
+  // Adaptive per-candle TSL anchor (completed candles only). Jump target depends
+  // on candle SIZE vs the recent average range: a SMALL candle anchors at its LOW
+  // (near price is fine); a BIG candle (range > 1.5× the 10-candle average) anchors
+  // at its MID (high+low)/2, so one big bar doesn't strand the stop far below.
+  const tslAnchors = useMemo(() => {
     const a = c.candles;
     const n = a.length;
-    if (n < 2) return null;
-    return a[n - 2].low as number; // n-1 is still forming
-  }, [c.candles]);
-  // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL climbed up (a
-  // higher-low candle). Resets to 0 on a lower-low candle. Completed candles only.
-  const climbLabels = useMemo(() => {
-    const a = c.candles;
-    const n = a.length;
-    const out: { t: number; text: string }[] = [];
-    let climbs = 0;
-    for (let i = 1; i < n - 1; i++) {
-      const lo = a[i].low as number;
-      const prev = a[i - 1].low as number;
-      if (lo > prev) { climbs += 1; out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, text: `s${climbs}` }); }
-      else if (lo < prev) { climbs = 0; }
+    const AVG_W = 10;
+    const BIG = 1.5;
+    const out: { t: number; v: number }[] = [];
+    for (let i = 0; i < n - 1; i++) { // n-1 is still forming
+      const range = (a[i].high as number) - (a[i].low as number);
+      let sum = 0; let cnt = 0;
+      for (let j = Math.max(0, i - AVG_W + 1); j <= i; j++) { sum += (a[j].high as number) - (a[j].low as number); cnt += 1; }
+      const avg = cnt ? sum / cnt : range;
+      const big = avg > 0 && range > BIG * avg;
+      const v = big ? ((a[i].high as number) + (a[i].low as number)) / 2 : (a[i].low as number);
+      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v });
     }
     return out;
   }, [c.candles]);
+  // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
+  // lower anchor and UP on a higher one; the forming candle never moves it.
+  const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
+  // Climb labels s1, s2, … — how many CONSECUTIVE times the TSL anchor climbed up.
+  // Resets to 0 when the anchor drops.
+  const climbLabels = useMemo(() => {
+    const out: { t: number; text: string }[] = [];
+    let climbs = 0;
+    for (let i = 1; i < tslAnchors.length; i++) {
+      if (tslAnchors[i].v > tslAnchors[i - 1].v) { climbs += 1; out.push({ t: tslAnchors[i].t, text: `s${climbs}` }); }
+      else if (tslAnchors[i].v < tslAnchors[i - 1].v) { climbs = 0; }
+    }
+    return out;
+  }, [tslAnchors]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
