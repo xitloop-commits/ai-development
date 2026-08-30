@@ -134,6 +134,9 @@ export interface TickChartProps {
    *  the TSL candle_sec. */
   tslAnchorTime?: number | null;
   tslIgnoredTimes?: number[];
+  /** The candle exactly x bars behind the current one — painted white, advances
+   *  with each new bar. Raw bucket epoch sec (IST offset added here). */
+  whiteCandleTime?: number | null;
   /** Called when a draggable line is dropped at a new price (title, newPrice). */
   onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
@@ -220,6 +223,7 @@ export function TickChart({
   extraLines,
   tslAnchorTime,
   tslIgnoredTimes,
+  whiteCandleTime,
   hoverAngleStrip,
   trendReadout,
   trendReadoutRight,
@@ -335,6 +339,7 @@ export function TickChart({
       // ignored sideways candles. Server times are raw epoch; chart candles are
       // IST-shifted, so add the offset to match.
       const anchorT = tslAnchorTime != null ? tslAnchorTime + IST_OFFSET_SECONDS : null;
+      const whiteT = whiteCandleTime != null ? whiteCandleTime + IST_OFFSET_SECONDS : null;
       const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
         ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
@@ -344,7 +349,9 @@ export function TickChart({
             color?: string; borderColor?: string; wickColor?: string;
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
-          if (anchorT != null && ct === anchorT) {
+          if (whiteT != null && ct === whiteT) {
+            d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
+          } else if (anchorT != null && ct === anchorT) {
             d.color = "#eab308"; d.borderColor = "#fde047"; d.wickColor = "#fde047"; // anchor — SOLID gold
           } else if (ignoredSet && ignoredSet.has(ct)) {
             d.color = "#4b5563"; d.borderColor = "#4b5563"; d.wickColor = "#4b5563"; // ignored — dim slate
@@ -906,7 +913,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

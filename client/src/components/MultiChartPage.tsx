@@ -367,6 +367,13 @@ function InstrumentPane({
   // the low→TSL label shows even with NO open trade. An open trade's real
   // dynTslLevel takes over when present.
   const back = Math.max(1, tslXBack ?? 5);
+  // The "-x candle" — always the bar exactly `back` candles behind the current
+  // one; painted white on the chart and advances as each new candle forms.
+  const whiteCandleTime = useMemo(() => {
+    const idx = c.candles.length - 1 - back;
+    if (idx < 0) return null;
+    return (c.candles[idx].time as number) - IST_OFFSET_SECONDS;
+  }, [c.candles, back]);
   // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
   const maDir = useMemo<-1 | 0 | 1>(() => {
     if (!trendA || !trendA.minuteState.size) return 1;
@@ -459,6 +466,7 @@ function InstrumentPane({
         serverLevels={swingsQ.data}
         extraLines={extraLines}
         tslAnchorTime={tradeTsl != null ? (shown?.tslAnchorTime ?? null) : liveTslInfo.anchorTime}
+        whiteCandleTime={whiteCandleTime}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
