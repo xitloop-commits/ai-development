@@ -189,6 +189,9 @@ export interface TickChartProps {
   sma5LevelColor?: string;
   maLevel?: number | null;
   maLevelColor?: string;
+  /** Always-on TSL level (the live candle-TSL when no trade is open) — drawn as a
+   *  solid red price line so a TSL line is always on the chart. */
+  tslLevel?: number | null;
   header?: ReactNode;
   loading?: boolean;
   emptyText?: string;
@@ -241,6 +244,7 @@ export function TickChart({
   sma5LevelColor,
   maLevel,
   maLevelColor,
+  tslLevel,
   header,
   loading,
   emptyText,
@@ -716,6 +720,14 @@ export function TickChart({
         axisLabelVisible: true, title: "MA",
       });
     }
+    // Always-on TSL line — the live swing-TSL, independent of any open trade so a
+    // TSL level is ALWAYS on the chart (Partha 2026-08-30).
+    if (indicators.has("tsl") && tslLevel != null && tslLevel > 0) {
+      series.createPriceLine({
+        price: tslLevel, color: "#f23645", lineWidth: 2, lineStyle: LineStyle.Solid,
+        axisLabelVisible: true, title: "TSL",
+      });
+    }
 
     if (indicators.has("rsi")) {
       const rsiVals = rsi(closes, 14);
@@ -937,7 +949,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

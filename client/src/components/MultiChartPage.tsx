@@ -443,6 +443,18 @@ function InstrumentPane({
     }
     return { tsl, anchorTime, dir };
   }, [c.candles, back, maDir]);
+  // Always-on swing TSL (mirrors the server swing logic): ratchet up over the
+  // confirmed swing lows (blue arrows), never down. Independent of any trade so a
+  // TSL line is ALWAYS on the chart.
+  const swingTsl = useMemo(() => {
+    let stop: number | null = null;
+    const a = c.candles;
+    for (let i = 1; i < a.length - 1; i++) {
+      const isLow = (a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number);
+      if (isLow && (stop === null || (a[i].low as number) > stop)) stop = a[i].low as number;
+    }
+    return stop;
+  }, [c.candles]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
@@ -511,6 +523,7 @@ function InstrumentPane({
         whiteCandleTime={whiteCandleTime}
         blueCandleTimes={blueCandleTimes}
         greenCandleTimes={greenCandleTimes}
+        tslLevel={swingTsl}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
