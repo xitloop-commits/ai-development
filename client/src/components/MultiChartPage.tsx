@@ -269,12 +269,13 @@ function InstrumentPane({
       return ribbonFromServerBuckets(optLinesQ.data.sma5Ribbon, c.candles as { time: number; close: number }[], intervalSec);
     return trendAnalysis(c.candles as { time: number; close: number }[], { ...taOpts, source: "sma5", bucketSec: intervalSec });
   }, [c.candles, taOpts, indicators, intervalSec, optLinesQ.data]);
-  const extraLines = useMemo(() => {
+  const trendOverlay = useMemo(() => {
     // Stack order: SMA5 ribbon below, MA ribbon ON TOP. (Steep-zone removed.)
     const arr: Array<{ data: { time: UTCTimestamp; value?: number }[]; color: string; order?: number }> = [
       ...(trendS?.lines ?? []).map((l) => ({ ...l, order: 1000 })),
       ...(trendA?.lines ?? []).map((l) => ({ ...l, order: 1002 })),
     ] as never;
+    const labels: { t: number; text: string; color: string; above?: boolean }[] = [];
     // Higher-lows trendline (Partha 2026-08-30): once a swing low prints HIGHER
     // than the previous swing low, anchor it and keep connecting each next swing
     // low that is higher again — a rising line through the low points. A swing low
@@ -288,7 +289,14 @@ function InstrumentPane({
       }
     }
     let run: { time: UTCTimestamp; value: number }[] = [];
-    const flush = () => { if (run.length >= 2) arr.push({ data: run, color: "#22d3ee", order: 1100 }); run = []; };
+    const flush = () => {
+      if (run.length >= 2) {
+        arr.push({ data: run, color: "#22d3ee", order: 1100 });
+        const last = run[run.length - 1];
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(run.length), color: "#22d3ee", above: false });
+      }
+      run = [];
+    };
     for (let k = 1; k < lows.length; k++) {
       if (lows[k].v > lows[k - 1].v) {
         if (run.length === 0) run.push({ time: lows[k - 1].t, value: lows[k - 1].v });
@@ -308,7 +316,14 @@ function InstrumentPane({
       }
     }
     let hrun: { time: UTCTimestamp; value: number }[] = [];
-    const hflush = () => { if (hrun.length >= 2) arr.push({ data: hrun, color: "#f97316", order: 1100 }); hrun = []; };
+    const hflush = () => {
+      if (hrun.length >= 2) {
+        arr.push({ data: hrun, color: "#f97316", order: 1100 });
+        const last = hrun[hrun.length - 1];
+        labels.push({ t: (last.time as number) - IST_OFFSET_SECONDS, text: String(hrun.length), color: "#f97316", above: true });
+      }
+      hrun = [];
+    };
     for (let k = 1; k < highs.length; k++) {
       if (highs[k].v < highs[k - 1].v) {
         if (hrun.length === 0) hrun.push({ time: highs[k - 1].t, value: highs[k - 1].v });
@@ -318,8 +333,10 @@ function InstrumentPane({
       }
     }
     hflush();
-    return arr.length ? (arr as never) : undefined;
+    return { lines: arr, labels };
   }, [trendA, trendS, c.candles]);
+  const extraLines = trendOverlay.lines.length ? (trendOverlay.lines as never) : undefined;
+  const countLabels = trendOverlay.labels;
   // T172 — SERVER-AUTHORITATIVE S/R zones for this pane's contract (merged,
   // retest-counted). TickChart splits them by current price into T/S levels.
   // cutoffTs = last closed candle's raw epoch, so during a replay the levels
@@ -592,6 +609,7 @@ function InstrumentPane({
         greenCandleTimes={greenCandleTimes}
         tslLevel={swingTsl}
         climbLabels={climbLabels}
+        countLabels={countLabels}
         breakoutLevel={breakoutLevel}
         breakinLevel={breakinLevel}
         replayMarkerTime={replayMarker}
