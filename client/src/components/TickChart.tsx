@@ -356,7 +356,7 @@ export function TickChart({
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
           if (blueSet && blueSet.has(ct)) {
-            d.color = "#3b82f6"; d.borderColor = "#93c5fd"; d.wickColor = "#93c5fd"; // confirmed swing low — BLUE
+            d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // confirmed swing low — BLUE (no border)
           } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
