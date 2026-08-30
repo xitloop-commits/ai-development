@@ -429,15 +429,9 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Always-on TSL — 3% below the running PEAK (highest price reached). The peak
-  // only rises, so the stop only ratchets up, never falls.
-  const swingTsl = useMemo(() => {
-    const a = c.candles;
-    if (!a.length) return null;
-    let peak = -Infinity;
-    for (let i = 0; i < a.length; i++) { const h = a[i].high as number; if (h > peak) peak = h; }
-    return peak > 0 ? peak * 0.97 : null;
-  }, [c.candles]);
+  // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
+  // lower anchor and UP on a higher one; the forming candle never moves it.
+  const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
   const replayMarker = useReplayMarker();
   // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
   const breakoutLevel = useMemo(() => {
