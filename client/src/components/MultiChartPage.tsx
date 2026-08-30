@@ -374,6 +374,24 @@ function InstrumentPane({
     if (idx < 0) return null;
     return (c.candles[idx].time as number) - IST_OFFSET_SECONDS;
   }, [c.candles, back]);
+  // Confirmed swing lows — a candle whose low is strictly below the `back` bars
+  // on each side. Only candles with `back` bars after them qualify, so a low is
+  // confirmed exactly when it becomes the white (-x) candle. Recomputed from the
+  // full array each render, so blue marks are stable and persist all session.
+  const blueCandleTimes = useMemo(() => {
+    const out: number[] = [];
+    const n = c.candles.length;
+    for (let i = back; i < n - back; i++) {
+      const lo = c.candles[i].low as number;
+      let pivot = true;
+      for (let j = i - back; j <= i + back; j++) {
+        if (j === i) continue;
+        if (!((c.candles[j].low as number) > lo)) { pivot = false; break; }
+      }
+      if (pivot) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
+    }
+    return out;
+  }, [c.candles, back]);
   // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
   const maDir = useMemo<-1 | 0 | 1>(() => {
     if (!trendA || !trendA.minuteState.size) return 1;
@@ -467,6 +485,7 @@ function InstrumentPane({
         extraLines={extraLines}
         tslAnchorTime={tradeTsl != null ? (shown?.tslAnchorTime ?? null) : liveTslInfo.anchorTime}
         whiteCandleTime={whiteCandleTime}
+        blueCandleTimes={blueCandleTimes}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
