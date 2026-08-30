@@ -454,7 +454,9 @@ function InstrumentPane({
     const n = a.length;
     let legMin: number | null = null;
     let tsl: number | null = null;
-    for (let i = 0; i < n; i++) {
+    // Completed candles only — the current (forming) candle must not move the TSL
+    // until it closes, so we stop at n-1 (the last candle is still in progress).
+    for (let i = 0; i < n - 1; i++) {
       const lo = a[i].low as number;
       legMin = legMin == null ? lo : Math.min(legMin, lo); // jump down to new lows
       tsl = legMin;
