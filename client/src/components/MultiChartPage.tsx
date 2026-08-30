@@ -367,25 +367,48 @@ function InstrumentPane({
   // the low→TSL label shows even with NO open trade. An open trade's real
   // dynTslLevel takes over when present.
   const back = Math.max(1, tslXBack ?? 5);
+  // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
+  const maDir = useMemo<-1 | 0 | 1>(() => {
+    if (!trendA || !trendA.minuteState.size) return 1;
+    let maxM = -Infinity; let tr: -1 | 0 | 1 = 0;
+    trendA.minuteState.forEach((s, k) => { if (k > maxM) { maxM = k; tr = s.trend; } });
+    return tr;
+  }, [trendA]);
+  // Direction-aware live candle-TSL: in an uptrend the stop trails the x-back
+  // LOWS up (long-premium ride); in a downtrend it trails the x-back HIGHS down
+  // (riding the fall). Flat holds the long-side default. This is a visualisation
+  // only — the real SEA trades are always long premium.
   const liveTslInfo = useMemo(() => {
-    if (c.candles.length <= back) return { tsl: null as number | null, anchorTime: null as number | null };
+    const dir: 1 | -1 = maDir < 0 ? -1 : 1;
+    if (c.candles.length <= back) return { tsl: null as number | null, anchorTime: null as number | null, dir };
     let tsl: number | null = null; let anchorTime: number | null = null;
     for (let i = back; i < c.candles.length; i++) {
       const c0 = c.candles[i - back];
-      const cand = c0.low as number;
-      if (tsl == null || cand > tsl) { tsl = cand; anchorTime = (c0.time as number) - IST_OFFSET_SECONDS; }
+      if (dir > 0) {
+        const cand = c0.low as number;
+        if (tsl == null || cand > tsl) { tsl = cand; anchorTime = (c0.time as number) - IST_OFFSET_SECONDS; }
+      } else {
+        const cand = c0.high as number;
+        if (tsl == null || cand < tsl) { tsl = cand; anchorTime = (c0.time as number) - IST_OFFSET_SECONDS; }
+      }
     }
-    return { tsl, anchorTime };
-  }, [c.candles, back]);
+    return { tsl, anchorTime, dir };
+  }, [c.candles, back, maDir]);
   const tradeTsl = shown?.status === "OPEN"
     ? (activeReplayRunId ? (shown.dynTslLevel ?? shown.stopLossPrice ?? null) : (shown.stopLossPrice ?? null))
     : null;
-  // The candle-TSL exits on the low crossing the level, so measure from the low.
-  const curLow = c.candles.length ? (c.candles[c.candles.length - 1].low as number) : null;
+  // Real trades are long-premium → up-side stop. The live tracker follows maDir.
+  const tslDir: 1 | -1 = tradeTsl != null ? 1 : liveTslInfo.dir;
   const tslVal = tradeTsl ?? liveTslInfo.tsl;
   const tslLive = tradeTsl == null; // showing the hypothetical live TSL, not a trade's
-  const tslDiff = tslVal != null && curLow != null ? curLow - tslVal : null;
-  const tslDiffPct = tslDiff != null && curLow ? (tslDiff / curLow) * 100 : null;
+  // Up-ride exits on the low crossing below the stop; down-ride on the high
+  // crossing above it. Positive diff = room left before the stop; negative = breached.
+  const curLow = c.candles.length ? (c.candles[c.candles.length - 1].low as number) : null;
+  const curHigh = c.candles.length ? (c.candles[c.candles.length - 1].high as number) : null;
+  const tslRef = tslDir > 0 ? curLow : curHigh;
+  const tslLabel = tslDir > 0 ? "low→TSL" : "high→TSL";
+  const tslDiff = tslVal != null && tslRef != null ? (tslDir > 0 ? tslRef - tslVal : tslVal - tslRef) : null;
+  const tslDiffPct = tslDiff != null && tslRef ? (tslDiff / tslRef) * 100 : null;
   const showTslDist = tslDiff != null;
 
   return (
@@ -403,10 +426,12 @@ function InstrumentPane({
           className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.6875rem] font-bold tabular-nums backdrop-blur-sm"
           style={{ color: tslDiff! >= 0 ? "#22c55e" : "#ef4444" }}
           title={tslLive
-            ? "Current candle's low minus the LIVE candle-TSL (x-back candle low) — no trade open"
+            ? (tslDir > 0
+              ? "Current candle's low minus the LIVE up-side candle-TSL (x-back candle low) — uptrend, no trade"
+              : "The LIVE down-side candle-TSL (x-back candle high) minus the current candle's high — downtrend, no trade")
             : "Current candle's low minus the trade's trailing stop (value + %)"}
         >
-          low→TSL{tslLive ? "·live" : ""} {tslDiff! >= 0 ? "+" : ""}{tslDiff!.toFixed(2)} ({tslDiffPct! >= 0 ? "+" : ""}{tslDiffPct!.toFixed(2)}%)
+          {tslLabel}{tslLive ? "·live" : ""} {tslDiff! >= 0 ? "+" : ""}{tslDiff!.toFixed(2)} ({tslDiffPct! >= 0 ? "+" : ""}{tslDiffPct!.toFixed(2)}%)
         </div>
       )}
       {showSma5Tag && (
