@@ -140,6 +140,9 @@ export interface TickChartProps {
   /** Confirmed swing-low candles (low < the x bars on each side) — painted blue,
    *  permanent for the session. Raw bucket epoch sec (IST offset added here). */
   blueCandleTimes?: number[];
+  /** Top-of-up-run candles (higher high, nothing after higher yet) — painted
+   *  bright green. Raw bucket epoch sec (IST offset added here). */
+  greenCandleTimes?: number[];
   /** Called when a draggable line is dropped at a new price (title, newPrice). */
   onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
@@ -228,6 +231,7 @@ export function TickChart({
   tslIgnoredTimes,
   whiteCandleTime,
   blueCandleTimes,
+  greenCandleTimes,
   hoverAngleStrip,
   trendReadout,
   trendReadoutRight,
@@ -346,6 +350,8 @@ export function TickChart({
       const whiteT = whiteCandleTime != null ? whiteCandleTime + IST_OFFSET_SECONDS : null;
       const blueSet = blueCandleTimes && blueCandleTimes.length
         ? new Set(blueCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
+      const greenSet = greenCandleTimes && greenCandleTimes.length
+        ? new Set(greenCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
         ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
@@ -356,7 +362,9 @@ export function TickChart({
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
           if (blueSet && blueSet.has(ct)) {
-            d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // confirmed swing low — BLUE (no border)
+            d.color = "#3b82f6"; d.borderColor = "#3b82f6"; d.wickColor = "#3b82f6"; // bottom of down-run — BLUE (no border)
+          } else if (greenSet && greenSet.has(ct)) {
+            d.color = "#22c55e"; d.borderColor = "#22c55e"; d.wickColor = "#22c55e"; // top of up-run — bright GREEN (no border)
           } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
@@ -921,7 +929,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, crosshairSync, selfId]);
 
   // ── Draggable price lines (e.g. move the Target) ────────────────────────
   const dragLines = useMemo(

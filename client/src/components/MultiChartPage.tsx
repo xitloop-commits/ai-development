@@ -389,6 +389,21 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
+  // Green candles — the top of each up-run (mirror of blue). A candle is green
+  // when it made a higher high than the previous one AND nothing after it has
+  // gone higher yet, so while price keeps rising only the newest high is green
+  // and a single green candle is left at the top when the down-move starts.
+  const greenCandleTimes = useMemo(() => {
+    const out: number[] = [];
+    const n = c.candles.length;
+    for (let i = 1; i < n; i++) {
+      const hi = c.candles[i].high as number;
+      const higherHigh = hi > (c.candles[i - 1].high as number);
+      const stillHighest = i === n - 1 || (c.candles[i + 1].high as number) <= hi;
+      if (higherHigh && stillHighest) out.push((c.candles[i].time as number) - IST_OFFSET_SECONDS);
+    }
+    return out;
+  }, [c.candles]);
   // Latest MA-ribbon trend (−1 down / 0 flat / +1 up) — drives the live TSL side.
   const maDir = useMemo<-1 | 0 | 1>(() => {
     if (!trendA || !trendA.minuteState.size) return 1;
@@ -483,6 +498,7 @@ function InstrumentPane({
         tslAnchorTime={tradeTsl != null ? (shown?.tslAnchorTime ?? null) : liveTslInfo.anchorTime}
         whiteCandleTime={whiteCandleTime}
         blueCandleTimes={blueCandleTimes}
+        greenCandleTimes={greenCandleTimes}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
         trendReadout={trendReadout}
         trendReadoutRight={trendReadoutRight}
