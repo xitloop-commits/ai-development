@@ -431,7 +431,12 @@ function InstrumentPane({
   }, [c.candles]);
   // Always-on TSL — the last completed candle's adaptive anchor. Jumps DOWN on a
   // lower anchor and UP on a higher one; the forming candle never moves it.
-  const swingTsl = tslAnchors.length ? tslAnchors[tslAnchors.length - 1].v : null;
+  // Trail the low of the candle 2 bars back (jmp -2) — a looser lag than the last
+  // completed candle.
+  const TSL_BACK = 2;
+  const swingTsl = tslAnchors.length
+    ? tslAnchors[Math.max(0, tslAnchors.length - TSL_BACK)].v
+    : null;
   const replayMarker = useReplayMarker();
   // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
   const breakoutLevel = useMemo(() => {
