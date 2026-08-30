@@ -418,24 +418,14 @@ function InstrumentPane({
     }
     return out;
   }, [c.candles]);
-  // Adaptive per-candle TSL anchor (completed candles only). Jump target depends
-  // on candle SIZE vs the recent average range: a SMALL candle anchors at its LOW
-  // (near price is fine); a BIG candle (range > 1.5× the 10-candle average) anchors
-  // at its MID (high+low)/2, so one big bar doesn't strand the stop far below.
+  // Per-candle TSL anchor (completed candles only) — plain jump to each candle's
+  // LOW. n-1 is still forming, so it's excluded.
   const tslAnchors = useMemo(() => {
     const a = c.candles;
     const n = a.length;
-    const AVG_W = 10;
-    const BIG = 1.5;
     const out: { t: number; v: number }[] = [];
-    for (let i = 0; i < n - 1; i++) { // n-1 is still forming
-      const range = (a[i].high as number) - (a[i].low as number);
-      let sum = 0; let cnt = 0;
-      for (let j = Math.max(0, i - AVG_W + 1); j <= i; j++) { sum += (a[j].high as number) - (a[j].low as number); cnt += 1; }
-      const avg = cnt ? sum / cnt : range;
-      const big = avg > 0 && range > BIG * avg;
-      const v = big ? ((a[i].high as number) + (a[i].low as number)) / 2 : (a[i].low as number);
-      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v });
+    for (let i = 0; i < n - 1; i++) {
+      out.push({ t: (a[i].time as number) - IST_OFFSET_SECONDS, v: a[i].low as number });
     }
     return out;
   }, [c.candles]);
