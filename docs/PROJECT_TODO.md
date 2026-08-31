@@ -3119,6 +3119,42 @@ Files (per the cohort checklist): Python `candleblue_signal.py` detector +
 `discipline/routes.ts`; UI `AiControl.tsx`. **Validate 1st/2nd/3rd higher-low
 strictness on replay later (knob parked).**
 
+## "Blast model" — retrain nifty50 for premium-native HH/HL entry (2026-08-31)
+
+Partha's rethink: repurpose the real nifty50 raw-tick model AWAY from spot scalp
+heads, TO a premium-native model that learns **when the option premium blasts up**
+(and when it's over) from the HH/HL structure + circumstances, and **which strike**
+gives the most profit-minus-decay.
+
+**LOCKED spec:**
+- **Question the model answers** (3 outputs): ENTER (a blast is coming) · STRIKE
+  (which strike gives most profit AFTER decay for the move) · EXIT (blast over).
+- **Labels:** ENTER = premium rises **>+10% within 10 min** (a "blast"); EXIT = the
+  drop (premium falls within 10 min). Per leg (CE/PE), on the **locked/fixed strike**
+  premium (continuous), NOT the moving `opt_0` ATM window.
+- **New INPUT features (the missing lens):** the OPTION-PREMIUM structure at **1m/2m/5m**
+  — HH/HL flags, new-range-high/low (the #6 breakout fix), consec HH/HL, dist-to-swing,
+  up-leg %, bars-since-pivot, CandleBlue raw entry/exit flag — PLUS premium **MA(20-EMA)
+  + SMA5 slope & price-vs-line**. ~24 structure + ~6 MA/SMA per leg × TFs.
+- **Strike selection needs PER-STRIKE GREEKS:** today greeks are ATM-only (10 feats);
+  add delta/gamma/theta across the **ATM ± 3** ladder (Black-Scholes from each strike's
+  IV+premium+TTE) so the model can compare leverage vs decay.
+- **Feature set:** premium structure + the blast-driving circumstances (OI/buildup, spot
+  momentum, IV/greeks/**decay**, order-book imbalance) — lean, drop the pure-spot-direction
+  heads. The 488 existing features stay available; the 52 old heads are replaced by the
+  3 new ones.
+
+**What the model ALREADY has** (checked): 7-strike ladder ATM±3 × CE/PE, 22 price+depth
+fields per strike, 42 spot, 39 OI/buildup, spot-based pivots/HH-HL (16), MA/multi-TF (35),
+greeks **ATM-only** (10). Gap = premium-native HH/HL + per-strike greeks.
+
+**Phase-1 signal check DONE (14 days):** blast rate 34.5%; walk-forward **AUC 0.70** predicting
+the blast from premium structure ALONE (range_pos, consec_hl, new_range_high top). Signal is
+real → proceed. Next: add circumstances + per-strike greeks (expect higher AUC), then wire
+the label+features into tick_feature_agent, regenerate all days, retrain nifty50 (replacing
+scalp heads), rethink replay as a candle-clock charge-aware premium backtest, and add strike
+selection. Also: chart arrows still use consecutive-swing (window=1) — align to range_window.
+
 ## How to use this file
 
 - **Adding a new TODO:** Append at the appropriate priority slot. Keep entries tight — what / status / blocker / link.
