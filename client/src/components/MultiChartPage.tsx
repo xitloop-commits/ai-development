@@ -51,8 +51,9 @@ import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
 import { useReplayMarker, setReplayMarker } from "@/stores/replayMarkerStore";
 import { subscribeChartFocus } from "@/lib/chartFocusBus";
 
-/** The four panes, in 2×2 order: top row, then bottom row. */
-const MAIN_CHART_INSTRUMENTS = ["CRUDEOIL", "NIFTY_50", "NATURALGAS", "BANKNIFTY"] as const;
+/** Exchange groups for the NSE/MCX segment switches. */
+const NSE_INSTS = ["NIFTY_50", "BANKNIFTY"] as const;
+const MCX_INSTS = ["NATURALGAS", "CRUDEOIL"] as const;
 
 // Toolbar settings persist across restarts (Partha, 2026-08-18).
 const TOOLBAR_LS_KEY = "lubasChartToolbar";
@@ -62,9 +63,12 @@ interface ToolbarState {
   indicators?: IndicatorKey[];
   markerFilter?: TradeMarkerFilter;
   activeOnly?: boolean;
-  /** "ALL" = the 2×2 one-pane-per-instrument grid; an instrument key = that
-   *  instrument's CE (left) | PE (right) split (Partha 2026-08-21 pills). */
-  view?: string;
+  /** NSE / MCX segment switches drive the layout (Partha 2026-08-31):
+   *  NSE-only → nifty+bank CE|PE (4 panes); MCX-only → gas+crude CE|PE; both →
+   *  one active-strike pane per instrument. instOn hides an instrument's pane(s). */
+  nseOn?: boolean;
+  mcxOn?: boolean;
+  instOn?: Record<string, boolean>;
 }
 function loadToolbar(): ToolbarState {
   try { return JSON.parse(localStorage.getItem(TOOLBAR_LS_KEY) || "{}") as ToolbarState; } catch { return {}; }
@@ -654,21 +658,25 @@ export default function MultiChartPage() {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [markerFilter, setMarkerFilter] = useState<TradeMarkerFilter>(saved.markerFilter ?? ALL_MARKER_FILTER);
   const [activeOnly, setActiveOnly] = useState(saved.activeOnly ?? false);
-  // Instrument pills (Partha 2026-08-21): ALL = the 2×2 grid; an instrument =
-  // that instrument's CE (left) | PE (right) split.
-  const [view, setView] = useState<string>(
-    saved.view && (MAIN_CHART_INSTRUMENTS as readonly string[]).includes(saved.view) ? saved.view : "ALL",
-  );
+  // NSE / MCX segment switches drive the layout (Partha 2026-08-31).
+  const [nseOn, setNseOn] = useState<boolean>(saved.nseOn ?? true);
+  const [mcxOn, setMcxOn] = useState<boolean>(saved.mcxOn ?? false);
+  const [instOn, setInstOn] = useState<Record<string, boolean>>(() => ({
+    NIFTY_50: saved.instOn?.NIFTY_50 ?? true,
+    BANKNIFTY: saved.instOn?.BANKNIFTY ?? true,
+    NATURALGAS: saved.instOn?.NATURALGAS ?? true,
+    CRUDEOIL: saved.instOn?.CRUDEOIL ?? true,
+  }));
   const crosshairSync = useMemo(() => createCrosshairSync(), []);
   // Persist toolbar settings so they survive a window restart. (Timeframe is no
   // longer saved here — paper/live is locked to config, replay opens at the
   // persisted replay default.)
   useEffect(() => {
     try {
-      const s: ToolbarState = { style, indicators: Array.from(indicators), markerFilter, activeOnly, view };
+      const s: ToolbarState = { style, indicators: Array.from(indicators), markerFilter, activeOnly, nseOn, mcxOn, instOn };
       localStorage.setItem(TOOLBAR_LS_KEY, JSON.stringify(s));
     } catch { /* ignore quota/availability */ }
-  }, [style, indicators, markerFilter, activeOnly, view]);
+  }, [style, indicators, markerFilter, activeOnly, nseOn, mcxOn, instOn]);
   const toggleIndicator = (k: IndicatorKey) =>
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -768,33 +776,68 @@ export default function MultiChartPage() {
       />
     );
   };
-  // Short pill labels for the view switcher.
+  // Short labels for the switches.
   const PILL_LABEL: Record<string, string> = {
     CRUDEOIL: "Crude", NIFTY_50: "Nifty", NATURALGAS: "Gas", BANKNIFTY: "BNifty",
   };
+  // Which instruments carry an on/off sub-switch (depends on the active segments).
+  const subInsts: readonly string[] = (nseOn && mcxOn)
+    ? [...NSE_INSTS, ...MCX_INSTS]
+    : nseOn ? NSE_INSTS : mcxOn ? MCX_INSTS : [];
+  // The panes to render:
+  //  • both NSE+MCX → one active-strike pane per enabled instrument (4)
+  //  • NSE only     → each enabled NSE instrument's CE + PE (up to 4)
+  //  • MCX only     → each enabled MCX instrument's CE + PE (up to 4)
+  const layoutPanes = useMemo(() => {
+    const out: { inst: string; side?: "CE" | "PE" }[] = [];
+    if (nseOn && mcxOn) {
+      for (const inst of [...NSE_INSTS, ...MCX_INSTS]) if (instOn[inst]) out.push({ inst });
+    } else if (nseOn) {
+      for (const inst of NSE_INSTS) if (instOn[inst]) { out.push({ inst, side: "CE" }); out.push({ inst, side: "PE" }); }
+    } else if (mcxOn) {
+      for (const inst of MCX_INSTS) if (instOn[inst]) { out.push({ inst, side: "CE" }); out.push({ inst, side: "PE" }); }
+    }
+    return out;
+  }, [nseOn, mcxOn, instOn]);
+  // Open the current setup in a fresh window (reads the just-persisted toolbar state).
+  const openInNewWindow = () => {
+    try { window.open(window.location.href, "_blank", "noopener,noreferrer,width=1680,height=950"); } catch { /* popup blocked */ }
+  };
+  // Small on/off segment button.
+  const segBtn = (on: boolean, onClick: () => void, label: string, title?: string) => (
+    <button type="button" onClick={onClick} title={title}
+      className={`px-2 py-0.5 rounded text-[0.625rem] font-bold border transition-colors ${on ? "bg-info-cyan/20 border-info-cyan/40 text-info-cyan" : "border-border text-muted-foreground hover:text-foreground"}`}>
+      {label} {on ? "ON" : "OFF"}
+    </button>
+  );
 
   return (
     <div className="flex h-screen w-screen flex-col gap-1 p-2 text-foreground" style={{ background: chartColors(theme).background }}>
       {/* Toolbar — always visible, even in fullscreen (the pane fills the area BELOW it). */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1 text-xs">
         <span className="font-bold tracking-wide">Charts</span>
-        {/* View pills (2026-08-21): All = the 2×2 grid; an instrument = its
-            CE (left) | PE (right) split. Switching clears pane fullscreen. */}
-        <div className="flex rounded border border-border overflow-hidden">
-          {["ALL", ...MAIN_CHART_INSTRUMENTS].map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => { setView(v); setFullscreenInst(null); }}
-              title={v === "ALL" ? "All four instruments (2×2 grid)" : `${INSTRUMENT_CHART_META[v]?.displayName ?? v} — CE left, PE right`}
-              className={`px-2 py-0.5 text-[0.625rem] font-bold transition-colors ${
-                view === v ? "bg-info-cyan/20 text-info-cyan" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {v === "ALL" ? "All" : PILL_LABEL[v] ?? v}
-            </button>
-          ))}
+        {/* NSE / MCX segment switches (2026-08-31). NSE-only → nifty+bank CE|PE;
+            MCX-only → gas+crude CE|PE; both → one active-strike pane each. */}
+        <div className="flex items-center gap-1">
+          {segBtn(nseOn, () => { setNseOn((v) => !v); setFullscreenInst(null); }, "NSE", "NSE — Nifty + BankNifty")}
+          {segBtn(mcxOn, () => { setMcxOn((v) => !v); setFullscreenInst(null); }, "MCX", "MCX — Natural Gas + Crude Oil")}
         </div>
+        {subInsts.length > 0 && (
+          <div className="flex items-center gap-0.5 border-l border-border pl-2">
+            {subInsts.map((inst) => segBtn(
+              instOn[inst] !== false,
+              () => { setInstOn((p) => ({ ...p, [inst]: !(p[inst] !== false) })); setFullscreenInst(null); },
+              PILL_LABEL[inst] ?? inst,
+              `${INSTRUMENT_CHART_META[inst]?.displayName ?? inst} — show/hide`,
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={openInNewWindow}
+          className="rounded border border-border px-2 py-0.5 text-[0.625rem] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          title="Open this exact setup in a new window"
+        >⧉ New window</button>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
             <button
@@ -860,22 +903,20 @@ export default function MultiChartPage() {
         </div>
       </div>
 
-      {/* Content — one fullscreen pane; else the instrument CE|PE split when a
-          pill is active; else the 2×2 grid (top: Crude·Nifty, bottom: NatGas·BankNifty). */}
+      {/* Content — one fullscreen pane; else the NSE/MCX-driven grid. */}
       {fullscreenInst ? (
         <div className="min-h-0 flex-1">
           {fullscreenInst.includes("#")
             ? pane(fullscreenInst.split("#")[0], fullscreenInst.split("#")[1] as "CE" | "PE")
             : pane(fullscreenInst)}
         </div>
-      ) : view !== "ALL" ? (
-        <div className="grid min-h-0 flex-1 grid-cols-2 gap-1">
-          {pane(view, "CE")}
-          {pane(view, "PE")}
+      ) : layoutPanes.length === 0 ? (
+        <div className="grid min-h-0 flex-1 place-items-center text-sm text-muted-foreground">
+          Turn on NSE or MCX to show charts.
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-1">
-          {MAIN_CHART_INSTRUMENTS.map((inst) => pane(inst))}
+        <div className={`grid min-h-0 flex-1 gap-1 auto-rows-fr ${layoutPanes.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          {layoutPanes.map((p) => pane(p.inst, p.side))}
         </div>
       )}
     </div>
