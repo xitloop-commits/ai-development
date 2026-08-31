@@ -65,7 +65,7 @@
   },
   "candleblue": {
     "enabled": true,
-    "candle_sec": 60,
+    "candle_sec": 120,
     "stop_buffer_pct": 0.2
   }
 }

@@ -1328,6 +1328,7 @@ def load_thresholds_full(
     raw.pop("legstart", None)
     raw.pop("ma_signal", None)
     raw.pop("sma5_signal", None)
+    raw.pop("candleblue", None)
     gate_mode = raw.pop("gate_mode", "current")
     if gate_mode not in ("current", "wave1", "wave2", "legstart"):
         raise ValueError(
