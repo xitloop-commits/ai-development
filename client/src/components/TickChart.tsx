@@ -199,11 +199,11 @@ export interface TickChartProps {
   /** Trendline point-count labels — placed at each run's end. Raw bucket epoch
    *  sec (IST added here); `above` puts it over the bar, else under. */
   countLabels?: { t: number; text: string; color: string; above?: boolean }[];
-  /** Breakout line — the average of the previous swing-high (green arrow) prices,
-   *  drawn as a dashed horizontal line. */
-  breakoutLevel?: number | null;
-  /** Breakin line — the average of the previous swing-low (blue arrow) prices. */
-  breakinLevel?: number | null;
+  /** Entry / exit markers from the higher-high structure: breakout ▲ + pullback ▲
+   *  (gold, below the bar) and ✕ exit (red, above). Raw bucket epoch sec. */
+  signalMarkers?: { t: number; text: string; color: string; above?: boolean }[];
+  /** Stop line — below the most recent higher low. Dashed horizontal line. */
+  stopLevel?: number | null;
   /** Replay "start from here" marker — IST-shifted epoch sec (candle time), or
    *  null for none. Drawn as a draggable dashed vertical line. */
   replayMarkerTime?: number | null;
@@ -264,8 +264,8 @@ export function TickChart({
   tslLevel,
   climbLabels,
   countLabels,
-  breakoutLevel,
-  breakinLevel,
+  signalMarkers,
+  stopLevel,
   replayMarkerTime,
   onReplayMarkerChange,
   header,
@@ -422,6 +422,13 @@ export function TickChart({
         time: (c.t + IST_OFFSET_SECONDS) as UTCTimestamp,
         position: (c.above ? "aboveBar" : "belowBar") as "aboveBar" | "belowBar",
         shape: "circle" as const, color: c.color, text: c.text,
+      })),
+      // Entry / exit signal markers (breakout ▲, pullback ▲, ✕ exit).
+      ...(signalMarkers ?? []).map((m) => ({
+        time: (m.t + IST_OFFSET_SECONDS) as UTCTimestamp,
+        position: (m.above ? "aboveBar" : "belowBar") as "aboveBar" | "belowBar",
+        shape: (m.above ? "arrowDown" : "arrowUp") as "arrowUp" | "arrowDown",
+        color: m.color, text: m.text,
       })),
     ];
     const allMarkers = swingMarks.length
@@ -767,18 +774,11 @@ export function TickChart({
         axisLabelVisible: true, title: "TSL",
       });
     }
-    // Breakout line — average of the previous swing-high (green arrow) prices.
-    if (breakoutLevel != null && breakoutLevel > 0) {
+    // Stop line — below the most recent higher low.
+    if (stopLevel != null && stopLevel > 0) {
       series.createPriceLine({
-        price: breakoutLevel, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true, title: "Breakout",
-      });
-    }
-    // Breakin line — average of the previous swing-low (blue arrow) prices.
-    if (breakinLevel != null && breakinLevel > 0) {
-      series.createPriceLine({
-        price: breakinLevel, color: "#3b82f6", lineWidth: 1, lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true, title: "Breakin",
+        price: stopLevel, color: "#f23645", lineWidth: 1, lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true, title: "STOP",
       });
     }
     // Replay "start here" marker — a draggable dashed vertical line.
@@ -1009,7 +1009,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, breakoutLevel, breakinLevel, replayMarkerTime, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId]);
 
   // Drag the replay marker line. Mounted once; reads live state via refs so it
   // survives the chart's frequent rebuilds. Moves the primitive smoothly during

@@ -495,31 +495,43 @@ function InstrumentPane({
     return tsl;
   }, [c.candles]);
   const replayMarker = useReplayMarker();
-  // Breakout line — average of the LAST 6 swing-high (green arrow) highs.
-  const breakoutLevel = useMemo(() => {
+  // Higher-high entry signals + stop, from the swing structure (completed candles):
+  //  • pullback ▲ — a swing low that's HIGHER than the previous swing low.
+  //  • breakout ▲ — the candle whose close first clears the PRIOR swing high on the
+  //    way to a higher high.
+  //  • ✕ exit — a swing high LOWER than the previous (structure rolled over).
+  //  • stop — just under the most recent higher low.
+  const entrySignals = useMemo(() => {
     const a = c.candles;
     const n = a.length;
-    const highs: number[] = [];
+    const markers: { t: number; text: string; color: string; above?: boolean }[] = [];
+    const sHi: { i: number; v: number }[] = [];
+    const sLo: { i: number; v: number }[] = [];
     for (let i = 1; i < n - 1; i++) {
-      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) {
-        highs.push(a[i].high as number);
+      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) sHi.push({ i, v: a[i].high as number });
+      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) sLo.push({ i, v: a[i].low as number });
+    }
+    const GOLD = "#eab308"; const RED = "#f23645";
+    // Pullback entries + track the latest higher low for the stop.
+    let stopLevel: number | null = null;
+    for (let k = 1; k < sLo.length; k++) {
+      if (sLo[k].v > sLo[k - 1].v) {
+        markers.push({ t: (a[sLo[k].i].time as number) - IST_OFFSET_SECONDS, text: "PB", color: GOLD, above: false });
+        stopLevel = sLo[k].v; // most recent higher low
       }
     }
-    const last = highs.slice(-6);
-    return last.length ? last.reduce((s, v) => s + v, 0) / last.length : null;
-  }, [c.candles]);
-  // Breakin line — average of the LAST 6 swing-low (blue arrow) lows.
-  const breakinLevel = useMemo(() => {
-    const a = c.candles;
-    const n = a.length;
-    const lows: number[] = [];
-    for (let i = 1; i < n - 1; i++) {
-      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) {
-        lows.push(a[i].low as number);
+    // Breakout entries (higher highs) + lower-high exits.
+    for (let k = 1; k < sHi.length; k++) {
+      if (sHi[k].v > sHi[k - 1].v) {
+        // first candle after the prior high whose close clears it
+        let j = sHi[k - 1].i + 1;
+        while (j <= sHi[k].i && (a[j].close as number) <= sHi[k - 1].v) j++;
+        if (j <= sHi[k].i) markers.push({ t: (a[j].time as number) - IST_OFFSET_SECONDS, text: "BO", color: GOLD, above: false });
+      } else if (sHi[k].v < sHi[k - 1].v) {
+        markers.push({ t: (a[sHi[k].i].time as number) - IST_OFFSET_SECONDS, text: "✕", color: RED, above: true });
       }
     }
-    const last = lows.slice(-6);
-    return last.length ? last.reduce((s, v) => s + v, 0) / last.length : null;
+    return { markers, stopLevel };
   }, [c.candles]);
 
   return (
@@ -587,8 +599,8 @@ function InstrumentPane({
         greenCandleTimes={greenCandleTimes}
         tslLevel={swingTsl}
         countLabels={countLabels}
-        breakoutLevel={breakoutLevel}
-        breakinLevel={breakinLevel}
+        signalMarkers={entrySignals.markers}
+        stopLevel={entrySignals.stopLevel}
         replayMarkerTime={replayMarker}
         onReplayMarkerChange={setReplayMarker}
         tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
