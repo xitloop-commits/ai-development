@@ -4,7 +4,7 @@
  * window (underlying + CE + PE). Full rebuild on data/config change, preserving
  * the visible time range so live refresh / interval switches don't reset zoom.
  */
-import { useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 import type { CrosshairSync } from "@/lib/crosshairSync";
 import {
   createChart,
@@ -322,6 +322,18 @@ export function TickChart({
   // Reset-zoom button can snap back to the live 4h window.
   const fitRef = useRef<(() => void) | null>(null);
   const resetZoom = useCallback(() => fitRef.current?.(), []);
+  // ── Rebuild gating ────────────────────────────────────────────────
+  // The whole chart is torn down + recreated on every data change. On a fast
+  // (option-premium) feed that fires several times a second, so while the user
+  // is dragging/zooming a pane the chart gets destroyed under the cursor and the
+  // pan can never complete (the "can't pan the multichart" bug). We freeze the
+  // rebuild while a pointer/wheel interaction is in flight and do ONE catch-up
+  // rebuild when it ends. `rebuildGen` is the only dep of the build effect; the
+  // gating effect below bumps it (unless interacting). (Partha 2026-08-31)
+  const [rebuildGen, setRebuildGen] = useState(0);
+  const interactingRef = useRef(false);
+  const pendingRebuildRef = useRef(false);
+  const wheelTimerRef = useRef<number | null>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<HTMLDivElement>(null);
   const angleRightRef = useRef<HTMLDivElement>(null);
@@ -336,6 +348,46 @@ export function TickChart({
     [rawCandles, style],
   );
   const indicatorsKey = useMemo(() => Array.from(indicators).sort().join(","), [indicators]);
+
+  // Request a rebuild when any render input changes — but hold it while the user
+  // is actively panning/zooming this pane (so the chart isn't destroyed under the
+  // cursor). The held rebuild is flushed the moment the interaction ends.
+  useEffect(() => {
+    if (interactingRef.current) { pendingRebuildRef.current = true; return; }
+    setRebuildGen((g) => g + 1);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
+
+  // Track pointer/wheel interaction so the gate above knows when to hold. Mounted
+  // once; the chart survives across rebuilds so these listeners stay valid.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const endInteract = () => {
+      interactingRef.current = false;
+      if (pendingRebuildRef.current) { pendingRebuildRef.current = false; setRebuildGen((g) => g + 1); }
+    };
+    const startInteract = () => { interactingRef.current = true; };
+    const onWheel = () => {
+      interactingRef.current = true;
+      if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = window.setTimeout(endInteract, 350);
+    };
+    el.addEventListener("pointerdown", startInteract);
+    window.addEventListener("pointerup", endInteract);
+    el.addEventListener("pointercancel", endInteract);
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", startInteract, { passive: true });
+    window.addEventListener("touchend", endInteract);
+    return () => {
+      el.removeEventListener("pointerdown", startInteract);
+      window.removeEventListener("pointerup", endInteract);
+      el.removeEventListener("pointercancel", endInteract);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", startInteract);
+      window.removeEventListener("touchend", endInteract);
+      if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
@@ -1056,7 +1108,11 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
+    // Only `rebuildGen` drives a rebuild — the gating effect below decides WHEN to
+    // bump it (never mid-interaction), so a drag/zoom is never interrupted. The
+    // effect body still reads the latest props via closure (fresh at each bump).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rebuildGen]);
 
   // Drag the replay marker line. Mounted once; reads live state via refs so it
   // survives the chart's frequent rebuilds. Moves the primitive smoothly during
