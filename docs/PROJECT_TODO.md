@@ -3100,6 +3100,25 @@ gate with a real config switch (e.g. `master.tsl.trailMode === "swing"`) once
 validated on complete replay runs. **Blocker:** validate edge on COMPLETED runs
 first (win rate / net-of-charges vs the current candle TSL).
 
+## CandleBlue cohort — structure-based HH+HL entry (2026-08-30)
+
+New tradeable cohort `candleblue` (temp name). Long the locked ATM premium, per
+leg (CE + PE independently), on pure swing structure — no ribbon.
+
+**ENTRY:** both confirm up — higher low (latest swing low > previous) AND higher
+high (latest swing high > previous). Fire on the candle completing the second.
+**EXIT:** a lower high forms (latest swing high < previous).
+**BACKSTOP:** hard stop just under the last higher low (ratchets up on new higher
+lows) — catches a straight collapse where no new swing high forms.
+Defaults: stop a hair under the higher low; re-entry allowed on re-confirm; built
+**replay + paper only, default OFF** until validated on replay.
+
+Files (per the cohort checklist): Python `candleblue_signal.py` detector +
+`thresholds.py` loader + `engine.py` wiring; `candleblue` block in all
+`config/sea_thresholds/*.json`; Node `aiModeConfig.ts` / `seaControl.ts` /
+`discipline/routes.ts`; UI `AiControl.tsx`. **Validate 1st/2nd/3rd higher-low
+strictness on replay later (knob parked).**
+
 ## How to use this file
 
 - **Adding a new TODO:** Append at the appropriate priority slot. Keep entries tight — what / status / blocker / link.
