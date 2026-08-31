@@ -49,7 +49,7 @@ import { ALL_MARKER_FILTER, tradePassesMarkerFilter, type TradeMarkerFilter } fr
 import { TradeMarkerToggles } from "./TradeMarkerToggles";
 import { createCrosshairSync, type CrosshairSync } from "@/lib/crosshairSync";
 import { useReplayMarker, setReplayMarker } from "@/stores/replayMarkerStore";
-import { subscribeChartFocus } from "@/lib/chartFocusBus";
+import { subscribeChartFocus, postChartFocus } from "@/lib/chartFocusBus";
 
 /** Exchange groups for the NSE/MCX segment switches. */
 const NSE_INSTS = ["NIFTY_50", "BANKNIFTY"] as const;
@@ -170,6 +170,26 @@ function InstrumentPane({
   }), [instKey]);
   // A focus that names a trade we don't have (yet) is ignored until it loads.
   const focused = focusKey ? rows.find((r) => tradeKeyOf(r) === focusKey) ?? null : null;
+
+  // Click a trade's #N marker IN the chart to focus it (same as the desk pill).
+  // Match the clicked candle time to the nearest entry/exit marker; broadcast so
+  // the other chart window focuses the same trade too. (Partha 2026-08-31)
+  const onChartTimeClick = (timeSec: number) => {
+    let best: PaneTradeRow | null = null;
+    let bestD = Infinity;
+    for (const t of rows) {
+      const et = t.entryTime + IST_OFFSET_SECONDS;
+      if (Math.abs(et - timeSec) < bestD) { bestD = Math.abs(et - timeSec); best = t; }
+      if (t.exitTime != null) {
+        const xt = t.exitTime + IST_OFFSET_SECONDS;
+        if (Math.abs(xt - timeSec) < bestD) { bestD = Math.abs(xt - timeSec); best = t; }
+      }
+    }
+    if (!best || bestD > intervalSec * 3) return; // click wasn't on/near a marker
+    const key = tradeKeyOf(best);
+    setFocusKey(key);
+    postChartFocus({ instrument: instKey, side: best.side, strike: best.strike, contractSecurityId: best.contractSecurityId, tradeKey: key });
+  };
 
   // Active side/contract: the open trade (either side, latest), else the
   // most-recent trade. A focus overrides it. (Partha 2026-08-18: one pane per
@@ -660,6 +680,7 @@ function InstrumentPane({
         stopLevel={clean ? (entryStructure?.stop ?? null) : entrySignals.stopLevel}
         replayMarkerTime={replayMarker}
         onReplayMarkerChange={setReplayMarker}
+        onTimeClick={onChartTimeClick}
         tslIgnoredTimes={clean ? undefined : (indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined)}
         trendReadout={clean ? undefined : trendReadout}
         trendReadoutRight={clean ? undefined : trendReadoutRight}
