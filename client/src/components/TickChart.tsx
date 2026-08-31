@@ -147,6 +147,9 @@ export interface TickChartProps {
   /** Top-of-up-run candles (higher high, nothing after higher yet) — painted
    *  bright green. Raw bucket epoch sec (IST offset added here). */
   greenCandleTimes?: number[];
+  /** Trade ENTRY candles — the bar each trade entered on, painted pink. Raw
+   *  bucket epoch sec (IST offset added here). */
+  entryCandleTimes?: number[];
   /** Called when a draggable line is dropped at a new price (title, newPrice). */
   onLineDrag?: (title: string, price: number) => void;
   style: ChartStyle;
@@ -266,6 +269,7 @@ export function TickChart({
   whiteCandleTime,
   blueCandleTimes,
   greenCandleTimes,
+  entryCandleTimes,
   hoverAngleStrip,
   trendReadout,
   trendReadoutRight,
@@ -378,7 +382,7 @@ export function TickChart({
         setRebuildGen((g) => g + 1);
       }, REBUILD_THROTTLE_MS - since);
     }
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, entryCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
 
   // Track pointer/wheel interaction so the gate above knows when to hold. Mounted
   // once; the chart survives across rebuilds so these listeners stay valid.
@@ -504,6 +508,8 @@ export function TickChart({
       const whiteT = whiteCandleTime != null ? whiteCandleTime + IST_OFFSET_SECONDS : null;
       const ignoredSet = tslIgnoredTimes && tslIgnoredTimes.length
         ? new Set(tslIgnoredTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
+      const entrySet = entryCandleTimes && entryCandleTimes.length
+        ? new Set(entryCandleTimes.map((t) => t + IST_OFFSET_SECONDS)) : null;
       series.setData(
         candles.map((c) => {
           const d: {
@@ -511,7 +517,9 @@ export function TickChart({
             color?: string; borderColor?: string; wickColor?: string;
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
-          if (whiteT != null && ct === whiteT) {
+          if (entrySet && entrySet.has(ct)) {
+            d.color = "#ec4899"; d.borderColor = "#f9a8d4"; d.wickColor = "#f9a8d4"; // trade ENTRY — PINK
+          } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
             d.color = "#eab308"; d.borderColor = "#fde047"; d.wickColor = "#fde047"; // anchor — SOLID gold

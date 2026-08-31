@@ -239,6 +239,14 @@ function InstrumentPane({
     return raw.filter((m) => (m.shape === "circle" ? indicators.has("exit") : indicators.has("entry")));
   }, [c.candles, rows, secId, strike, side, markerFilter, activeOnly, focused, indicators]);
 
+  // ENTRY candles painted pink — the bar each trade entered on. Derived from the
+  // entry arrows (non-circle markers); marker.time is IST-shifted, so strip the
+  // offset back to the raw bucket epoch TickChart expects. (Partha 2026-08-31)
+  const entryCandleTimes = useMemo(
+    () => markers.filter((m) => m.shape !== "circle").map((m) => (m.time as number) - IST_OFFSET_SECONDS),
+    [markers],
+  );
+
   // One shared timeframe: the ribbons + S/R are computed on the SERVER at the
   // chart's display timeframe (intervalSec), so candles and every indicator
   // always agree. (intervalSec is locked to the signal-detector config in
@@ -602,6 +610,7 @@ function InstrumentPane({
         whiteCandleTime={whiteCandleTime}
         blueCandleTimes={blueCandleTimes}
         greenCandleTimes={greenCandleTimes}
+        entryCandleTimes={entryCandleTimes}
         tslLevel={swingTsl}
         countLabels={countLabels}
         signalMarkers={entrySignals.markers}
