@@ -42,6 +42,9 @@ import { chartColors } from "@/lib/chartColors";
 
 /** Empty bars of margin kept to the right of the last candle. */
 const RIGHT_MARGIN_BARS = 10;
+// Cap full-chart rebuilds so a fast tick feed can't churn the chart faster than
+// a zoom/pan can settle. ~1.5 rebuilds/sec still looks live. (Partha 2026-08-31)
+const REBUILD_THROTTLE_MS = 700;
 
 /**
  * Higher-timeframe SMA line: aggregate the display candles into `tfSec`-second
@@ -341,6 +344,8 @@ export function TickChart({
   const interactingRef = useRef(false);
   const pendingRebuildRef = useRef(false);
   const wheelTimerRef = useRef<number | null>(null);
+  const lastBuildRef = useRef(0);
+  const throttleTimerRef = useRef<number | null>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<HTMLDivElement>(null);
   const angleRightRef = useRef<HTMLDivElement>(null);
@@ -371,7 +376,25 @@ export function TickChart({
     }
     dbgDepsRef.current = cur;
     if (interactingRef.current) { pendingRebuildRef.current = true; return; }
-    setRebuildGen((g) => g + 1);
+    // THROTTLE — a fast option feed fires many times a second; rebuilding the
+    // whole chart that often never lets a zoom/pan settle (the underlying chart
+    // feels calm only because the spot index ticks slowly). Cap rebuilds to one
+    // per REBUILD_THROTTLE_MS: fire immediately if we're past the window, else
+    // coalesce into a single trailing rebuild with the latest data. (2026-08-31)
+    const now = Date.now();
+    const since = now - lastBuildRef.current;
+    if (throttleTimerRef.current != null) return; // a trailing rebuild is already queued
+    if (since >= REBUILD_THROTTLE_MS) {
+      lastBuildRef.current = now;
+      setRebuildGen((g) => g + 1);
+    } else {
+      throttleTimerRef.current = window.setTimeout(() => {
+        throttleTimerRef.current = null;
+        if (interactingRef.current) { pendingRebuildRef.current = true; return; }
+        lastBuildRef.current = Date.now();
+        setRebuildGen((g) => g + 1);
+      }, REBUILD_THROTTLE_MS - since);
+    }
   }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
 
   // Track pointer/wheel interaction so the gate above knows when to hold. Mounted
@@ -412,6 +435,7 @@ export function TickChart({
       window.removeEventListener("touchend", endInteract, capt);
       window.removeEventListener("pointercancel", endInteract, capt);
       if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
+      if (throttleTimerRef.current) window.clearTimeout(throttleTimerRef.current);
     };
   }, []);
 
