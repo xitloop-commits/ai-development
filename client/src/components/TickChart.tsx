@@ -1098,13 +1098,24 @@ export function TickChart({
       });
       fitRef.current = fit; // let the Reset button re-fit to all data
       if (!isDefault && saved.logical) {
-        // Restore by TIME (immune to bar re-indexing when the seed history grows);
-        // fall back to the logical range if the time window isn't available yet.
+        const span = Math.max(1, saved.logical.to - saved.logical.from);
+        // Was the saved window pinned to the live edge (zoomed, but following the
+        // newest candle)? If so we keep the SAME zoom span but anchor the right
+        // side at bars-1+MARGIN, so the live candle/handle keeps its breathing
+        // room instead of gluing to the edge. Panned-into-history windows restore
+        // by TIME (immune to bar re-indexing as the seed history grows).
+        const atEdge = saved.logical.to >= saved.count - 1;
         const restore = () => {
           if (disposed) return;
           try {
-            if (saved.time) chart.timeScale().setVisibleRange({ from: saved.time.from as UTCTimestamp, to: saved.time.to as UTCTimestamp });
-            else chart.timeScale().setVisibleLogicalRange({ from: saved.logical!.from, to: saved.logical!.to });
+            if (atEdge) {
+              const to = bars - 1 + RIGHT_MARGIN_BARS;
+              chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
+            } else if (saved.time) {
+              chart.timeScale().setVisibleRange({ from: saved.time.from as UTCTimestamp, to: saved.time.to as UTCTimestamp });
+            } else {
+              chart.timeScale().setVisibleLogicalRange({ from: saved.logical!.from, to: saved.logical!.to });
+            }
           } catch { try { chart.timeScale().setVisibleLogicalRange({ from: saved.logical!.from, to: saved.logical!.to }); } catch { fit(); } }
         };
         restore();
