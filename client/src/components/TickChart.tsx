@@ -41,7 +41,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
 
 /** Empty bars of margin kept to the right of the last candle. */
-const RIGHT_MARGIN_BARS = 10;
+const RIGHT_MARGIN_BARS = 18;
 // Cap full-chart rebuilds so a fast tick feed can't churn the chart faster than
 // a zoom/pan can settle. ~1.5 rebuilds/sec still looks live. (Partha 2026-08-31)
 const REBUILD_THROTTLE_MS = 700;
@@ -334,13 +334,6 @@ export function TickChart({
   // rebuild when it ends. `rebuildGen` is the only dep of the build effect; the
   // gating effect below bumps it (unless interacting). (Partha 2026-08-31)
   const [rebuildGen, setRebuildGen] = useState(0);
-  // TEMP DEBUG (Partha zoom bug): a per-mount id (changes only on a full remount)
-  // + the rebuild counter, shown in the corner of each multichart pane so we can
-  // see, while panning, whether the pane REMOUNTS (m changes), REBUILDS (g climbs)
-  // or neither. Remove once the cause is confirmed.
-  const mountIdRef = useRef(Math.floor(Math.random() * 100));
-  const dbgDepsRef = useRef<unknown[]>([]);
-  const [dbgChanged, setDbgChanged] = useState("");
   const interactingRef = useRef(false);
   const pendingRebuildRef = useRef(false);
   const wheelTimerRef = useRef<number | null>(null);
@@ -365,16 +358,6 @@ export function TickChart({
   // is actively panning/zooming this pane (so the chart isn't destroyed under the
   // cursor). The held rebuild is flushed the moment the interaction ends.
   useEffect(() => {
-    // TEMP DEBUG: record WHICH inputs changed this pass so the badge can name the
-    // churning dependency (the real cause of the endless rebuilds). Remove later.
-    const names = ["candles", "rawCandles", "markers", "maLegs", "style", "intervalSec", "indicatorsKey", "indicators", "tradeLines", "theme", "sma5Ha", "sma5Period", "sma5CandleSec", "serverSwings", "serverLevels", "serverSma5", "extraLines", "tslAnchorTime", "tslIgnoredTimes", "whiteCandleTime", "blueCandleTimes", "greenCandleTimes", "hoverAngleStrip", "trendReadout", "trendReadoutRight", "trendLine", "trendLineRight", "sma5Level", "sma5LevelColor", "maLevel", "maLevelColor", "tslLevel", "climbLabels", "countLabels", "signalMarkers", "stopLevel", "replayMarkerTime", "crosshairSync", "selfId", "viewKey"];
-    const cur: unknown[] = [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey];
-    const prev = dbgDepsRef.current;
-    if (prev.length) {
-      const changed = names.filter((_, i) => !Object.is(cur[i], prev[i]));
-      if (changed.length) setDbgChanged(changed.join(","));
-    }
-    dbgDepsRef.current = cur;
     if (interactingRef.current) { pendingRebuildRef.current = true; return; }
     // THROTTLE — a fast option feed fires many times a second; rebuilding the
     // whole chart that often never lets a zoom/pan settle (the underlying chart
@@ -1300,12 +1283,6 @@ export function TickChart({
           hidden={!!viewKey}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
-        {/* TEMP DEBUG badge — multichart panes only. Remove once cause confirmed. */}
-        {viewKey && (
-          <div className="absolute right-1 top-1 z-30 pointer-events-none rounded bg-black/70 px-1 py-0.5 text-[0.625rem] font-bold tabular-nums text-yellow-300 max-w-[90%] truncate">
-            m{mountIdRef.current} · g{rebuildGen}{dbgChanged ? ` · ${dbgChanged}` : ""}
-          </div>
-        )}
         {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
         {trendReadoutRight && (
           <div className="absolute bottom-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-0.5">
