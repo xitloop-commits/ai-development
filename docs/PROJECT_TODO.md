@@ -3127,8 +3127,16 @@ heads, TO a premium-native model that learns **when the option premium blasts up
 gives the most profit-minus-decay.
 
 **LOCKED spec:**
-- **Question the model answers** (3 outputs): ENTER (a blast is coming) · STRIKE
-  (which strike gives most profit AFTER decay for the move) · EXIT (blast over).
+- **Question the model answers:** ENTER (**carries the strike** — "buy strike X now")
+  · EXIT (blast over). Two decisions, not three — the strike is baked into the buy.
+- **Entry logic (LOCKED):** **HH+HL is the GATE** — no HH+HL, no buy (the honest,
+  interpretable trigger, like CandleBlue). The model's **confidence** then decides
+  whether to take that HH+HL setup, using **MA/SMA5 + all circumstances** (greeks/OI/
+  flow). **MA/SMA5 raise/lower confidence but NEVER veto** an HH+HL entry — if they're
+  quiet, the model leans on the greeks/flow instead. So: enter on HH+HL, sized by
+  model confidence.
+- **STRIKE choice** rides inside the ENTER: every moment the model scores each ladder
+  strike for net profit (blast − decay); the buy fires on the best-scoring strike.
 - **Labels:** ENTER = premium rises **>+10% within 10 min** (a "blast"); EXIT = the
   drop (premium falls within 10 min). Per leg (CE/PE), on the **locked/fixed strike**
   premium (continuous), NOT the moving `opt_0` ATM window.
