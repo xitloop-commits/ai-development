@@ -282,32 +282,48 @@ function InstrumentPane({
     const a = c.candles;
     if (a.length < 3) return null;
     const entryIst = entryCandleTimes[0] + IST_OFFSET_SECONDS; // c.candles are IST-shifted
+    // Replay candleblue's own logic forward (1-bar pivots on closed candles, HH =
+    // beats the prior RANGE_W highs, HL = above the previous low) and capture the
+    // structure AT the entry trigger — the candle where both first go true — not
+    // at the (later) fill time, so the HH/HL shown are the ones that actually
+    // fired. Use the trigger nearest to (but not after) this trade's fill.
     const highs: { t: number; v: number }[] = [];
     const lows: { t: number; v: number }[] = [];
+    type Snap = { hh: { t: number; v: number }; prevHigh: { t: number; v: number }; hl: { t: number; v: number }; prevLow: { t: number; v: number }; stop: number };
+    let inPos = false;
+    let best: Snap | null = null;
     for (let i = 1; i < a.length - 1; i++) {
-      const t = a[i].time as number;
-      if (t >= entryIst) break; // structure formed BEFORE the entry candle only
-      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) highs.push({ t, v: a[i].high as number });
-      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) lows.push({ t, v: a[i].low as number });
+      const confirmT = a[i + 1].time as number; // pivot at i is confirmed on candle i+1's close
+      let newHigh = false;
+      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) { highs.push({ t: a[i].time as number, v: a[i].high as number }); newHigh = true; }
+      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) lows.push({ t: a[i].time as number, v: a[i].low as number });
+      const hhOk = highs.length >= RANGE_W + 1 && highs[highs.length - 1].v > Math.max(...highs.slice(-RANGE_W - 1, -1).map((x) => x.v));
+      const hlOk = lows.length >= 2 && lows[lows.length - 1].v > lows[lows.length - 2].v;
+      if (!inPos && hhOk && hlOk) {
+        inPos = true;
+        if (confirmT <= entryIst + intervalSec) {
+          const prevHigh = highs.slice(-RANGE_W - 1, -1).reduce((m, x) => (x.v > m.v ? x : m));
+          const prevLow = lows[lows.length - 2];
+          best = { hh: highs[highs.length - 1], prevHigh, hl: lows[lows.length - 1], prevLow, stop: prevLow.v * (1 - STOP_BUF_PCT / 100) };
+        }
+      } else if (inPos && newHigh && highs.length >= 2 && highs[highs.length - 1].v < highs[highs.length - 2].v) {
+        inPos = false; // lower high — candleblue exits, a fresh entry may follow
+      }
     }
-    if (!highs.length || lows.length < 2) return null;
-    const hh = highs[highs.length - 1];
-    const prevHigh = highs.slice(-RANGE_W - 1, -1).reduce<{ t: number; v: number } | null>((m, x) => (!m || x.v > m.v ? x : m), null);
-    const hl = lows[lows.length - 1];
-    const prevLow = lows[lows.length - 2];
+    if (!best) return null;
     const R = IST_OFFSET_SECONDS;
     return {
-      greenTimes: [hh.t - R, ...(prevHigh ? [prevHigh.t - R] : [])], // green down-arrows over the highs
-      blueTimes: [hl.t - R, prevLow.t - R],                          // blue up-arrows under the lows
+      greenTimes: [best.hh.t - R, best.prevHigh.t - R],
+      blueTimes: [best.hl.t - R, best.prevLow.t - R],
       labels: [
-        { t: hh.t - R, text: "HH", color: "#22c55e", above: true },
-        { t: hl.t - R, text: "HL", color: "#3b82f6", above: false },
-        ...(prevHigh ? [{ t: prevHigh.t - R, text: "prev", color: "#9ca3af", above: true }] : []),
-        { t: prevLow.t - R, text: "prev", color: "#9ca3af", above: false },
+        { t: best.hh.t - R, text: "HH", color: "#22c55e", above: true },
+        { t: best.prevHigh.t - R, text: "prev", color: "#9ca3af", above: true },
+        { t: best.hl.t - R, text: "HL", color: "#3b82f6", above: false },
+        { t: best.prevLow.t - R, text: "prev", color: "#9ca3af", above: false },
       ],
-      stop: prevLow.v * (1 - STOP_BUF_PCT / 100),
+      stop: best.stop,
     };
-  }, [focused, entryCandleTimes, c.candles]);
+  }, [focused, entryCandleTimes, c.candles, intervalSec]);
   const clean = focused != null; // entry-view stripped-down mode
 
   // One shared timeframe: the ribbons + S/R are computed on the SERVER at the
