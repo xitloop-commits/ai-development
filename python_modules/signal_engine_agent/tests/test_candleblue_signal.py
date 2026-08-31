@@ -73,3 +73,13 @@ def test_legs_are_independent():
     ce = [e for _, e in _run(det, "CE", up)]
     pe = [e for _, e in _run(det, "PE", [100, 100, 100, 100, 100, 100])]  # flat
     assert "LONG_CE" in ce and "LONG_PE" not in pe
+
+
+def test_no_entry_in_sideways_range():
+    """Highs capped in a range (the trade #6 failure): consecutive swings fake a
+    higher-high, but no candle makes a NEW range high — the range-window rule must
+    reject it (the old consecutive rule would have entered)."""
+    prices = [90, 97, 84, 95, 86, 97, 85, 95, 86]  # swing highs bounce 97/95, no breakout
+    det = CandleBlueDetector(candle_sec=60, range_window=2)
+    names = [e for _, e in _run(det, "CE", prices)]
+    assert "LONG_CE" not in names, f"chop range must not enter: {names}"

@@ -1233,6 +1233,10 @@ class CandleblueThresholds:
     candle_sec: int = 60
     # Hard stop sits this % BELOW the higher low it trails (a hair under it).
     stop_buffer_pct: float = 0.2
+    # A "higher high" must beat the highest of the previous `range_window` swing
+    # highs (a genuine new range high) — filters sideways-chop false entries. 1 =
+    # the old consecutive-swing rule.
+    range_window: int = 2
 
 
 def load_thresholds_candleblue(

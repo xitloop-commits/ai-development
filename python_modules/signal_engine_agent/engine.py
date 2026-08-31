@@ -821,6 +821,7 @@ def run(
     candleblue_detector = CandleBlueDetector(
         candle_sec=candleblue_thresholds.candle_sec,
         stop_buffer_pct=candleblue_thresholds.stop_buffer_pct,
+        range_window=candleblue_thresholds.range_window,
     )
     premium_feed: LockedPremiumFeed | None = None
     if ma_ribbon is not None or sma5_ribbon is not None or candleblue_detector is not None:

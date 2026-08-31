@@ -38,6 +38,7 @@
   "candleblue": {
     "enabled": true,
     "candle_sec": 120,
-    "stop_buffer_pct": 0.2
+    "stop_buffer_pct": 0.2,
+    "range_window": 2
   }
 }

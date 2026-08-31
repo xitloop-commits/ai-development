@@ -34,10 +34,14 @@ class CandleBlueLeg:
     """One contract's swing structure: premium candles → swing highs/lows →
     HH+HL entry, lower-high exit, higher-low trailing stop."""
 
-    def __init__(self, candle_sec: int = 60, stop_buffer_pct: float = 0.2) -> None:
+    def __init__(self, candle_sec: int = 60, stop_buffer_pct: float = 0.2, range_window: int = 2) -> None:
         self.candle_sec = max(1, int(candle_sec))
         # Stop sits this % BELOW the higher low it trails (a hair under it).
         self.stop_buffer_pct = max(0.0, float(stop_buffer_pct))
+        # A "higher high" must beat the highest of the previous `range_window`
+        # swing highs — a GENUINE new range high, not just the last swing (which a
+        # sideways zig-zag fakes on every other pivot). 1 = the old consecutive rule.
+        self.range_window = max(1, int(range_window))
         self.reset()
 
     def reset(self) -> None:
@@ -117,21 +121,28 @@ class CandleBlueLeg:
         if len(self.swing_lows) > 64:
             self.swing_lows = self.swing_lows[-64:]
 
-        higherHigh = len(self.swing_highs) >= 2 and self.swing_highs[-1] > self.swing_highs[-2]
-        higherLow = len(self.swing_lows) >= 2 and self.swing_lows[-1] > self.swing_lows[-2]
-        lowerHigh = len(self.swing_highs) >= 2 and self.swing_highs[-1] < self.swing_highs[-2]
+        w = self.range_window
+        sh, sl = self.swing_highs, self.swing_lows
+        # Higher high = a GENUINE new range high (beats the last `w` swing highs),
+        # not just the previous swing — that filters the sideways-chop false signal.
+        higherHigh = len(sh) >= w + 1 and sh[-1] > max(sh[-w - 1:-1])
+        higherLow = len(sl) >= 2 and sl[-1] > sl[-2]
+        lowerHigh = len(sh) >= 2 and sh[-1] < sh[-2]
+        # Stop anchors under the PREVIOUS higher low (a full swing back) for room,
+        # ratcheting up as the structure rises. Falls back to the latest if only one.
+        stopAnchor = sl[-2] if len(sl) >= 2 else (sl[-1] if sl else None)
 
         if not self.in_position:
-            # ENTRY — both confirmed up, fired on the candle completing the second.
-            if higherHigh and higherLow:
-                self.stop = self._stop_from(self.swing_lows[-1])
+            # ENTRY — a real higher high + a higher low, on the candle completing it.
+            if higherHigh and higherLow and stopAnchor is not None:
+                self.stop = self._stop_from(stopAnchor)
                 self.in_position = True
                 if emit:
                     out.append(self._long())
         else:
-            # Trail the stop up on a fresh higher low.
-            if newSwingLow and higherLow:
-                self.stop = max(self.stop or 0.0, self._stop_from(self.swing_lows[-1]))
+            # Trail the stop up on a fresh higher low (under the previous higher low).
+            if newSwingLow and higherLow and stopAnchor is not None:
+                self.stop = max(self.stop or 0.0, self._stop_from(stopAnchor))
             # Hard-stop backstop — the just-closed candle's low broke the stop
             # (catches a collapse where no new swing high forms). Close-confirmed;
             # the intra-candle path in on_tick also fires it live within a candle.
@@ -157,8 +168,8 @@ class CandleBlueLeg:
 class CandleBlueDetector:
     """Two CandleBlueLegs (locked CE + locked PE) → LONG/EXIT events."""
 
-    def __init__(self, candle_sec: int = 60, stop_buffer_pct: float = 0.2) -> None:
-        mk: Callable[[], CandleBlueLeg] = lambda: CandleBlueLeg(candle_sec, stop_buffer_pct)
+    def __init__(self, candle_sec: int = 60, stop_buffer_pct: float = 0.2, range_window: int = 2) -> None:
+        mk: Callable[[], CandleBlueLeg] = lambda: CandleBlueLeg(candle_sec, stop_buffer_pct, range_window)
         self._legs = {"CE": mk(), "PE": mk()}
         for name, leg in self._legs.items():
             leg._long = (lambda n=name: f"LONG_{n}")   # type: ignore[method-assign]
