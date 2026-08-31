@@ -171,6 +171,10 @@ class CandleBlueDetector:
         for leg in self._legs.values():
             leg.set_candle_sec(sec)
 
+    def set_stop_buffer(self, pct: float) -> None:
+        for leg in self._legs.values():
+            leg.stop_buffer_pct = max(0.0, float(pct))
+
     def reset_leg(self, leg: str) -> None:
         self._legs[leg].reset()
 

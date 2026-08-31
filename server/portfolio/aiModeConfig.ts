@@ -290,6 +290,10 @@ export interface CommonConfig {
   sma5CandleSec: number;
   /** MA-Signal detector candle timeframe in seconds (60=1m, 180=3m, 300=5m). Pushed to SEA. */
   maCandleSec: number;
+  /** CandleBlue candle timeframe (seconds) — its swing structure is built on these. Pushed to SEA. */
+  candleblueCandleSec: number;
+  /** CandleBlue hard-stop buffer (%) below the last higher low. Pushed to SEA. */
+  candleblueStopBufferPct: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
@@ -376,6 +380,8 @@ function baseCommon(): CommonConfig {
     sma5EntryGate: false, // premium-confirm gate off by default (current behaviour)
     sma5CandleSec: 60, // 1-minute SMA5 candles by default
     maCandleSec: 60, // 1-minute MA-Signal candles by default
+    candleblueCandleSec: 60, // 1-minute CandleBlue structure by default
+    candleblueStopBufferPct: 0.2, // stop 0.2% under the last higher low
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -558,6 +564,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   // T171 — ONE candle timeframe platform-wide: MA follows the (canonical) SMA5
   // timeframe, so signals, chart, tradebar and server all use a single number.
   c.maCandleSec = c.sma5CandleSec;
+  // CandleBlue knobs — independent of the shared SMA5/MA timeframe.
+  c.candleblueCandleSec = Math.round(clampNum(c.candleblueCandleSec, 1, 3600, 60));
+  c.candleblueStopBufferPct = clampNum(c.candleblueStopBufferPct, 0, 5, 0.2);
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);

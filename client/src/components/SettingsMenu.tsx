@@ -56,6 +56,8 @@ interface CommonCfg {
   sma5EntryGate: boolean;
   sma5CandleSec: number;
   maCandleSec: number;
+  candleblueCandleSec: number;
+  candleblueStopBufferPct: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -516,6 +518,15 @@ export function SettingsMenu() {
                   <NumRow label="Buffer" value={d.sma5Buffer} step={0.05} min={0} max={2} unit="%"
                     help="Deadband (% of the line) the close must clear before flipping — filters marginal pokes right at the line. 0 = exact cross."
                     onChange={(v) => edit((x) => { x.sma5Buffer = v; })} />
+                </Group>
+
+                <Group title="CandleBlue detector" info="HH+HL swing-structure cohort: LONG when a higher high AND higher low confirm, EXIT on a lower high, hard stop under the last higher low. Runs on the locked ATM CE/PE premium candles.">
+                  <TfRow label="Candle timeframe" sec={d.candleblueCandleSec}
+                    onChange={(s) => edit((x) => { x.candleblueCandleSec = s; })}
+                    help="Candle size CandleBlue builds its swing structure on (1m/3m/5m). Independent of the SMA5/MA timeframe; hot-swaps the SEA." />
+                  <NumRow label="Stop buffer" value={d.candleblueStopBufferPct} step={0.05} min={0} max={5} unit="%"
+                    help="How far BELOW the last higher low the hard stop sits — a hair under it. Larger = looser stop, fewer premature stop-outs."
+                    onChange={(v) => edit((x) => { x.candleblueStopBufferPct = v; })} />
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">

@@ -11,7 +11,7 @@
     ]
   },
   "sma5_signal": {
-    "enabled": true,
+    "enabled": false,
     "period": 5,
     "buffer_pct": 0,
     "use_ha": true,
@@ -36,7 +36,7 @@
     "ribbon_gray_pctile": 40
   },
   "candleblue": {
-    "enabled": false,
+    "enabled": true,
     "candle_sec": 60,
     "stop_buffer_pct": 0.2
   }

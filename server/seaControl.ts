@@ -61,6 +61,11 @@ export interface CohortState {
   /** T163 premium-ribbon noise-floor percentile (20–60). Follows Settings ▸
    *  Trend angle ▸ gray percentile; applied at the next candle. Live-tunable. */
   ribbonGrayPctile: number;
+  /** CandleBlue candle timeframe (seconds) — its swing structure is built on
+   *  these candles. Live-tunable (2026-08-30). */
+  candleblueCandleSec: number;
+  /** CandleBlue hard-stop buffer (%) below the last higher low. Live-tunable. */
+  candleblueStopBufferPct: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -91,7 +96,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, candleblue: false, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, candleblue: false, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, candleblueCandleSec: 60, candleblueStopBufferPct: 0.2, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -357,6 +362,38 @@ export function setRibbonKnobs(lookback: number, grayPctile: number): CohortStat
   return { ...state };
 }
 
+/** Persist the CandleBlue knobs into every instrument's config `candleblue`
+ *  block so an engine restart keeps them. */
+function persistCandleblue(candleSec: number, stopBufferPct: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      const b = j.candleblue ?? (j.candleblue = { enabled: false });
+      let changed = false;
+      if (b.candle_sec !== candleSec) { b.candle_sec = candleSec; changed = true; }
+      if (b.stop_buffer_pct !== stopBufferPct) { b.stop_buffer_pct = stopBufferPct; changed = true; }
+      if (changed) writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
+/** Push the CandleBlue knobs (candle timeframe + stop buffer) to running SEA. */
+export function setCandleblueKnobs(candleSec: number, stopBufferPct: number): CohortState {
+  const cs = Math.round(Math.min(3600, Math.max(1, candleSec || 60)));
+  const sb = Math.min(10, Math.max(0, stopBufferPct ?? 0.2));
+  if (state.candleblueCandleSec === cs && state.candleblueStopBufferPct === sb) return { ...state };
+  state.candleblueCandleSec = cs;
+  state.candleblueStopBufferPct = sb;
+  persistCandleblue(cs, sb);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -605,6 +642,8 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   const persistTf = replayTfSec == null;
   setSma5CandleSec(tfSec, persistTf);
   setMaCandleSec(tfSec, persistTf);
+  // CandleBlue knobs — a single common-block parameter set (one SEA process).
+  setCandleblueKnobs(getCommonConfig().candleblueCandleSec, getCommonConfig().candleblueStopBufferPct);
   // T163 — premium-ribbon knobs follow Settings ▸ Trend angle (one source of
   // truth for chart AND engine, Partha 2026-08-13).
   const ta = getCommonConfig().trendAngle;

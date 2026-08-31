@@ -1825,6 +1825,12 @@ def run(
                             candleblue_detector.set_candle_sec(int(_cbcs))
                         except (TypeError, ValueError):
                             pass
+                    _cbsb = _live_cohorts.get("candleblue_stop_buffer")
+                    if _cbsb is not None:
+                        try:
+                            candleblue_detector.set_stop_buffer(float(_cbsb))
+                        except (TypeError, ValueError):
+                            pass
                     cb_events = _rb_cb_events if _live_cohorts.get("candleblue") else []
                     for _ev in cb_events:
                         _cb_call = "CE" in _ev
