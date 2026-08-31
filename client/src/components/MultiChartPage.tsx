@@ -583,6 +583,7 @@ function InstrumentPane({
         {replayMarker != null ? "✕ marker" : "◎ marker"}
       </button>
       <TickChart
+        viewKey={forceSide ? `${instKey}#${forceSide}` : instKey}
         candles={c.candles}
         markers={markers}
         tradeLines={tradeLines}
@@ -626,9 +627,6 @@ function InstrumentPane({
             title={focused ? "Focused on one trade — press Reset to return to the active strike" : hasOpen ? "Active trade's contract" : "Most-recent trade's contract"}>
             {strike ?? "—"} {side}
             {focused ? ` · #${focused.tradeNo ?? focused.signalSeq} focus` : hasOpen ? " ●" : ""}
-          </span>
-          <span className="text-muted-foreground">
-            {last != null ? last.toFixed(2) : ""} · {c.tickCount} tk
           </span>
         </>}
       />

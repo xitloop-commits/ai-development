@@ -230,7 +230,18 @@ export interface TickChartProps {
   /** Called by the control-bar Reset button (in addition to fitting the view) —
    *  parents use it to clear a focus / return to the active strike. */
   onResetView?: () => void;
+  /** Stable per-pane id. When set, the visible window is persisted OUTSIDE the
+   *  component (keyed by this id) so it survives a full remount — the multichart
+   *  grid remounts its panes on refresh/date changes, which wiped the local zoom
+   *  memory and reset the view. The watchlist chart omits it (unchanged path). */
+  viewKey?: string;
 }
+
+/** Per-pane visible-window store that outlives the component. A component-local
+ *  ref is wiped when the pane remounts (multichart), so the zoom kept resetting;
+ *  this keeps it keyed by `viewKey`. (Partha 2026-08-31) */
+type SavedView = { logical: { from: number; to: number } | null; count: number; time: { from: number; to: number } | null };
+const paneViewStore = new Map<string, SavedView>();
 
 export function TickChart({
   candles: rawCandles,
@@ -279,6 +290,7 @@ export function TickChart({
   fullscreenActive,
   crosshairSync,
   onResetView,
+  viewKey,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
@@ -365,6 +377,9 @@ export function TickChart({
       height: Math.max(1, Math.floor(_rect.height)),
     });
     chartRef.current = chart;
+    // Seed the saved-window ref from the cross-remount store so a remounted pane
+    // restores exactly what the user last saw (a fresh mount's ref is empty).
+    if (viewKey && paneViewStore.has(viewKey)) viewRef.current = paneViewStore.get(viewKey)!;
     // Resize with the container WITHOUT re-fitting (unlike autoSize). resize keeps
     // the logical range, so the same bars stay in view at the new size.
     const ro = new ResizeObserver((entries) => {
@@ -1023,6 +1038,7 @@ export function TickChart({
       let tr: { from: number; to: number } | null = null;
       try { const r = chart.timeScale().getVisibleRange(); if (r) tr = { from: r.from as number, to: r.to as number }; } catch { /* whitespace-only */ }
       viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length, time: tr };
+      if (viewKey) paneViewStore.set(viewKey, viewRef.current);
     });
 
     return () => {
@@ -1035,11 +1051,12 @@ export function TickChart({
         let tr: { from: number; to: number } | null = null;
         try { const r = chart.timeScale().getVisibleRange(); if (r) tr = { from: r.from as number, to: r.to as number }; } catch { /* whitespace-only */ }
         viewRef.current = { logical: lr ? { from: lr.from, to: lr.to } : null, count: candles.length, time: tr };
+        if (viewKey) paneViewStore.set(viewKey, viewRef.current);
       } catch { /* keep the previously saved view */ }
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
 
   // Drag the replay marker line. Mounted once; reads live state via refs so it
   // survives the chart's frequent rebuilds. Moves the primitive smoothly during
@@ -1169,9 +1186,12 @@ export function TickChart({
             {emptyText ?? "No data"}
           </div>
         )}
-        {/* OHLC readout — filled imperatively from the crosshair (see renderLegend). */}
+        {/* OHLC readout — filled imperatively from the crosshair (see renderLegend).
+            Hidden on the compact multichart panes (viewKey set) — Partha wants
+            them free of the live OHLC / price clutter (2026-08-31). */}
         <div
           ref={legendRef}
+          hidden={!!viewKey}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
         {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
