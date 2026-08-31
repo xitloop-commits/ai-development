@@ -41,7 +41,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { chartColors } from "@/lib/chartColors";
 
 /** Empty bars of margin kept to the right of the last candle. */
-const RIGHT_MARGIN_BARS = 18;
+const RIGHT_MARGIN_BARS = 25;
 // Cap full-chart rebuilds so a fast tick feed can't churn the chart faster than
 // a zoom/pan can settle. ~1.5 rebuilds/sec still looks live. (Partha 2026-08-31)
 const REBUILD_THROTTLE_MS = 700;
