@@ -322,11 +322,13 @@ export function TickChart({
 
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
+    const el = containerRef.current;
 
     chartRef.current?.remove();
 
     const cc = chartColors(theme);
-    const chart = createChart(containerRef.current, {
+    const _rect = el.getBoundingClientRect();
+    const chart = createChart(el, {
       layout: {
         background: { type: ColorType.Solid, color: cc.background },
         textColor: cc.text,
@@ -349,9 +351,24 @@ export function TickChart({
         secondsVisible: intervalSec < 60,
         rightOffset: RIGHT_MARGIN_BARS, // empty bars of breathing room on the right edge
       },
-      autoSize: true,
+      // Manual sizing (NOT autoSize). autoSize measures the container async and
+      // its first layout pass re-fits the range AFTER our zoom restore — that was
+      // the long-standing "zoom keeps resetting" bug. We size explicitly here and
+      // use a ResizeObserver → chart.resize() below, which PRESERVES the visible
+      // range (never re-fits), so the zoom survives every rebuild. (Partha 2026-08-31)
+      width: Math.max(1, Math.floor(_rect.width)),
+      height: Math.max(1, Math.floor(_rect.height)),
     });
     chartRef.current = chart;
+    // Resize with the container WITHOUT re-fitting (unlike autoSize). resize keeps
+    // the logical range, so the same bars stay in view at the new size.
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r && r.width > 0 && r.height > 0) {
+        try { chart.resize(Math.floor(r.width), Math.floor(r.height)); } catch { /* chart removed */ }
+      }
+    });
+    ro.observe(el);
     chart.subscribeClick((param) => {
       if (param.time != null) onTimeClickRef.current?.(param.time as number);
     });
@@ -977,17 +994,13 @@ export function TickChart({
       fitRef.current = fit; // let the Reset button re-fit to all data
       if (!isDefault && saved.logical) {
         const want = { from: saved.logical.from, to: saved.logical.to };
-        const assert = () => {
-          if (disposed) return;
-          try { chart.timeScale().setVisibleLogicalRange(want); } catch { /* chart gone */ }
-        };
+        // With manual sizing (no autoSize) nothing re-fits after this, so the
+        // synchronous restore is final — one rAF re-assert as belt-and-braces
+        // for the very first layout pass; no more timeout guessing.
         try { chart.timeScale().setVisibleLogicalRange(want); } catch { fit(); }
-        // autoSize measures the container ASYNCHRONOUSLY; its first layout
-        // pass can reset the range AFTER the synchronous restore above —
-        // that was the "zoom keeps resetting" bug. Re-assert once the next
-        // frame and once after the ResizeObserver settles.
-        requestAnimationFrame(assert);
-        setTimeout(assert, 80);
+        requestAnimationFrame(() => {
+          if (!disposed) { try { chart.timeScale().setVisibleLogicalRange(want); } catch { /* chart gone */ } }
+        });
       } else {
         fit();
       }
@@ -1001,6 +1014,7 @@ export function TickChart({
     return () => {
       disposed = true;
       unsubSync?.();
+      ro.disconnect();
       // Stash the visible window BEFORE removing so the next rebuild can restore it.
       try {
         const lr = chart.timeScale().getVisibleLogicalRange();
