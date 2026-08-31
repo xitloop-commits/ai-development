@@ -194,12 +194,12 @@ REM Their scalp/trend models are unvalidated stopgaps (trained only to
 REM satisfy SEA boot), so --only-cohorts pins everything but sma5 OFF and
 REM global cohort toggles cannot re-enable them in these two processes.
 echo [SEA MCX 1/2] Starting crudeoil (sma5 only)...
-start "SEA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat crudeoil --only-cohorts sma5+ma !EXTRA_ARGS!"
+start "SEA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat crudeoil --only-cohorts sma5+ma+candleblue !EXTRA_ARGS!"
 
 timeout /t 5 /nobreak >nul
 
 echo [SEA MCX 2/2] Starting naturalgas (sma5 only)...
-start "SEA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat naturalgas --only-cohorts sma5+ma !EXTRA_ARGS!"
+start "SEA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat naturalgas --only-cohorts sma5+ma+candleblue !EXTRA_ARGS!"
 
 timeout /t 5 /nobreak >nul
 
