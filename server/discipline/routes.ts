@@ -214,12 +214,14 @@ export function registerDisciplineRoutes(app: Express): void {
         // T154 — the sma-model cohort is a WATCH-ONLY paper experiment (its
         // Gate-1 backtest is red). Hard-pin it to the paper book so it can
         // never reach the live account, whatever the AI routing switches say.
-        if (body.cohort === "sma_model") {
+        // candleblue is new + unvalidated (2026-08-30) — same paper-only pin
+        // until its replay edge is confirmed; it must never reach the live book.
+        if (body.cohort === "sma_model" || body.cohort === "candleblue") {
           targetChannels = targetChannels.filter((ch) => ch === "paper");
           if (targetChannels.length === 0) {
             return res.json({
               approved: false,
-              reason: "sma_model cohort is paper-only (Gate 1 not passed)",
+              reason: `${body.cohort} cohort is paper-only (not yet validated)`,
               checks: [],
               latencyMs: Date.now() - t0,
             });
@@ -234,8 +236,8 @@ export function registerDisciplineRoutes(app: Express): void {
         // are not cohort-gated: you asked for that specific trade by hand.
         if (body.origin === "AI" && body.cohort) {
           const { getAiConfig, resolveBook } = await import("../portfolio/aiModeConfig");
-          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model" } as const)[
-            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model"
+          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model", candleblue: "candleblue" } as const)[
+            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model" | "candleblue"
           ];
           if (cohortKey) {
             targetChannels = targetChannels.filter((ch) => {

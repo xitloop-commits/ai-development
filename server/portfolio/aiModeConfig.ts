@@ -50,6 +50,7 @@ export interface CohortsConfig {
   ma: boolean;
   sma5: boolean; // SMA-5 price-cross cohort (2026-08-05) — rides, exits on the cross
   sma_model: boolean; // T154 learned SMA5 rider (external runner) — paper-only watch cohort
+  candleblue: boolean; // CandleBlue HH+HL structure cohort (2026-08-30)
   swing: boolean; // shown in the UI but has no gate — always false for now
   // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
   // (one SEA process), so two books cannot hold different values. It lived here
@@ -166,7 +167,7 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
-export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing";
+export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "swing";
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
@@ -414,7 +415,7 @@ function baseCommon(): CommonConfig {
 
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, swing: false },
+    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, candleblue: false, swing: false },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -437,7 +438,7 @@ function baseMode(): AiModeConfig {
  * accident. */
 function baseManual(): AiModeConfig {
   const m = baseMode();
-  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, swing: false };
+  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, candleblue: false, swing: false };
   return m;
 }
 
@@ -649,7 +650,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "candleblue", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   // T171 — drop the legacy per-cohort strategy race if an old config carries it.
   delete (c as { strategies?: unknown }).strategies;
   delete (c as { cohortStrategies?: unknown }).cohortStrategies;
@@ -798,6 +799,7 @@ export function cohortKey(cohort: string | null | undefined): CohortKey | null {
   return cohort === "ma_signal" ? "ma"
     : cohort === "sma5_signal" ? "sma5"
     : cohort === "sma_model" ? "sma_model"
+    : cohort === "candleblue" ? "candleblue"
     : cohort === "scalp" ? "scalp"
     : cohort === "trend" ? "trend"
     : cohort === "swing" ? "swing"

@@ -25,12 +25,13 @@ import { tickBus } from "./broker/tickBus";
 import { getAiConfig, getCommonConfig } from "./portfolio/aiModeConfig";
 import { listModelVersions } from "./modelVersions";
 
-export type Cohort = "scalp" | "trend" | "ma" | "sma5";
+export type Cohort = "scalp" | "trend" | "ma" | "sma5" | "candleblue";
 export interface CohortState {
   scalp: boolean;
   trend: boolean;
   ma: boolean;
   sma5: boolean;
+  candleblue: boolean;
   /** MA-Signal reversal size (%). >0 = reversal mode (flip on a peak/trough
    *  pullback of this %); 0 = legacy 20-EMA slope mode. Live-tunable. */
   revPct: number;
@@ -77,6 +78,7 @@ const CONFIG_BLOCK: Record<Cohort, string> = {
   trend: "trend",
   ma: "ma_signal",
   sma5: "sma5_signal",
+  candleblue: "candleblue",
 };
 // Every instrument SEA runs — the sma5/rev live-tune setters persist to each
 // one's config so a UI change reaches the MCX engines (crudeoil / naturalgas),
@@ -89,7 +91,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, candleblue: false, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -550,7 +552,7 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   // its own experiment, not the paper/live union (Partha 2026-08-23). Dynamic
   // import avoids a static cycle (tickReplay imports this module).
   const { isReplayActive } = await import("./replay/tickReplay");
-  let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean }>;
+  let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; candleblue: boolean }>;
   // During a replay, SEA's detector candle size follows the REPLAY timeframe so
   // the chart, indicators, and SEA signals all run on ONE timeframe (Partha
   // 2026-08-23). null → paper/live use the common signal timeframe.
@@ -575,12 +577,13 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
     ];
     cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
   }
-  const anyWants = (k: "scalp" | "trend" | "ma" | "sma5") => cohortsOf.some((c) => c[k]);
+  const anyWants = (k: "scalp" | "trend" | "ma" | "sma5" | "candleblue") => cohortsOf.some((c) => c[k]);
 
   setCohort("scalp", anyWants("scalp"));
   setCohort("trend", anyWants("trend"));
   setCohort("ma", anyWants("ma"));
   setCohort("sma5", anyWants("sma5"));
+  setCohort("candleblue", anyWants("candleblue"));
 
   // revPct is a single detector parameter and now lives in the common block —
   // no per-book ambiguity to resolve (T129).

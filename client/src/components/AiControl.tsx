@@ -31,7 +31,7 @@ type ExitLevelMode = "percent" | "rupees";
 /** Per-mode (per-book) config. T171 — the per-cohort strategy race is gone; the
  *  book carries only cohorts / sizing / order now. */
 interface ModeCfg {
-  cohorts: { scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; sma_model: boolean; swing: boolean };
+  cohorts: { scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; sma_model: boolean; candleblue: boolean; swing: boolean };
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent" | "amount"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
 }
@@ -307,12 +307,13 @@ function SubGroup({ children }: { children: React.ReactNode }) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const COHORTS: { key: "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "swing"; label: string }[] = [
+const COHORTS: { key: "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "swing"; label: string }[] = [
   { key: "scalp", label: "Scalp" },
   { key: "trend", label: "Trend" },
   { key: "ma", label: "MA" },
   { key: "sma5", label: "SMA5" },
   { key: "sma_model", label: "SMA-Model" },
+  { key: "candleblue", label: "CandleBlue" },
   { key: "swing", label: "Swing" },
 ];
 /**
