@@ -331,6 +331,11 @@ export function TickChart({
   // rebuild when it ends. `rebuildGen` is the only dep of the build effect; the
   // gating effect below bumps it (unless interacting). (Partha 2026-08-31)
   const [rebuildGen, setRebuildGen] = useState(0);
+  // TEMP DEBUG (Partha zoom bug): a per-mount id (changes only on a full remount)
+  // + the rebuild counter, shown in the corner of each multichart pane so we can
+  // see, while panning, whether the pane REMOUNTS (m changes), REBUILDS (g climbs)
+  // or neither. Remove once the cause is confirmed.
+  const mountIdRef = useRef(Math.floor(Math.random() * 100));
   const interactingRef = useRef(false);
   const pendingRebuildRef = useRef(false);
   const wheelTimerRef = useRef<number | null>(null);
@@ -1250,6 +1255,12 @@ export function TickChart({
           hidden={!!viewKey}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
+        {/* TEMP DEBUG badge — multichart panes only. Remove once cause confirmed. */}
+        {viewKey && (
+          <div className="absolute right-1 top-1 z-30 pointer-events-none rounded bg-black/70 px-1 py-0.5 text-[0.625rem] font-bold tabular-nums text-yellow-300">
+            m{mountIdRef.current} · g{rebuildGen}
+          </div>
+        )}
         {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
         {trendReadoutRight && (
           <div className="absolute bottom-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-0.5">
