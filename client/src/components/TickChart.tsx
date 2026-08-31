@@ -518,7 +518,7 @@ export function TickChart({
           } = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
           const ct = c.time as number;
           if (entrySet && entrySet.has(ct)) {
-            d.color = "#ec4899"; d.borderColor = "#f9a8d4"; d.wickColor = "#f9a8d4"; // trade ENTRY — PINK
+            d.color = "#ec4899"; d.borderColor = "#ec4899"; d.wickColor = "#ec4899"; // trade ENTRY — PINK, no border
           } else if (whiteT != null && ct === whiteT) {
             d.color = "#ffffff"; d.borderColor = "#ffffff"; d.wickColor = "#ffffff"; // -x reference — WHITE
           } else if (anchorT != null && ct === anchorT) {
