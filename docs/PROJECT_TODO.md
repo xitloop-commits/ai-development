@@ -3148,9 +3148,11 @@ gives the most profit-minus-decay.
 fields per strike, 42 spot, 39 OI/buildup, spot-based pivots/HH-HL (16), MA/multi-TF (35),
 greeks **ATM-only** (10). Gap = premium-native HH/HL + per-strike greeks.
 
-**Phase-1 signal check DONE (14 days):** blast rate 34.5%; walk-forward **AUC 0.70** predicting
-the blast from premium structure ALONE (range_pos, consec_hl, new_range_high top). Signal is
-real → proceed. Next: add circumstances + per-strike greeks (expect higher AUC), then wire
+**Phase-1 signal check DONE (14 days):** blast rate 34.5%; walk-forward **AUC 0.70** from premium
+structure ALONE (range_pos, consec_hl, new_range_high top). **Phase-1b:** + 14 circumstance
+features (greeks/IV/gamma/momentum/imbalance) → **AUC 0.782** (top: range_pos, gamma_flip_distance,
+IV, theta, dealer_net_delta) — confirms "circumstances make it blast". Still ATM-only greeks +
+14 days; per-strike greeks + all days + full features expected higher. Signal is real → proceed. Next: add circumstances + per-strike greeks (expect higher AUC), then wire
 the label+features into tick_feature_agent, regenerate all days, retrain nifty50 (replacing
 scalp heads), rethink replay as a candle-clock charge-aware premium backtest, and add strike
 selection. Also: chart arrows still use consecutive-swing (window=1) — align to range_window.
