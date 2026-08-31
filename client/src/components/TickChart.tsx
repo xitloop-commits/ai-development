@@ -300,7 +300,12 @@ export function TickChart({
   // teardown so the rebuild can restore it (instead of resetting the zoom every
   // tick). `count` is the bar count at teardown — used to tell "default full-fit"
   // (keep following live) from "zoomed/panned" (preserve the window).
-  const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number }>({ logical: null, count: 0 });
+  // Preserve the user's window across rebuilds. `logical` (bar indices) decides
+  // "is the user following the live edge"; `time` (the actual visible time range)
+  // is what we RESTORE with — time is immune to bar re-indexing when the seed
+  // history grows/trims (the bar-index restore landed on the wrong bars → the
+  // long-standing "zoom resets on new ticks" bug). (Partha 2026-08-31)
+  const viewRef = useRef<{ logical: { from: number; to: number } | null; count: number; time: { from: number; to: number } | null }>({ logical: null, count: 0, time: null });
   // The current fit-to-last-4h function, refreshed each rebuild so the toolbar's
   // Reset-zoom button can snap back to the live 4h window.
   const fitRef = useRef<(() => void) | null>(null);
@@ -993,22 +998,31 @@ export function TickChart({
       });
       fitRef.current = fit; // let the Reset button re-fit to all data
       if (!isDefault && saved.logical) {
-        const want = { from: saved.logical.from, to: saved.logical.to };
-        // With manual sizing (no autoSize) nothing re-fits after this, so the
-        // synchronous restore is final — one rAF re-assert as belt-and-braces
-        // for the very first layout pass; no more timeout guessing.
-        try { chart.timeScale().setVisibleLogicalRange(want); } catch { fit(); }
-        requestAnimationFrame(() => {
-          if (!disposed) { try { chart.timeScale().setVisibleLogicalRange(want); } catch { /* chart gone */ } }
-        });
+        // Restore by TIME (immune to bar re-indexing when the seed history grows);
+        // fall back to the logical range if the time window isn't available yet.
+        const restore = () => {
+          if (disposed) return;
+          try {
+            if (saved.time) chart.timeScale().setVisibleRange({ from: saved.time.from as UTCTimestamp, to: saved.time.to as UTCTimestamp });
+            else chart.timeScale().setVisibleLogicalRange({ from: saved.logical!.from, to: saved.logical!.to });
+          } catch { try { chart.timeScale().setVisibleLogicalRange({ from: saved.logical!.from, to: saved.logical!.to }); } catch { fit(); } }
+        };
+        restore();
+        // One rAF re-assert as belt-and-braces for the first layout pass (manual
+        // sizing means nothing re-fits after this — no timeout guessing needed).
+        requestAnimationFrame(restore);
       } else {
         fit();
       }
     }
     // Track the window CONTINUOUSLY (not only at teardown), so any rebuild
-    // trigger restores exactly what the user last saw.
+    // trigger restores exactly what the user last saw. Save BOTH the bar range
+    // (for the follow-live check) and the time range (for a re-index-proof restore).
     chart.timeScale().subscribeVisibleLogicalRangeChange((lr) => {
-      if (!disposed && lr) viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length };
+      if (disposed || !lr) return;
+      let tr: { from: number; to: number } | null = null;
+      try { const r = chart.timeScale().getVisibleRange(); if (r) tr = { from: r.from as number, to: r.to as number }; } catch { /* whitespace-only */ }
+      viewRef.current = { logical: { from: lr.from, to: lr.to }, count: candles.length, time: tr };
     });
 
     return () => {
@@ -1018,7 +1032,9 @@ export function TickChart({
       // Stash the visible window BEFORE removing so the next rebuild can restore it.
       try {
         const lr = chart.timeScale().getVisibleLogicalRange();
-        viewRef.current = { logical: lr ? { from: lr.from, to: lr.to } : null, count: candles.length };
+        let tr: { from: number; to: number } | null = null;
+        try { const r = chart.timeScale().getVisibleRange(); if (r) tr = { from: r.from as number, to: r.to as number }; } catch { /* whitespace-only */ }
+        viewRef.current = { logical: lr ? { from: lr.from, to: lr.to } : null, count: candles.length, time: tr };
       } catch { /* keep the previously saved view */ }
       chart.remove();
       chartRef.current = null;
