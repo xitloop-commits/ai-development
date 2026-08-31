@@ -377,19 +377,28 @@ export function TickChart({
       if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
       wheelTimerRef.current = window.setTimeout(endInteract, 350);
     };
-    el.addEventListener("pointerdown", startInteract);
-    window.addEventListener("pointerup", endInteract);
-    el.addEventListener("pointercancel", endInteract);
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchstart", startInteract, { passive: true });
-    window.addEventListener("touchend", endInteract);
+    // CAPTURE phase — lightweight-charts' canvas handles/stops the pointer event
+    // itself, so a bubbling listener never sees the drag. Capture fires on the way
+    // DOWN to the canvas, before the chart can swallow it. Cover pointer + mouse +
+    // touch since the lib's build may use any of them. (Partha 2026-08-31)
+    const capt = { capture: true } as const;
+    el.addEventListener("pointerdown", startInteract, capt);
+    el.addEventListener("mousedown", startInteract, capt);
+    el.addEventListener("touchstart", startInteract, { capture: true, passive: true });
+    el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+    window.addEventListener("pointerup", endInteract, capt);
+    window.addEventListener("mouseup", endInteract, capt);
+    window.addEventListener("touchend", endInteract, capt);
+    window.addEventListener("pointercancel", endInteract, capt);
     return () => {
-      el.removeEventListener("pointerdown", startInteract);
-      window.removeEventListener("pointerup", endInteract);
-      el.removeEventListener("pointercancel", endInteract);
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("touchstart", startInteract);
-      window.removeEventListener("touchend", endInteract);
+      el.removeEventListener("pointerdown", startInteract, capt);
+      el.removeEventListener("mousedown", startInteract, capt);
+      el.removeEventListener("touchstart", startInteract, capt as EventListenerOptions);
+      el.removeEventListener("wheel", onWheel, capt as EventListenerOptions);
+      window.removeEventListener("pointerup", endInteract, capt);
+      window.removeEventListener("mouseup", endInteract, capt);
+      window.removeEventListener("touchend", endInteract, capt);
+      window.removeEventListener("pointercancel", endInteract, capt);
       if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
     };
   }, []);
