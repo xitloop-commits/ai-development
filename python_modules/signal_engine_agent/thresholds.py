@@ -1217,6 +1217,40 @@ def load_thresholds_sma5_signal(
     return Sma5SignalThresholds(**s_raw) if s_raw else Sma5SignalThresholds()
 
 
+@dataclass(frozen=True)
+class CandleblueThresholds:
+    """CandleBlue HH+HL structure cohort (cohort="candleblue", 2026-08-30).
+
+    Pure swing structure on the session-locked ATM premium (see
+    ``signal_engine_agent.candleblue_signal``): LONG when a higher high AND a
+    higher low are both confirmed, EXIT on a lower high, hard stop under the last
+    higher low. Tunable in `config/sea_thresholds/<inst>.json`:
+      "candleblue": { "enabled": true, "candle_sec": 60, "stop_buffer_pct": 0.2 }
+    """
+    # Master switch. Default OFF so the cohort is inert unless the JSON opts in.
+    enabled: bool = False
+    # Candle timeframe (seconds) the swing structure is built on. Live-tunable.
+    candle_sec: int = 60
+    # Hard stop sits this % BELOW the higher low it trails (a hair under it).
+    stop_buffer_pct: float = 0.2
+
+
+def load_thresholds_candleblue(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> CandleblueThresholds:
+    """Load the per-instrument CandleBlue config. Returns defaults
+    (enabled=False) when no ``candleblue`` block is present in the JSON."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    if not path.exists():
+        return CandleblueThresholds()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cb_raw = raw.get("candleblue")
+    return CandleblueThresholds(**cb_raw) if cb_raw else CandleblueThresholds()
+
+
 def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),

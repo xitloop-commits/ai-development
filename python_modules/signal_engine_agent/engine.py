@@ -64,11 +64,13 @@ from signal_engine_agent.thresholds import (
     load_thresholds_legstart,
     load_thresholds_ma_signal,
     load_thresholds_sma5_signal,
+    load_thresholds_candleblue,
     load_thresholds_trend,
 )
 from signal_engine_agent.leg_start import LegStartDetector
 from signal_engine_agent.ma_signal import MASignalDetector
 from signal_engine_agent.sma5_signal import Sma5SignalDetector
+from signal_engine_agent.candleblue_signal import CandleBlueDetector
 from signal_engine_agent.premium_ribbon import LockedPremiumFeed, PremiumRibbonDetector
 from signal_engine_agent.control_client import start_control_listener
 
@@ -697,7 +699,7 @@ class _RestrictedCohorts(dict):
     silently dropped, so a global UI toggle can never wake a cohort this
     engine instance was told not to run (MCX engines are sma5-only)."""
 
-    _TOGGLEABLE = ("scalp", "trend", "ma", "sma5")
+    _TOGGLEABLE = ("scalp", "trend", "ma", "sma5", "candleblue")
 
     def __init__(self, base: dict, allowed: frozenset[str]):
         super().__init__(base)
@@ -812,8 +814,16 @@ def run(
     # warm-up, so sma5 judges ~12 min after open. MA keeps its gray knob.
     if sma5_ribbon is not None:
         sma5_ribbon.set_gray_pctile(0.0)
+    # CandleBlue HH+HL structure cohort (2026-08-30). Built always so it can be
+    # switched on live from the AI menu without a restart; reads the locked ATM
+    # premium candles (same feed as the ribbons). Emits only while toggled on.
+    candleblue_thresholds = load_thresholds_candleblue(instrument, config_dir)
+    candleblue_detector = CandleBlueDetector(
+        candle_sec=candleblue_thresholds.candle_sec,
+        stop_buffer_pct=candleblue_thresholds.stop_buffer_pct,
+    )
     premium_feed: LockedPremiumFeed | None = None
-    if ma_ribbon is not None or sma5_ribbon is not None:
+    if ma_ribbon is not None or sma5_ribbon is not None or candleblue_detector is not None:
         premium_feed = LockedPremiumFeed(instrument)
         premium_feed.start()
     if gate_mode == "wave2":
@@ -1007,6 +1017,9 @@ def run(
         # T163 premium-ribbon knobs — follow Settings ▸ Trend angle live.
         "ribbon_lookback": sma5_signal_thresholds.ribbon_lookback,
         "ribbon_gray_pctile": sma5_signal_thresholds.ribbon_gray_pctile,
+        # CandleBlue HH+HL structure cohort (2026-08-30).
+        "candleblue": candleblue_thresholds.enabled,
+        "candleblue_candle_sec": candleblue_thresholds.candle_sec,  # live-tunable
     }
     # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
     # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
@@ -1450,6 +1463,7 @@ def run(
             # batches warm silently; only LIVE ticks may fire events.
             _rb_ma_events: list[str] = []
             _rb_s5_events: list[str] = []
+            _rb_cb_events: list[str] = []
             if premium_feed is not None:
                 try:
                     # Live ribbon knobs (Settings ▸ Trend angle → control ws).
@@ -1475,6 +1489,8 @@ def run(
                                 ma_ribbon.reset_leg(_leg)
                             if sma5_ribbon is not None:
                                 sma5_ribbon.reset_leg(_leg)
+                            if candleblue_detector is not None:
+                                candleblue_detector.reset_leg(_leg)
                             print(f"  [ribbon] {instrument.upper()} {_leg} relocked — re-warming on the new contract", flush=True)
                             continue
                         if not _rb_live:
@@ -1486,12 +1502,16 @@ def run(
                                 _rb_ma_events.extend(ma_ribbon.warm(_leg, _rb_ticks))
                             if sma5_ribbon is not None:
                                 _rb_s5_events.extend(sma5_ribbon.warm(_leg, _rb_ticks))
+                            if candleblue_detector is not None:
+                                _rb_cb_events.extend(candleblue_detector.warm(_leg, _rb_ticks))
                             continue
                         for _pts, _pltp in _rb_ticks:
                             if ma_ribbon is not None:
                                 _rb_ma_events.extend(ma_ribbon.on_leg_tick(_leg, _pts, _pltp))
                             if sma5_ribbon is not None:
                                 _rb_s5_events.extend(sma5_ribbon.on_leg_tick(_leg, _pts, _pltp))
+                            if candleblue_detector is not None:
+                                _rb_cb_events.extend(candleblue_detector.on_leg_tick(_leg, _pts, _pltp))
                 except Exception as exc:
                     print(f"  premium-ribbon feed error: {exc}", file=sys.stderr)
 
@@ -1791,6 +1811,69 @@ def run(
                 except Exception as exc:
                     # Never let the SMA-5 cohort crash the inference loop.
                     print(f"  SMA5 error: {exc}", file=sys.stderr)
+
+            # ── CandleBlue HH+HL structure cohort (cohort="candleblue") ──────
+            # Pure swing structure on the LOCKED CE/PE premium candles (events
+            # come from the drain above): LONG when a higher high AND a higher low
+            # are both confirmed, EXIT on a lower high (or the hard stop under the
+            # last higher low). Symmetric CE/PE. Fed even when off; emit suppressed.
+            if candleblue_detector is not None:
+                try:
+                    _cbcs = _live_cohorts.get("candleblue_candle_sec")
+                    if _cbcs is not None:
+                        try:
+                            candleblue_detector.set_candle_sec(int(_cbcs))
+                        except (TypeError, ValueError):
+                            pass
+                    cb_events = _rb_cb_events if _live_cohorts.get("candleblue") else []
+                    for _ev in cb_events:
+                        _cb_call = "CE" in _ev
+                        _cb_exit = _ev.startswith("EXIT")
+                        _cb_side = "CE" if _cb_call else "PE"
+                        _cb_ltp = None
+                        if premium_feed is not None:
+                            _cb_ltp = _finite(premium_feed.last_ltp.get(_cb_side))
+                        if _cb_ltp is None:
+                            _cb_ltp = _finite(ce_ltp if _cb_call else pe_ltp)
+                        candleblue_out = {
+                            "timestamp": row.get("timestamp"),
+                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "correlationId": uuid.uuid4().hex,
+                            "instrument": instrument.upper(),
+                            "action": _ev,
+                            "cohort": "candleblue",
+                            "reason": (
+                                f"CandleBlue {'lower-high/stop — exit' if _cb_exit else 'HH+HL — enter'} "
+                                f"{_cb_side} (locked {premium_feed.strikes.get(_cb_side) if premium_feed else '?'} premium)"
+                            ),
+                            "regime": regime,
+                            "entry": round(_cb_ltp, 2) if _cb_ltp else None,
+                            "tp": None,
+                            "sl": None,
+                            "rr": 0.0,
+                            "atm_strike": row.get("atm_strike"),
+                            "atm_ce_ltp": ce_ltp,
+                            "atm_pe_ltp": pe_ltp,
+                            "atm_ce_security_id": row.get("atm_ce_security_id"),
+                            "atm_pe_security_id": row.get("atm_pe_security_id"),
+                            "spot_price": row.get("spot_price"),
+                            "model_version": models.version,
+                            "gate_mode": "candleblue",
+                            "direction": "GO_CALL" if _cb_call else "GO_PUT",
+                        }
+                        raw_logger.log(candleblue_out)
+                        _send_signal_to_tray(candleblue_out)  # Mongo + WS (chart)
+                        if _cb_exit:
+                            try:
+                                from signal_engine_agent.risk_control_client import close_glide_position
+                                close_glide_position(candleblue_out["instrument"], _cb_side, cohort="candleblue")
+                            except Exception as exc:
+                                print(f"  CandleBlue close error: {exc}", file=sys.stderr)
+                        else:
+                            _maybe_submit_ai_trade(candleblue_out)
+                except Exception as exc:
+                    # Never let the CandleBlue cohort crash the inference loop.
+                    print(f"  CandleBlue error: {exc}", file=sys.stderr)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

@@ -63,5 +63,10 @@
     "candle_sec": 120,
     "ribbon_lookback": 3,
     "ribbon_gray_pctile": 0
+  },
+  "candleblue": {
+    "enabled": false,
+    "candle_sec": 60,
+    "stop_buffer_pct": 0.2
   }
 }
