@@ -205,11 +205,11 @@ def test_sma5_enters_on_green_pullback_low() -> None:
     assert "LONG_CE" in names, f"no LONG on the green pullback dip: {names}"
 
 
-def test_sma5_no_entry_without_low_candle() -> None:
-    """A strictly rising series is green but never dips, so the sma5 swing entry
-    never fires (no low candle)."""
+def test_sma5_enters_on_breakout_when_no_pullback() -> None:
+    """A strictly rising series never dips, but the breakout fallback fires the
+    entry so a no-pullback run isn't missed (Partha 2026-08-30)."""
     det = PremiumRibbonDetector("sma5", candle_sec=60)
     det.set_gray_pctile(0.0)  # binary SMA5
     prices = [100.0 + i for i in range(20)]   # monotonic rise, no lower-low candle
     names = [e for _, e in _run(det, "CE", prices)]
-    assert "LONG_CE" not in names, f"unexpected LONG without a low candle: {names}"
+    assert "LONG_CE" in names, f"breakout fallback should fire on a no-pullback run: {names}"

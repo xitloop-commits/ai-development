@@ -77,6 +77,12 @@ class RibbonLeg:
         self._low: float | None = None
         self.last_low: float | None = None
         self.prev_low: float | None = None
+        # Candle HIGH tracking (sma5 breakout fallback): running high of the current
+        # bucket, plus the recent completed-candle highs, so we can tell "the candle
+        # that just closed broke above the last `lookback` candles' highs".
+        self._high: float | None = None
+        self._recent_highs: deque[float] = deque(maxlen=max(1, self.lookback))
+        self._is_breakout: bool = False
         self._ema: float | None = None
         self._n_closes = 0
         self._line: deque[float | None] = deque(maxlen=self.lookback + 1)
@@ -128,19 +134,29 @@ class RibbonLeg:
             self._bucket = bucket
             self._close = price
             self._low = price
+            self._high = price
             return None
         if bucket == self._bucket:
             self._close = price
             if self._low is None or price < self._low:
                 self._low = price
+            if self._high is None or price > self._high:
+                self._high = price
             return None
         # A candle just closed — shift the candle-low history before rolling over.
         self.prev_low = self.last_low
         self.last_low = self._low
+        # Breakout = the just-closed candle's high cleared the highest of the PRIOR
+        # `lookback` candles (Donchian-style), measured BEFORE this one is recorded.
+        prior_max = max(self._recent_highs) if self._recent_highs else None
+        self._is_breakout = prior_max is not None and self._high is not None and self._high > prior_max
+        if self._high is not None:
+            self._recent_highs.append(self._high)
         st = self._close_candle()
         self._bucket = bucket
         self._close = price
-        self._low = price  # start the new bucket's low
+        self._low = price   # start the new bucket's low
+        self._high = price  # start the new bucket's high
         return st
 
     def is_low_candle(self) -> bool:
@@ -151,6 +167,12 @@ class RibbonLeg:
             and self.prev_low is not None
             and self.last_low < self.prev_low
         )
+
+    def is_breakout(self) -> bool:
+        """True when the candle that just closed broke ABOVE the highest high of
+        the prior `lookback` candles — the breakout fallback for a run with no
+        pullback dip (used by the sma5 swing entry)."""
+        return self._is_breakout
 
     def _close_candle(self) -> int:
         close = self._close
@@ -309,7 +331,9 @@ class PremiumRibbonDetector:
         # (a dip inside an ongoing green run is a valid entry). Exit unchanged:
         # leaving green (gray/down) ends the ride.
         if self.source == "sma5":
-            if st == 1 and leg_state.is_low_candle():
+            # Green ribbon + a pullback dip (buy the dip) OR a breakout of the last
+            # `lookback` highs (catch a run that never dips) → LONG on the next candle.
+            if st == 1 and (leg_state.is_low_candle() or leg_state.is_breakout()):
                 return [f"LONG_{leg}"]
             if prev == 1 and st != 1 and self.exit_on_gray:
                 return [f"EXIT_{leg}"]
@@ -350,8 +374,8 @@ class PremiumRibbonDetector:
         )
         if not (warmed and leg_state.state == 1):
             return []
-        # sma5 also requires the last candle to be a pullback low (same gate as live).
-        if self.source == "sma5" and not leg_state.is_low_candle():
+        # sma5 also requires a pullback low OR a breakout (same gate as live).
+        if self.source == "sma5" and not (leg_state.is_low_candle() or leg_state.is_breakout()):
             return []
         return [f"LONG_{leg}"]
 

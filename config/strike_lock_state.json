@@ -14,21 +14,6 @@
     },
     "lockedAt": 1788143828963
   },
-  "crudeoil": {
-    "date": "2026-08-31",
-    "expiry": "2026-09-17",
-    "atmAtLock": 8000,
-    "offset": 2,
-    "ce": {
-      "strike": 7900,
-      "securityId": "576366"
-    },
-    "pe": {
-      "strike": 8100,
-      "securityId": "576523"
-    },
-    "lockedAt": 1788143823926
-  },
   "nifty50": {
     "date": "2026-08-31",
     "expiry": "2026-09-01",
@@ -44,19 +29,34 @@
     },
     "lockedAt": 1788143818921
   },
+  "crudeoil": {
+    "date": "2026-08-31",
+    "expiry": "2026-09-17",
+    "atmAtLock": 8000,
+    "offset": 2,
+    "ce": {
+      "strike": 7900,
+      "securityId": "576366"
+    },
+    "pe": {
+      "strike": 8100,
+      "securityId": "576523"
+    },
+    "lockedAt": 1788147699278
+  },
   "banknifty": {
     "date": "2026-08-31",
     "expiry": "2026-09-29",
-    "atmAtLock": 57500,
+    "atmAtLock": 57400,
     "offset": 2,
     "ce": {
-      "strike": 57300,
-      "securityId": "69817"
+      "strike": 57200,
+      "securityId": "69815"
     },
     "pe": {
-      "strike": 57700,
-      "securityId": "69827"
+      "strike": 57600,
+      "securityId": "69825"
     },
-    "lockedAt": 1788145022279
+    "lockedAt": 1788147705351
   }
 }
