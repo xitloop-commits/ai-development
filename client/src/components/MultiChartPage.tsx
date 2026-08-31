@@ -87,6 +87,8 @@ const norm = (s: string) => s.toUpperCase().replace(/[_\s]/g, "");
 // TickChart's full rebuild on every 2s poll (zoom would reset).
 const NO_MARKERS: never[] = [];
 const NO_LINES: never[] = [];
+// Entry-view: no ribbons / swings / RSI etc. — just the candles + entry proof.
+const CLEAN_INDICATORS: Set<IndicatorKey> = new Set();
 
 /** The slice of a tradesForChart row the panes need for their overlays. */
 interface PaneTradeRow {
@@ -246,6 +248,47 @@ function InstrumentPane({
     () => markers.filter((m) => m.shape !== "circle").map((m) => (m.time as number) - IST_OFFSET_SECONDS),
     [markers],
   );
+
+  // ENTRY-VIEW (Partha 2026-08-31): when a trade is clicked in the paper table it
+  // focuses this pane; in that state we strip the chart to just the candles + the
+  // structure that PROVED the candleblue entry — the higher-high (latest swing
+  // high beating the prior 2) and the higher-low (latest swing low > previous) —
+  // plus the stop under the higher low. Swings are the same 1-bar pivots the blue/
+  // green arrows use, reconstructed here from the candles up to the entry bar.
+  const RANGE_W = 2;          // candleblue range_window
+  const STOP_BUF_PCT = 0.2;   // candleblue stop_buffer_pct
+  const entryStructure = useMemo(() => {
+    if (!focused || !entryCandleTimes.length) return null;
+    const a = c.candles;
+    if (a.length < 3) return null;
+    const entryIst = entryCandleTimes[0] + IST_OFFSET_SECONDS; // c.candles are IST-shifted
+    const highs: { t: number; v: number }[] = [];
+    const lows: { t: number; v: number }[] = [];
+    for (let i = 1; i < a.length - 1; i++) {
+      const t = a[i].time as number;
+      if (t >= entryIst) break; // structure formed BEFORE the entry candle only
+      if ((a[i].high as number) > (a[i - 1].high as number) && (a[i + 1].high as number) <= (a[i].high as number)) highs.push({ t, v: a[i].high as number });
+      if ((a[i].low as number) < (a[i - 1].low as number) && (a[i + 1].low as number) >= (a[i].low as number)) lows.push({ t, v: a[i].low as number });
+    }
+    if (!highs.length || lows.length < 2) return null;
+    const hh = highs[highs.length - 1];
+    const prevHigh = highs.slice(-RANGE_W - 1, -1).reduce<{ t: number; v: number } | null>((m, x) => (!m || x.v > m.v ? x : m), null);
+    const hl = lows[lows.length - 1];
+    const prevLow = lows[lows.length - 2];
+    const R = IST_OFFSET_SECONDS;
+    return {
+      greenTimes: [hh.t - R, ...(prevHigh ? [prevHigh.t - R] : [])], // green down-arrows over the highs
+      blueTimes: [hl.t - R, prevLow.t - R],                          // blue up-arrows under the lows
+      labels: [
+        { t: hh.t - R, text: "HH", color: "#22c55e", above: true },
+        { t: hl.t - R, text: "HL", color: "#3b82f6", above: false },
+        ...(prevHigh ? [{ t: prevHigh.t - R, text: "prev", color: "#9ca3af", above: true }] : []),
+        { t: prevLow.t - R, text: "prev", color: "#9ca3af", above: false },
+      ],
+      stop: prevLow.v * (1 - STOP_BUF_PCT / 100),
+    };
+  }, [focused, entryCandleTimes, c.candles]);
+  const clean = focused != null; // entry-view stripped-down mode
 
   // One shared timeframe: the ribbons + S/R are computed on the SERVER at the
   // chart's display timeframe (intervalSec), so candles and every indicator
@@ -594,9 +637,9 @@ function InstrumentPane({
         viewKey={forceSide ? `${instKey}#${forceSide}` : instKey}
         candles={c.candles}
         markers={markers}
-        tradeLines={tradeLines}
+        tradeLines={clean ? NO_LINES : tradeLines}
         style={style}
-        indicators={indicators}
+        indicators={clean ? CLEAN_INDICATORS : indicators}
         intervalSec={intervalSec}
         crosshairSync={crosshairSync}
         emptyText={
@@ -605,26 +648,26 @@ function InstrumentPane({
               : "Waiting for live ticks…"
         }
         loading={!!secId && seedQ.isLoading}
-        serverLevels={swingsQ.data}
-        extraLines={extraLines}
-        whiteCandleTime={whiteCandleTime}
-        blueCandleTimes={blueCandleTimes}
-        greenCandleTimes={greenCandleTimes}
+        serverLevels={clean ? undefined : swingsQ.data}
+        extraLines={clean ? undefined : extraLines}
+        whiteCandleTime={clean ? undefined : whiteCandleTime}
+        blueCandleTimes={clean ? (entryStructure?.blueTimes ?? []) : blueCandleTimes}
+        greenCandleTimes={clean ? (entryStructure?.greenTimes ?? []) : greenCandleTimes}
         entryCandleTimes={entryCandleTimes}
-        tslLevel={swingTsl}
-        countLabels={countLabels}
-        signalMarkers={entrySignals.markers}
-        stopLevel={entrySignals.stopLevel}
+        tslLevel={clean ? undefined : swingTsl}
+        countLabels={clean ? (entryStructure?.labels ?? []) : countLabels}
+        signalMarkers={clean ? [] : entrySignals.markers}
+        stopLevel={clean ? (entryStructure?.stop ?? null) : entrySignals.stopLevel}
         replayMarkerTime={replayMarker}
         onReplayMarkerChange={setReplayMarker}
-        tslIgnoredTimes={indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined}
-        trendReadout={trendReadout}
-        trendReadoutRight={trendReadoutRight}
-        trendLine={trendLine}
-        trendLineRight={trendLineRight}
-        sma5Level={sma5Level}
+        tslIgnoredTimes={clean ? undefined : (indicators.has("dimSideways") ? (shown?.tslIgnoredTimes ?? undefined) : undefined)}
+        trendReadout={clean ? undefined : trendReadout}
+        trendReadoutRight={clean ? undefined : trendReadoutRight}
+        trendLine={clean ? undefined : trendLine}
+        trendLineRight={clean ? undefined : trendLineRight}
+        sma5Level={clean ? undefined : sma5Level}
         sma5LevelColor={sma5LevelColor}
-        maLevel={maLevel}
+        maLevel={clean ? undefined : maLevel}
         maLevelColor={maLevelColor}
         className="h-full"
         onToggleFullscreen={onToggleFs}
