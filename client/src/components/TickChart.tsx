@@ -336,6 +336,8 @@ export function TickChart({
   // see, while panning, whether the pane REMOUNTS (m changes), REBUILDS (g climbs)
   // or neither. Remove once the cause is confirmed.
   const mountIdRef = useRef(Math.floor(Math.random() * 100));
+  const dbgDepsRef = useRef<unknown[]>([]);
+  const [dbgChanged, setDbgChanged] = useState("");
   const interactingRef = useRef(false);
   const pendingRebuildRef = useRef(false);
   const wheelTimerRef = useRef<number | null>(null);
@@ -358,6 +360,16 @@ export function TickChart({
   // is actively panning/zooming this pane (so the chart isn't destroyed under the
   // cursor). The held rebuild is flushed the moment the interaction ends.
   useEffect(() => {
+    // TEMP DEBUG: record WHICH inputs changed this pass so the badge can name the
+    // churning dependency (the real cause of the endless rebuilds). Remove later.
+    const names = ["candles", "rawCandles", "markers", "maLegs", "style", "intervalSec", "indicatorsKey", "indicators", "tradeLines", "theme", "sma5Ha", "sma5Period", "sma5CandleSec", "serverSwings", "serverLevels", "serverSma5", "extraLines", "tslAnchorTime", "tslIgnoredTimes", "whiteCandleTime", "blueCandleTimes", "greenCandleTimes", "hoverAngleStrip", "trendReadout", "trendReadoutRight", "trendLine", "trendLineRight", "sma5Level", "sma5LevelColor", "maLevel", "maLevelColor", "tslLevel", "climbLabels", "countLabels", "signalMarkers", "stopLevel", "replayMarkerTime", "crosshairSync", "selfId", "viewKey"];
+    const cur: unknown[] = [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey];
+    const prev = dbgDepsRef.current;
+    if (prev.length) {
+      const changed = names.filter((_, i) => !Object.is(cur[i], prev[i]));
+      if (changed.length) setDbgChanged(changed.join(","));
+    }
+    dbgDepsRef.current = cur;
     if (interactingRef.current) { pendingRebuildRef.current = true; return; }
     setRebuildGen((g) => g + 1);
   }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
@@ -1266,8 +1278,8 @@ export function TickChart({
         />
         {/* TEMP DEBUG badge — multichart panes only. Remove once cause confirmed. */}
         {viewKey && (
-          <div className="absolute right-1 top-1 z-30 pointer-events-none rounded bg-black/70 px-1 py-0.5 text-[0.625rem] font-bold tabular-nums text-yellow-300">
-            m{mountIdRef.current} · g{rebuildGen}
+          <div className="absolute right-1 top-1 z-30 pointer-events-none rounded bg-black/70 px-1 py-0.5 text-[0.625rem] font-bold tabular-nums text-yellow-300 max-w-[90%] truncate">
+            m{mountIdRef.current} · g{rebuildGen}{dbgChanged ? ` · ${dbgChanged}` : ""}
           </div>
         )}
         {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
