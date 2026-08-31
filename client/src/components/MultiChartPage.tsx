@@ -625,6 +625,16 @@ function InstrumentPane({
     return { markers, stopLevel };
   }, [c.candles]);
 
+  // Entry-view: the pullback/breakout marker for THIS trade, if one printed near
+  // the entry (within a few candles before the fill). Shown alongside HH/HL.
+  const focusPbBo = useMemo(() => {
+    if (!clean || !entryCandleTimes.length) return [];
+    const fill = entryCandleTimes[0];
+    const lo = fill - intervalSec * 6;
+    const hi = fill + intervalSec * 2;
+    return entrySignals.markers.filter((m) => (m.text === "PB" || m.text === "BO") && m.t >= lo && m.t <= hi);
+  }, [clean, entryCandleTimes, entrySignals, intervalSec]);
+
   return (
     <div
       className="min-h-0 h-full relative rounded border border-border/60"
@@ -692,7 +702,7 @@ function InstrumentPane({
         entryCandleTimes={entryCandleTimes}
         tslLevel={clean ? undefined : swingTsl}
         countLabels={clean ? (entryStructure?.labels ?? []) : countLabels}
-        signalMarkers={clean ? [] : entrySignals.markers}
+        signalMarkers={clean ? focusPbBo : entrySignals.markers}
         stopLevel={clean ? (entryStructure?.stop ?? null) : entrySignals.stopLevel}
         replayMarkerTime={replayMarker}
         onReplayMarkerChange={setReplayMarker}
