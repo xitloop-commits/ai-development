@@ -251,6 +251,8 @@ export interface TickChartProps {
   /** T173 — publish this pane's price→screen-Y mapping on the priceMapBus under
    *  this key so a sibling (the chain strip) can align rows with the price scale. */
   priceMapKey?: string;
+  /** Hide the top-left OHLC readout (instrument-window declutter, 2026-09-02). */
+  hideLegend?: boolean;
 }
 
 /** Per-pane visible-window store that outlives the component. A component-local
@@ -310,6 +312,7 @@ export function TickChart({
   onResetView,
   viewKey,
   priceMapKey,
+  hideLegend,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
@@ -1377,7 +1380,7 @@ export function TickChart({
             them free of the live OHLC / price clutter (2026-08-31). */}
         <div
           ref={legendRef}
-          hidden={!!viewKey}
+          hidden={!!viewKey || !!hideLegend}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
         {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}

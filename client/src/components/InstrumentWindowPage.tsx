@@ -113,7 +113,7 @@ export default function InstrumentWindowPage() {
         <div className="grid min-h-0 flex-1 gap-1" style={{ gridTemplateColumns: "minmax(0,1fr) clamp(220px, 18vw, 320px) minmax(0,1fr)" }}>
           {/* LEFT — the underlying with ribbons, OI walls, swing levels */}
           <div className="min-h-0 min-w-0 rounded border border-border/60 overflow-hidden">
-            <InstrumentChartPage instOverride={inst} singlePane dateOverride={chartDate} priceMapKey={`und:${inst}`} />
+            <InstrumentChartPage instOverride={inst} singlePane slim dateOverride={chartDate} priceMapKey={`und:${inst}`} />
           </div>
           {/* MIDDLE — option chain, each strike row at its price height on the
               underlying's scale (rows follow the chart's zoom/scroll live) */}

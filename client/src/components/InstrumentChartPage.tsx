@@ -347,7 +347,7 @@ function TradePane({
   );
 }
 
-export default function InstrumentChartPage({ instOverride, singlePane, dateOverride, archiveBatch, priceMapKey }: {
+export default function InstrumentChartPage({ instOverride, singlePane, dateOverride, archiveBatch, priceMapKey, slim }: {
   /** Test-chart embed (2026-08-11): instrument from the host page's dropdown
    *  instead of the URL, and the layout pinned to the single underlying pane. */
   instOverride?: string;
@@ -360,6 +360,10 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   /** T173 — forwarded to the underlying pane so the chain strip can align
    *  its strike rows with this chart's price scale. */
   priceMapKey?: string;
+  /** Instrument-window declutter (Partha 2026-09-02): hide the Line style
+   *  button, Layout picker, pane title + OHLC readout, and both bottom
+   *  trend-angle strips. The main Charts page keeps them all. */
+  slim?: boolean;
 } = {}) {
   const inst = useMemo(() => instOverride ?? chartInstrumentFromUrl(), [instOverride]);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -820,7 +824,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
         <div className="flex items-center gap-0.5">
           <button className={btn(style === "candle")} onClick={() => setStyle("candle")}>Candle</button>
           <button className={btn(style === "ha")} onClick={() => setStyle("ha")}>HA</button>
-          <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
+          {!slim && <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>}
         </div>
         <div className="flex items-center gap-0.5">
           <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
@@ -860,7 +864,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
           </div>
         )}
         {/* Layout picker (T88) — pane 1 = underlying, panes 2..N = open trades. */}
-        <div className="relative">
+        {!slim && <div className="relative">
           <button className={btn(true)} onClick={() => setLayoutMenuOpen((v) => !v)} title="Chart layout — panes">
             <span className="inline-flex items-center gap-1"><GridIcon cols={layout.cols} rows={layout.rows} size={13} /> Layout ▾</span>
           </button>
@@ -882,7 +886,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               ))}
             </div>
           )}
-        </div>
+        </div>}
         <div className="ml-auto flex items-center gap-2">
           {!isToday && baseCandles.length > 0 && (
             <button className={btn(playing)} onClick={() => { if (playing) { setPlaying(false); return; } if (replayCount == null || replayCount >= baseCandles.length) setReplayCount(1); setPlaying(true); }} title="Replay this day tick-by-tick">
@@ -1056,9 +1060,10 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             serverSma5={serverLines?.sma5}
             loading={ticksLoading}
             priceMapKey={priceMapKey}
-            hoverAngleStrip={singlePane}
-            trendReadout={trendReadout}
-            trendReadoutRight={trendReadoutRight}
+            hoverAngleStrip={singlePane && !slim}
+            trendReadout={slim ? undefined : trendReadout}
+            trendReadoutRight={slim ? undefined : trendReadoutRight}
+            hideLegend={slim}
             extraLines={trendLines}
             onToggleFullscreen={() => setFullscreenPane((p) => (p === "underlying" ? null : "underlying"))}
             fullscreenActive={fullscreenPane === "underlying"}
@@ -1067,10 +1072,12 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             className="h-full"
             onTimeClick={onUnderlyingClick}
             header={<>
-              <span className="font-bold">{meta.displayName}</span>
-              <span className="text-muted-foreground">underlying · {intervalLabel} · {und.tickCount} tk</span>
-              {spot != null && <span className="tabular-nums" style={{ color: CHART_UP }}>spot {spot.toFixed(2)}</span>}
-              {expiryLabel && <span className="text-muted-foreground">exp {expiryLabel}</span>}
+              {!slim && <>
+                <span className="font-bold">{meta.displayName}</span>
+                <span className="text-muted-foreground">underlying · {intervalLabel} · {und.tickCount} tk</span>
+                {spot != null && <span className="tabular-nums" style={{ color: CHART_UP }}>spot {spot.toFixed(2)}</span>}
+                {expiryLabel && <span className="text-muted-foreground">exp {expiryLabel}</span>}
+              </>}
               <button
                 type="button"
                 onClick={() => setShowReason((v) => !v)}
