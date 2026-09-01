@@ -286,8 +286,10 @@ support, line weight/brightness = OI size, label = OI in lakhs) + the existing s
 levels. RIGHT half split top/bottom = CE premium (top) / PE premium (bottom) on the
 locked strikes (open-trade pin as today). MIDDLE = a NARROW compact option chain
 (ATM ±4–5, ATM row highlighted): call/put OI as mirrored bars, 5-min OI change
-tinted (building/unwinding), leg LTPs, IV; footer PCR + max-pain. Deliberately NOT
-volume / bid-ask / per-strike greeks (execution data, not decision data). Adapts
+tinted (building/unwinding), leg LTPs, IV, and **per-strike DELTA shown as
+"₹ per 1-point underlying move" (Partha 2026-09-01 — e.g. 0.52/pt), both legs,
+computed Black-Scholes from the chain's per-strike IV + spot + TTE**; footer PCR +
+max-pain. Deliberately NOT volume / bid-ask / gamma-theta-vega (execution data). Adapts
 on normal-aspect monitors: chain column narrows to bars, CE/PE stack shrinks first.
 **Build order:** Nifty window first as the SAMPLE (Partha: "show me before we build
 all") → judge → replicate to the other three. Reuses the T163/T164 pane machinery
