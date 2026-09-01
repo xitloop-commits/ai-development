@@ -293,6 +293,12 @@ on normal-aspect monitors: chain column narrows to bars, CE/PE stack shrinks fir
 all") → judge → replicate to the other three. Reuses the T163/T164 pane machinery
 (TickChart, chartOverlays, trendRibbon, chartFocusBus) and the staged OI-walls
 endpoint/renderer. The combined 2×2 window stays until the four are accepted.
+**Auto-open (Partha 2026-09-01): all four windows open at application start**, each
+on its assigned screen. Primary mechanism = the LAUNCHER opens them with saved
+`--window-position/--window-size` per instrument (deterministic, no pop-up
+permission needed); a drag/resize in the app updates the saved coordinates for the
+next launch. Fallback when the app is started outside the launcher = in-app
+auto-open on desk load (needs a one-time "allow pop-ups" for the app origin).
 Assumptions to confirm: CE-above-PE order fixed (not active-leg-on-top); desk on
 the ultrawide.
 
