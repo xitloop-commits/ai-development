@@ -273,6 +273,29 @@ Partha spec (design study complete, all decisions locked).
   [03](systems/03_model_training.md) / [04](systems/04_signal_engine.md) as built.
   Related: T29 (head-type routing), T71 (nifty/bank gate audit), T73 (retrain launcher item).
 
+### T173 [UI] — per-instrument chart WINDOWS (multi-monitor) — SPEC LOCKED 2026-09-01, build pending OK 🚧
+Partha's redesign of the chart surface. One pop-out window PER instrument, each
+remembering its screen position/size so it reopens on the same monitor.
+**Monitor map (Partha):** Nifty → top-left · BankNifty → top-right · Crude → bottom-left
+· NatGas → bottom ultrawide (main desk shares the ultrawide — assumption, confirm).
+Screens: two side-by-side monitors on top centred over a bottom ultrawide, plus one
+bottom-left monitor.
+**Window layout (3 columns):** LEFT half = the UNDERLYING (spot/future ticks) with
+S/R drawn on it — OI walls (call-OI strikes above spot = resistance, put-OI below =
+support, line weight/brightness = OI size, label = OI in lakhs) + the existing swing
+levels. RIGHT half split top/bottom = CE premium (top) / PE premium (bottom) on the
+locked strikes (open-trade pin as today). MIDDLE = a NARROW compact option chain
+(ATM ±4–5, ATM row highlighted): call/put OI as mirrored bars, 5-min OI change
+tinted (building/unwinding), leg LTPs, IV; footer PCR + max-pain. Deliberately NOT
+volume / bid-ask / per-strike greeks (execution data, not decision data). Adapts
+on normal-aspect monitors: chain column narrows to bars, CE/PE stack shrinks first.
+**Build order:** Nifty window first as the SAMPLE (Partha: "show me before we build
+all") → judge → replicate to the other three. Reuses the T163/T164 pane machinery
+(TickChart, chartOverlays, trendRibbon, chartFocusBus) and the staged OI-walls
+endpoint/renderer. The combined 2×2 window stays until the four are accepted.
+Assumptions to confirm: CE-above-PE order fixed (not active-leg-on-top); desk on
+the ultrawide.
+
 ### T169 [DATA] — corruption-tolerant tick readers ✅ BUILT 2026-08-21 (mid-session, third strike)
 A recorder restart mid-day leaves the gz day file with a truncated member +
 a fresh appended stream; readers froze at the seam (power cut 08-13 killed
