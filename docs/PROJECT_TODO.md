@@ -288,8 +288,10 @@ locked strikes (open-trade pin as today). MIDDLE = a NARROW compact option chain
 (ATM ±4–5, ATM row highlighted): call/put OI as mirrored bars, 5-min OI change
 tinted (building/unwinding), leg LTPs, IV, and **per-strike DELTA shown as
 "₹ per 1-point underlying move" (Partha 2026-09-01 — e.g. 0.52/pt), both legs,
-computed Black-Scholes from the chain's per-strike IV + spot + TTE**; footer PCR +
-max-pain. Deliberately NOT volume / bid-ask / gamma-theta-vega (execution data). Adapts
+computed Black-Scholes from the chain's per-strike IV + spot + TTE**; **per-strike
+DECAY (theta) as ₹ per HOUR, coloured when decay beats movement (Partha 2026-09-01):
+decay > delta × expected hourly move (from IV) → red "decay trap", ½–1× → amber,
+<½ → plain**; footer PCR + max-pain. Deliberately NOT volume / bid-ask / gamma-theta-vega (execution data). Adapts
 on normal-aspect monitors: chain column narrows to bars, CE/PE stack shrinks first.
 **Build order:** Nifty window first as the SAMPLE (Partha: "show me before we build
 all") → judge → replicate to the other three. Reuses the T163/T164 pane machinery
