@@ -207,9 +207,16 @@ SL *or* TSL, never both** (TP stays separate/orthogonal).
   path changes — per-strategy exits + Ladder/Glide candle-TSL unaffected (extension is
   backward-compatible). Design lands in [05 Execution](systems/05_execution.md).
 
-### T166 [ML/SEA] — Nifty/Bank: 3 option-premium ML cohorts on 5/10/15-min horizons — PHASE A SHIPPED 2026-08-19, retrain + Phase B pending 🚧
-Partha spec (design study complete, all decisions locked). **Nifty50 + BankNifty only**;
-Crude/NatGas stay exactly as-is (protected).
+### T166 [ML/SEA] — Nifty50 FIRST: 3 option-premium ML cohorts on 5/10/15-min horizons — PHASE A SHIPPED 2026-08-19, Nifty retrained 2026-08-23, Phase B pending 🚧
+**⚠ SCOPE RULE (Partha, 2026-08-25): NIFTY50 ONLY. No BankNifty model work of any kind
+(no retrain, no gates, no cutover) until the Nifty50 model is tested live/paper and
+proven to perform. Only then replicate — Bank first, then the others.** BankNifty stays
+on its current model/config untouched; Crude/NatGas stay exactly as-is (protected).
+Partha spec (design study complete, all decisions locked).
+- **Nifty50 retrain ✅ 2026-08-23** (`models/nifty50/20260823_133910`, 52 heads incl. the
+  brand-new 600s/900s). First read: direction AUC 0.70 (60s) / 0.62 (300s) / 0.61 (600s) /
+  0.61 (900s); breakout_in_600s 0.81; exit_signal_600s 0.65. Nothing trades on it yet —
+  nifty50.json still `gate_mode: legstart`.
 - **✅ Phase A SHIPPED (511158e, verified green):** option-premium head registry —
   `_shared/targets.py` now 52 heads (13 option-leg types × 60/300/600/900s), spot
   trend/swing layers retired; tests (`test_targets`, `test_model_loader`, trainer
