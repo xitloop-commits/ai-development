@@ -1,6 +1,7 @@
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { createLogger } from "./broker/logger";
 
 const searchLog = createLogger("BSA", "InstrumentsSearch");
@@ -49,6 +50,26 @@ import {
 } from "./instruments";
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
 import { setReserveSplitPercent } from "./portfolio/compounding";
+
+// T173 — chain snapshot cache (15s) + 10-min ring per instrument for the 5-min OI
+// change, and the per-instrument window layout file.
+import type { OptionChainRow } from "./broker/types";
+const chainSnapCache = new Map<string, { at: number; expiry: string; spot: number; rows: OptionChainRow[] }>();
+const chainRing = new Map<string, Array<{ at: number; oi: Map<number, { callOI: number; putOI: number }> }>>();
+const WINDOW_LAYOUT_PATH = "config/window_layout.json";
+function readWindowLayout(): Record<string, { x: number; y: number; w: number; h: number }> {
+  try {
+    if (!existsSync(WINDOW_LAYOUT_PATH)) return {};
+    return JSON.parse(readFileSync(WINDOW_LAYOUT_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+/** One OI wall: a strike, its open interest, and its size relative to the
+ *  biggest wall on the same side (0..1) — the chart's line-weight input. */
+interface OiWall { strike: number; oi: number; strength: number }
+const oiWallsCache = new Map<string, { at: number; data: { spot: number; expiry: string; asOf: number; resistance: OiWall[]; support: OiWall[] } }>();
 
 export const appRouter = router({
   // Trading data endpoints (read from in-memory store)
@@ -130,6 +151,100 @@ export const appRouter = router({
         if (!expiry) return { securityId: null, expiry: null, strike: input.strike };
         const r = await resolveContract(inst, expiry, input.strike, input.isCall);
         return { securityId: r?.secId ?? null, expiry, strike: r?.strike ?? input.strike };
+      }),
+
+    // OI walls (Partha 2026-09-01) — resistance / support from option-chain
+    // open interest: the heaviest CALL-OI strikes at/above spot are resistance
+    // (writers defending), the heaviest PUT-OI strikes at/below spot are support.
+    // `strength` = that wall's OI as a fraction of the biggest wall on its side
+    // (0..1) so the chart can scale line weight/brightness by magnitude. Live
+    // chain only (today); cached 20s per instrument so 4+ panes polling stay
+    // one Dhan call.
+    oiWalls: publicProcedure
+      .input(z.object({ instrument: z.string(), top: z.number().int().min(1).max(6).optional() }))
+      .query(async ({ input }) => {
+        const inst = logFolderFor(input.instrument);
+        const top = input.top ?? 3;
+        const now = Date.now();
+        const cached = oiWallsCache.get(inst);
+        if (cached && now - cached.at < 20_000) return { ...cached.data, top: undefined, resistance: cached.data.resistance.slice(0, top), support: cached.data.support.slice(0, top) };
+        const empty = { spot: null as number | null, expiry: null as string | null, asOf: now, resistance: [] as OiWall[], support: [] as OiWall[] };
+        const { resolveNearestExpiry, resolveUnderlyingForExpiry } = await import("./executor/tradeResolution");
+        const broker = getActiveBroker();
+        const resolved = broker ? await resolveUnderlyingForExpiry(inst) : null;
+        const expiry = resolved ? await resolveNearestExpiry(inst) : null;
+        if (!broker || !resolved || !expiry) return empty;
+        try {
+          const chain = await broker.getOptionChain(resolved.underlying, expiry, resolved.exchangeSegment);
+          const rows = ((chain?.rows ?? []) as { strike?: number; callOI?: number; putOI?: number }[])
+            .filter((r) => r.strike != null);
+          const spot: number = (chain as { spotPrice?: number })?.spotPrice ?? 0;
+          if (!(spot > 0) || !rows.length) return empty;
+          const rank = (side: "call" | "put"): OiWall[] => {
+            const pool = rows
+              .filter((r) => (side === "call" ? (r.strike as number) >= spot : (r.strike as number) <= spot))
+              .map((r) => ({ strike: r.strike as number, oi: (side === "call" ? r.callOI : r.putOI) ?? 0 }))
+              .filter((w) => w.oi > 0)
+              .sort((a, b) => b.oi - a.oi)
+              .slice(0, 6);
+            const max = pool[0]?.oi ?? 1;
+            return pool.map((w) => ({ ...w, strength: w.oi / max }));
+          };
+          const data = { spot, expiry, asOf: now, resistance: rank("call"), support: rank("put") };
+          oiWallsCache.set(inst, { at: now, data });
+          return { ...data, resistance: data.resistance.slice(0, top), support: data.support.slice(0, top) };
+        } catch {
+          return empty;
+        }
+      }),
+
+    // T173 — compact option-chain strip for the per-instrument window: ATM ±N
+    // with OI (bar-scaled), 5-min OI change, LTP, IV, delta as ₹/pt and decay as
+    // ₹/hr (+ decay-vs-move ratio), PCR + max pain. Chain cached 15s; a 10-min
+    // ring of snapshots per instrument supplies the 5-min OI change.
+    chainStrip: publicProcedure
+      .input(z.object({ instrument: z.string(), around: z.number().int().min(2).max(10).optional() }))
+      .query(async ({ input }) => {
+        const inst = logFolderFor(input.instrument);
+        const now = Date.now();
+        let snap = chainSnapCache.get(inst);
+        if (!snap || now - snap.at > 15_000) {
+          const { resolveNearestExpiry, resolveUnderlyingForExpiry } = await import("./executor/tradeResolution");
+          const broker = getActiveBroker();
+          const resolved = broker ? await resolveUnderlyingForExpiry(inst) : null;
+          const expiry = resolved ? await resolveNearestExpiry(inst) : null;
+          if (!broker || !resolved || !expiry) return null;
+          try {
+            const chain = await broker.getOptionChain(resolved.underlying, expiry, resolved.exchangeSegment);
+            snap = { at: now, expiry, spot: chain.spotPrice, rows: chain.rows };
+            chainSnapCache.set(inst, snap);
+            const ring = chainRing.get(inst) ?? [];
+            ring.push({ at: now, oi: new Map(chain.rows.map((r) => [r.strike, { callOI: r.callOI, putOI: r.putOI }])) });
+            while (ring.length && now - ring[0].at > 10 * 60_000) ring.shift();
+            chainRing.set(inst, ring);
+          } catch {
+            return null;
+          }
+        }
+        // The oldest ring entry that is ≥5 min old (closest to exactly 5 min).
+        const ring = chainRing.get(inst) ?? [];
+        const old = [...ring].reverse().find((e) => now - e.at >= 5 * 60_000) ?? null;
+        const { buildChainStrip } = await import("./optionMath");
+        return buildChainStrip(inst, snap.expiry, snap.spot, snap.rows, old?.oi ?? null, input.around ?? 5, now);
+      }),
+
+    // T173 — per-instrument window placement memory (screen x/y/w/h) so each
+    // window reopens on its own monitor; the launcher reads the same file.
+    windowLayoutGet: publicProcedure.query(() => readWindowLayout()),
+    windowLayoutSet: publicProcedure
+      .input(z.object({ key: z.string().min(1), x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() }))
+      .mutation(({ input }) => {
+        const all = readWindowLayout();
+        all[input.key] = { x: Math.round(input.x), y: Math.round(input.y), w: Math.round(input.w), h: Math.round(input.h) };
+        try {
+          writeFileSync(WINDOW_LAYOUT_PATH, JSON.stringify(all, null, 2));
+        } catch { /* best-effort */ }
+        return all;
       }),
 
     // T161 — watchlist tick icon: per-instrument signals/trades master switch.

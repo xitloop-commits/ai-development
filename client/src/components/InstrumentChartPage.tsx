@@ -375,7 +375,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   // Archive mode exists to LOOK at trades — default them on there.
   const [showTrades, setShowTrades] = useState(!singlePane || archiveBatch != null);
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(
-    () => new Set<IndicatorKey>(singlePane ? ["sma5", "maRibbon", "sma5Ribbon"] : ["ma", "sma5"]),
+    () => new Set<IndicatorKey>(singlePane ? ["sma5", "maRibbon", "sma5Ribbon", "oiWalls"] : ["ma", "sma5"]),
   );
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   // Win/Loss + SMA5/MA marker toggles (chart top).
@@ -501,6 +501,18 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     { enabled: !!inst && !!date && indicators.has("swings"), staleTime: 60_000, refetchOnWindowFocus: false },
   );
   const serverSwings = serverSwingsQuery.data;
+
+  // OI walls (Partha 2026-09-01) — live option-chain OI S/R for the underlying
+  // pane. Live chain only, so today only; refreshed every 30s (server caches
+  // the chain 20s across panes).
+  const oiWallsQuery = trpc.trading.oiWalls.useQuery(
+    { instrument: inst ?? "", top: 3 },
+    { enabled: !!inst && isToday && indicators.has("oiWalls"), refetchInterval: 30_000, refetchOnWindowFocus: false },
+  );
+  const oiWalls = useMemo(() => {
+    const d = oiWallsQuery.data;
+    return d && (d.resistance.length || d.support.length) ? { resistance: d.resistance, support: d.support } : undefined;
+  }, [oiWallsQuery.data]);
 
   // T169-B — SERVER-AUTHORITATIVE SMA5 line + MA/SMA5 ribbons on the signal
   // timeframe. Only fetched when one of those indicators is on; the chart falls
@@ -1001,6 +1013,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               candles={candles}
               markers={markers}
               tradeLines={underlyingEntryLine}
+            oiWalls={oiWalls}
               style={style}
               indicators={indicators}
               intervalSec={intervalSec}
@@ -1029,6 +1042,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             candles={candles}
             markers={markers}
             tradeLines={underlyingEntryLine}
+            oiWalls={oiWalls}
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}

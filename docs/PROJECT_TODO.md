@@ -273,7 +273,14 @@ Partha spec (design study complete, all decisions locked).
   [03](systems/03_model_training.md) / [04](systems/04_signal_engine.md) as built.
   Related: T29 (head-type routing), T71 (nifty/bank gate audit), T73 (retrain launcher item).
 
-### T173 [UI] — per-instrument chart WINDOWS (multi-monitor) — SPEC LOCKED 2026-09-01, build pending OK 🚧
+### T173 [UI] — per-instrument chart WINDOWS (multi-monitor) — NIFTY SAMPLE BUILT 2026-09-01 (judge → replicate) 🚧
+**Sample shipped:** `?view=instwin&inst=NIFTY_50` (NIFTY button on the app bar) — left underlying
+(InstrumentChartPage single pane: ribbons + OI walls + swings), middle ChainStrip (ATM ±5: OI bars,
+5-min OI change, LTP, IV, delta ₹/pt, decay ₹/hr red when it beats the move, PCR/max-pain), right
+CE over PE (shared InstrumentPane pinned per leg). Window saves its screen box (localStorage +
+config/window_layout.json via trading.windowLayoutSet) and reopens there. Server: optionMath.ts
+(Black-Scholes delta/theta), trading.chainStrip (chain cached 15s + 10-min ring for OI change),
+trading.oiWalls, windowLayoutGet/Set. NOT yet: other 3 instruments, launcher auto-open/placement.
 Partha's redesign of the chart surface. One pop-out window PER instrument, each
 remembering its screen position/size so it reopens on the same monitor.
 **Monitor map (Partha):** Nifty → top-left · BankNifty → top-right · Crude → bottom-left

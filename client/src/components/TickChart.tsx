@@ -172,6 +172,11 @@ export interface TickChartProps {
    *  resistances above (T1..Tn, nearest first) + supports below (S1..Sn), colours
    *  each by its retest count, and always draws the session HI/LO as majors. */
   serverLevels?: { levels: { price: number; touches: number }[]; sessionHigh: number; sessionLow: number };
+  /** OI walls (Partha 2026-09-01): option-chain open-interest S/R on an
+   *  UNDERLYING chart. Resistance = heaviest call-OI strikes above spot, support
+   *  = heaviest put-OI strikes below. `strength` (0..1, vs the biggest wall on
+   *  that side) drives line weight + brightness; the label carries the OI. */
+  oiWalls?: { resistance: { strike: number; oi: number; strength: number }[]; support: { strike: number; oi: number; strength: number }[] };
   /** T169-B — server-authoritative SMA5 line, one sample per SIGNAL candle (t =
    *  raw bucket-start epoch). When present the "sma5" indicator maps these onto
    *  the display candles instead of recomputing. */
@@ -262,6 +267,7 @@ export function TickChart({
   sma5CandleSec = 60,
   serverSwings,
   serverLevels,
+  oiWalls,
   serverSma5,
   extraLines,
   tslAnchorTime,
@@ -382,7 +388,7 @@ export function TickChart({
         setRebuildGen((g) => g + 1);
       }, REBUILD_THROTTLE_MS - since);
     }
-  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, entryCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
+  }, [candles, rawCandles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme, sma5Ha, sma5Period, sma5CandleSec, serverSwings, serverLevels, oiWalls, serverSma5, extraLines, tslAnchorTime, tslIgnoredTimes, whiteCandleTime, blueCandleTimes, greenCandleTimes, entryCandleTimes, hoverAngleStrip, trendReadout, trendReadoutRight, trendLine, trendLineRight, sma5Level, sma5LevelColor, maLevel, maLevelColor, tslLevel, climbLabels, countLabels, signalMarkers, stopLevel, replayMarkerTime, crosshairSync, selfId, viewKey]);
 
   // Track pointer/wheel interaction so the gate above knows when to hold. Mounted
   // once; the chart survives across rebuilds so these listeners stay valid.
@@ -851,6 +857,29 @@ export function TickChart({
           }),
         );
       }
+    }
+
+    // OI walls (Partha 2026-09-01) — open-interest S/R at the strike prices,
+    // magnitude made visible: the biggest wall on each side is thick + bright,
+    // smaller walls thinner + fainter (strength = OI / biggest OI that side).
+    // Label shows the OI in lakhs. Underlying charts only (strikes are
+    // underlying prices; a premium pane's axis is the premium).
+    if (indicators.has("oiWalls") && oiWalls) {
+      const lakhs = (oi: number) => (oi >= 1e5 ? `${(oi / 1e5).toFixed(1)}L` : oi >= 1e3 ? `${(oi / 1e3).toFixed(0)}K` : String(oi));
+      const weight = (s: number): 1 | 2 | 3 | 4 => (s >= 0.85 ? 4 : s >= 0.55 ? 3 : s >= 0.3 ? 2 : 1);
+      const alpha = (s: number) => Math.round(90 + 165 * Math.min(1, Math.max(0, s))).toString(16).padStart(2, "0");
+      oiWalls.resistance.forEach((w, i) => {
+        series.createPriceLine({
+          price: w.strike, color: `#ef4444${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: `R${i + 1} CE ${lakhs(w.oi)}`,
+        });
+      });
+      oiWalls.support.forEach((w, i) => {
+        series.createPriceLine({
+          price: w.strike, color: `#22c55e${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: `S${i + 1} PE ${lakhs(w.oi)}`,
+        });
+      });
     }
 
     // Forward projection ray (Partha 2026-08-22) — extends each ribbon's CURRENT

@@ -48,6 +48,27 @@ import { toast } from 'sonner';
  * first chart. We detect the blocked ones (window.open returns null) and toast a
  * one-time instruction, so it never fails silently.
  */
+/** T173 — one instrument's own window (underlying · chain · CE/PE). Reopens at
+ *  the screen box the window last saved (so it lands on its own monitor); a
+ *  never-placed window opens top-left of the current screen. The window name is
+ *  per instrument, so a second click focuses the existing one. */
+function openInstrumentWindow(inst: string) {
+  let box: { x: number; y: number; w: number; h: number } | null = null;
+  try { box = JSON.parse(localStorage.getItem(`lubasWin:${inst}`) || "null"); } catch { box = null; }
+  const w = box?.w ?? Math.round((window.screen.availWidth || 1600) * 0.95);
+  const h = box?.h ?? Math.round((window.screen.availHeight || 900) * 0.95);
+  const left = box?.x ?? 0;
+  const top = box?.y ?? 0;
+  const win = window.open(
+    `${window.location.origin}/?view=instwin&inst=${encodeURIComponent(inst)}`,
+    `lubas-instwin-${inst}`,
+    `popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+  );
+  if (!win) {
+    toast.error('Pop-up blocked: allow pop-ups for this site (address-bar icon → “Always allow”), then click again.', { duration: 9000 });
+  }
+}
+
 function openCharts() {
   // ONE window, 2×2 — one pane per instrument (Crude · Nifty50 / NatGas ·
   // BankNifty), each following its active side (2026-08-18, merges the old
@@ -616,6 +637,16 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
           title="Chart window — 2×2: Crude · Nifty50 (top), NatGas · BankNifty (bottom); each pane follows its active side"
         >
           <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">CHARTS</span>
+        </button>
+
+        {/* T173 — per-instrument window (Nifty sample first; others follow once
+            the layout is approved). Reopens on the monitor it was last placed on. */}
+        <button
+          onClick={() => openInstrumentWindow("NIFTY_50")}
+          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+          title="Nifty window — underlying with OI walls (left) · compact option chain (middle) · CE over PE (right). Remembers its screen."
+        >
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-info-cyan">NIFTY</span>
         </button>
 
         <div className="w-px self-stretch bg-border shrink-0" />

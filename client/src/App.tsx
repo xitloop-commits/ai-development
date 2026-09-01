@@ -17,6 +17,7 @@ const SignalChartPage = lazy(() => import("./components/SignalChartPage"));
 const InstrumentChartPage = lazy(() => import("./components/InstrumentChartPage"));
 const MultiChartPage = lazy(() => import("./components/MultiChartPage"));
 const TestChartPage = lazy(() => import("./components/TestChartPage"));
+const InstrumentWindowPage = lazy(() => import("./components/InstrumentWindowPage"));
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
@@ -64,6 +65,13 @@ function isTestChartRoute() {
   return params.get("view") === "testchart";
 }
 
+// T173 — per-instrument window (underlying · chain strip · CE/PE), one per monitor.
+function isInstrumentWindowRoute() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("view") === "instwin";
+}
+
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
   const showHeadToHead = isHeadToHeadRoute();
@@ -71,6 +79,7 @@ function App() {
   const showInstrumentChart = isInstrumentChartRoute();
   const showMultiChart = isMultiChartRoute();
   const showTestChart = isTestChartRoute();
+  const showInstrumentWindow = isInstrumentWindowRoute();
 
   // H6 — in production, if a user lands on a mockup URL, redirect to
   // home instead of silently rendering MainScreen at the wrong URL.
@@ -157,6 +166,12 @@ function App() {
               ) : showTestChart ? (
                 <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading chart…</div>}>
                   <TestChartPage />
+                </Suspense>
+              ) : showInstrumentWindow ? (
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading window…</div>}>
+                  <ChannelProvider>
+                    <InstrumentWindowPage />
+                  </ChannelProvider>
                 </Suspense>
               ) : (
                 <CredentialGate>

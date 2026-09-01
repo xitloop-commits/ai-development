@@ -124,7 +124,8 @@ type AtmShape = {
   atm_pe_security_id?: string | null;
 } | null;
 
-function InstrumentPane({
+// Exported for the per-instrument windows (T173) — same pane, CE/PE pinned.
+export function InstrumentPane({
   instKey, intervalSec, style, indicators, markerFilter, activeOnly, crosshairSync,
   taOpts, tslXBack, chartDate, simCutoffRef, activeReplayRunId, fs, onToggleFs, forceSide,
 }: {
@@ -440,6 +441,22 @@ function InstrumentPane({
     { instrument: instKey, date: chartDate, securityId: secId ?? "", timeframeSec: intervalSec, cutoffTs: swingCutoffTs },
     { enabled: !!secId && indicators.has("swings"), staleTime: Infinity, refetchOnWindowFocus: false },
   );
+  // OI walls (Partha 2026-09-01): strikes are UNDERLYING prices, so on this
+  // premium pane they're a header readout (heaviest wall each side + its OI),
+  // not lines — the lines live on the underlying (Test chart) view.
+  const oiWallsQ = trpc.trading.oiWalls.useQuery(
+    { instrument: instKey, top: 1 },
+    { enabled: indicators.has("oiWalls") && !activeReplayRunId, refetchInterval: 30_000, refetchOnWindowFocus: false },
+  );
+  const oiWallText = useMemo(() => {
+    const d = oiWallsQ.data;
+    if (!d) return null;
+    const lakhs = (oi: number) => (oi >= 1e5 ? `${(oi / 1e5).toFixed(1)}L` : `${(oi / 1e3).toFixed(0)}K`);
+    const r = d.resistance[0];
+    const s = d.support[0];
+    if (!r && !s) return null;
+    return `OI ${r ? `R ${r.strike} (${lakhs(r.oi)})` : ""}${r && s ? " · " : ""}${s ? `S ${s.strike} (${lakhs(s.oi)})` : ""}`;
+  }, [oiWallsQ.data]);
   const trendReadout = useMemo(() => {
     if (!trendA) return undefined;
     const m = new Map<number, { text: string; color: string }>();
