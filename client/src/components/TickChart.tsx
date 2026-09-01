@@ -117,6 +117,8 @@ export interface MaLeg {
   side: "CE" | "PE";
 }
 
+import { publishPriceMap } from "@/lib/priceMapBus";
+
 export interface TickChartProps {
   /** Raw bucketed candles; Heikin-Ashi is applied internally when style==="ha". */
   candles: Candle[];
@@ -246,6 +248,9 @@ export interface TickChartProps {
    *  grid remounts its panes on refresh/date changes, which wiped the local zoom
    *  memory and reset the view. The watchlist chart omits it (unchanged path). */
   viewKey?: string;
+  /** T173 — publish this pane's price→screen-Y mapping on the priceMapBus under
+   *  this key so a sibling (the chain strip) can align rows with the price scale. */
+  priceMapKey?: string;
 }
 
 /** Per-pane visible-window store that outlives the component. A component-local
@@ -304,6 +309,7 @@ export function TickChart({
   crosshairSync,
   onResetView,
   viewKey,
+  priceMapKey,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
@@ -1194,6 +1200,49 @@ export function TickChart({
     // effect body still reads the latest props via closure (fresh at each bump).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rebuildGen]);
+
+  // T173 — publish price→screen-Y for the chain strip. A light 100 ms poll
+  // (two coordinate lookups + one rect) that republishes only when the scale,
+  // size, position or chart instance changed — so zoom/scroll/autoscale and
+  // the frequent chart rebuilds all keep the strip glued to the price axis.
+  // (A poll, not requestAnimationFrame: a perpetual rAF never lets the page
+  // reach "idle", which breaks headless screenshots and battery heuristics.)
+  useEffect(() => {
+    if (!priceMapKey) return;
+    const key = priceMapKey;
+    let lastSig = "";
+    let lastChart: IChartApi | null = null;
+    const tick = () => {
+      const chart = chartRef.current;
+      const series = seriesRef.current;
+      const el = containerRef.current;
+      if (!chart || !series || !el) return;
+      const rect = el.getBoundingClientRect();
+      let pTop: number | null = null;
+      let pBot: number | null = null;
+      try {
+        pTop = series.coordinateToPrice(0) as number | null;
+        pBot = series.coordinateToPrice(rect.height) as number | null;
+      } catch { return; }
+      const sig = `${rect.top}|${rect.left}|${rect.height}|${pTop}|${pBot}`;
+      if (sig === lastSig && chart === lastChart) return;
+      lastSig = sig;
+      lastChart = chart;
+      publishPriceMap(key, {
+        top: rect.top,
+        bottom: rect.bottom,
+        toClientY: (p) => {
+          try {
+            const c = series.priceToCoordinate(p);
+            return c == null ? null : rect.top + (c as number);
+          } catch { return null; }
+        },
+      });
+    };
+    tick();
+    const timer = window.setInterval(tick, 100);
+    return () => { window.clearInterval(timer); publishPriceMap(key, null); };
+  }, [priceMapKey]);
 
   // Drag the replay marker line. Mounted once; reads live state via refs so it
   // survives the chart's frequent rebuilds. Moves the primitive smoothly during

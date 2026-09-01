@@ -201,19 +201,35 @@ export const appRouter = router({
     // T173 — compact option-chain strip for the per-instrument window: ATM ±N
     // with OI (bar-scaled), 5-min OI change, LTP, IV, delta as ₹/pt and decay as
     // ₹/hr (+ decay-vs-move ratio), PCR + max pain. Chain cached 15s; a 10-min
-    // ring of snapshots per instrument supplies the 5-min OI change.
+    // ring of snapshots per instrument supplies the 5-min OI change. When the
+    // live chain is unavailable (market closed / token expired) — or a `date`
+    // is asked for — it serves the day's RECORDED chain snapshot instead,
+    // marked with `snapshotDate` so the UI can flag it as not-live.
     chainStrip: publicProcedure
-      .input(z.object({ instrument: z.string(), around: z.number().int().min(2).max(10).optional() }))
+      .input(z.object({
+        instrument: z.string(),
+        around: z.number().int().min(2).max(20).optional(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      }))
       .query(async ({ input }) => {
         const inst = logFolderFor(input.instrument);
         const now = Date.now();
+        const { buildChainStrip } = await import("./optionMath");
+        const fromRecording = async (date?: string) => {
+          const { readRecordedChainStrip } = await import("./chainSnapshotFallback");
+          const rec = await readRecordedChainStrip(inst, date);
+          if (!rec) return null;
+          const strip = buildChainStrip(inst, rec.expiry, rec.spot, rec.rows, rec.prevOi, input.around ?? 5, rec.asOfMs);
+          return { ...strip, snapshotDate: rec.date };
+        };
+        if (input.date) return fromRecording(input.date);
         let snap = chainSnapCache.get(inst);
         if (!snap || now - snap.at > 15_000) {
           const { resolveNearestExpiry, resolveUnderlyingForExpiry } = await import("./executor/tradeResolution");
           const broker = getActiveBroker();
           const resolved = broker ? await resolveUnderlyingForExpiry(inst) : null;
           const expiry = resolved ? await resolveNearestExpiry(inst) : null;
-          if (!broker || !resolved || !expiry) return null;
+          if (!broker || !resolved || !expiry) return fromRecording();
           try {
             const chain = await broker.getOptionChain(resolved.underlying, expiry, resolved.exchangeSegment);
             snap = { at: now, expiry, spot: chain.spotPrice, rows: chain.rows };
@@ -223,14 +239,13 @@ export const appRouter = router({
             while (ring.length && now - ring[0].at > 10 * 60_000) ring.shift();
             chainRing.set(inst, ring);
           } catch {
-            return null;
+            return fromRecording();
           }
         }
         // The oldest ring entry that is ≥5 min old (closest to exactly 5 min).
         const ring = chainRing.get(inst) ?? [];
         const old = [...ring].reverse().find((e) => now - e.at >= 5 * 60_000) ?? null;
-        const { buildChainStrip } = await import("./optionMath");
-        return buildChainStrip(inst, snap.expiry, snap.spot, snap.rows, old?.oi ?? null, input.around ?? 5, now);
+        return { ...buildChainStrip(inst, snap.expiry, snap.spot, snap.rows, old?.oi ?? null, input.around ?? 5, now), snapshotDate: null as string | null };
       }),
 
     // T173 — per-instrument window placement memory (screen x/y/w/h) so each

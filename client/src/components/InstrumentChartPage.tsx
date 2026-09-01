@@ -347,7 +347,7 @@ function TradePane({
   );
 }
 
-export default function InstrumentChartPage({ instOverride, singlePane, dateOverride, archiveBatch }: {
+export default function InstrumentChartPage({ instOverride, singlePane, dateOverride, archiveBatch, priceMapKey }: {
   /** Test-chart embed (2026-08-11): instrument from the host page's dropdown
    *  instead of the URL, and the layout pinned to the single underlying pane. */
   instOverride?: string;
@@ -357,6 +357,9 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   /** Archive mode (2026-08-19): trades come from the archive collections
    *  (this clear-batch) instead of the live book. View-only analysis. */
   archiveBatch?: number;
+  /** T173 — forwarded to the underlying pane so the chain strip can align
+   *  its strike rows with this chart's price scale. */
+  priceMapKey?: string;
 } = {}) {
   const inst = useMemo(() => instOverride ?? chartInstrumentFromUrl(), [instOverride]);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -1052,6 +1055,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             serverSwings={serverSwings}
             serverSma5={serverLines?.sma5}
             loading={ticksLoading}
+            priceMapKey={priceMapKey}
             hoverAngleStrip={singlePane}
             trendReadout={trendReadout}
             trendReadoutRight={trendReadoutRight}

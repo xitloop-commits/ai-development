@@ -281,6 +281,15 @@ CE over PE (shared InstrumentPane pinned per leg). Window saves its screen box (
 config/window_layout.json via trading.windowLayoutSet) and reopens there. Server: optionMath.ts
 (Black-Scholes delta/theta), trading.chainStrip (chain cached 15s + 10-min ring for OI change),
 trading.oiWalls, windowLayoutGet/Set. NOT yet: other 3 instruments, launcher auto-open/placement.
+**2026-09-02 price-ALIGNED strip (Partha):** each strike row now sits at that price's height on the
+underlying chart's price scale, following zoom/scroll/autoscale live — walls on the chart and OI
+bars in the strip read straight across. TickChart publishes price→Y on `lib/priceMapBus.ts`
+(100 ms poll, republish only on change); ChainStrip `alignTo` places rows absolutely, shrinks
+cells 3→2→1 lines as strikes get closer, thins far strikes first, dashed cyan spot line; list
+layout stays as fallback until the chart is ready. Also: `chainStrip` now falls back to the day's
+RECORDED chain snapshot (server/chainSnapshotFallback.ts, last snap + ~5-min-older for OI change)
+when the live chain is unavailable (market closed / token expired) or a `date` is passed — UI flags
+it with an amber "snap MM-DD" badge; window supports `&date=YYYY-MM-DD` for past-day review.
 Partha's redesign of the chart surface. One pop-out window PER instrument, each
 remembering its screen position/size so it reopens on the same monitor.
 **Monitor map (Partha):** Nifty → top-left · BankNifty → top-right · Crude → bottom-left

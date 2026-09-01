@@ -47,7 +47,13 @@ export default function InstrumentWindowPage() {
   const [style] = useState<ChartStyle>("ha");
   const indicators = useMemo(() => new Set<IndicatorKey>(["sma5", "maRibbon", "sma5Ribbon", "entry", "exit", "tsl"]), []);
   const crosshairSync = useMemo(() => createCrosshairSync(), []);
-  const chartDate = istDateString();
+  // Optional past-day review: ?date=YYYY-MM-DD pins every pane + the chain
+  // strip to that day's recordings instead of live.
+  const urlDate = useMemo(() => {
+    const d = new URLSearchParams(window.location.search).get("date");
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  }, []);
+  const chartDate = urlDate ?? istDateString();
   const [fsSide, setFsSide] = useState<"CE" | "PE" | null>(null);
 
   // ── Remember this window's screen box (position + size) ─────────────────
@@ -107,11 +113,12 @@ export default function InstrumentWindowPage() {
         <div className="grid min-h-0 flex-1 gap-1" style={{ gridTemplateColumns: "minmax(0,1fr) clamp(220px, 18vw, 320px) minmax(0,1fr)" }}>
           {/* LEFT — the underlying with ribbons, OI walls, swing levels */}
           <div className="min-h-0 min-w-0 rounded border border-border/60 overflow-hidden">
-            <InstrumentChartPage instOverride={inst} singlePane dateOverride={chartDate} />
+            <InstrumentChartPage instOverride={inst} singlePane dateOverride={chartDate} priceMapKey={`und:${inst}`} />
           </div>
-          {/* MIDDLE — compact option chain */}
+          {/* MIDDLE — option chain, each strike row at its price height on the
+              underlying's scale (rows follow the chart's zoom/scroll live) */}
           <div className="min-h-0 min-w-0 rounded border border-border/60 p-1">
-            <ChainStrip instrument={inst} around={5} />
+            <ChainStrip instrument={inst} around={12} alignTo={`und:${inst}`} date={urlDate ?? undefined} />
           </div>
           {/* RIGHT — CE over PE on the locked strikes */}
           <div className="grid min-h-0 min-w-0 grid-rows-2 gap-1">
