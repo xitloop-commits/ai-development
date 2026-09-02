@@ -617,21 +617,20 @@ export function AiControl({ replay = false }: { replay?: boolean } = {}) {
               <>
                 <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-cyan p-3 space-y-3">
                 {/* ② Cohorts */}
-                <div className="border-t border-border pt-2 flex flex-col gap-2">
-                  {/* Label + toggles share one row to save vertical space. */}
-                  <div className="flex items-center justify-between gap-2">
-                    <SectionLabel>Cohorts</SectionLabel>
-                    <div className="flex gap-1">
-                      {COHORTS.map((c) => (
-                        <Pill
-                          key={c.key}
-                          label={c.label}
-                          on={!!d.cohorts[c.key]}
-                          disabled={c.key === "swing"}
-                          onClick={() => edit((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })}
-                        />
-                      ))}
-                    </div>
+                <div className="border-t border-border pt-2 flex flex-col gap-1.5">
+                  {/* Label on its own line; pills WRAP so every cohort stays
+                      visible however many there are (Partha 2026-09-02, +cb2). */}
+                  <SectionLabel>Cohorts</SectionLabel>
+                  <div className="flex flex-wrap gap-1">
+                    {COHORTS.map((c) => (
+                      <Pill
+                        key={c.key}
+                        label={c.label}
+                        on={!!d.cohorts[c.key]}
+                        disabled={c.key === "swing"}
+                        onClick={() => edit((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })}
+                      />
+                    ))}
                   </div>
                 </div>
 
