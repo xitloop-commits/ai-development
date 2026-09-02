@@ -12,6 +12,9 @@ export interface PriceMap {
   /** Viewport top / bottom of the chart's plotting container. */
   top: number;
   bottom: number;
+  /** The chart's latest close — lets subscribers compute the futures-vs-spot
+   *  basis and shift spot-referenced levels (strikes) to the right height. */
+  lastPrice: number | null;
 }
 
 type Listener = (m: PriceMap | null) => void;

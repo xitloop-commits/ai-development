@@ -603,6 +603,23 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     return baseCandles.slice(0, Math.max(1, Math.min(replayCount, baseCandles.length)));
   }, [baseCandles, replayCount]);
 
+  // BASIS SHIFT (Partha 2026-09-02): this chart runs on the FUTURES contract,
+  // but strikes / OI walls are SPOT-referenced — Dhan showed spot ~128 pts
+  // below our line. Draw each wall at strike + (futures − chain spot) so it
+  // sits at the financially correct height; the label keeps the true strike.
+  // Basis is quantised to 5 pts so wall lines don't churn on every tick.
+  const futLast = candles.length ? candles[candles.length - 1].close : null;
+  const wallBasis = useMemo(() => {
+    const spot = oiWallsQuery.data?.spot;
+    if (futLast == null || !spot || !(spot > 0)) return 0;
+    return Math.round((futLast - spot) / 5) * 5;
+  }, [futLast, oiWallsQuery.data?.spot]);
+  const oiWallsShifted = useMemo(() => {
+    if (!oiWalls) return undefined;
+    const shift = (w: { strike: number; oi: number; strength: number }) => ({ ...w, at: w.strike + wallBasis });
+    return { resistance: oiWalls.resistance.map(shift), support: oiWalls.support.map(shift) };
+  }, [oiWalls, wallBasis]);
+
   useEffect(() => { setReplayCount(null); setPlaying(false); }, [date, intervalSec]);
 
   useEffect(() => {
@@ -1072,7 +1089,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               candles={candles}
               markers={markers}
               tradeLines={underlyingEntryLine}
-            oiWalls={oiWalls}
+            oiWalls={oiWallsShifted}
               style={style}
               indicators={indicators}
               intervalSec={intervalSec}
@@ -1101,7 +1118,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             candles={candles}
             markers={markers}
             tradeLines={underlyingEntryLine}
-            oiWalls={oiWalls}
+            oiWalls={oiWallsShifted}
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}

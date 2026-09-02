@@ -174,15 +174,19 @@ export function ChainStrip({ instrument, around = 5, alignTo, date, onLegClick, 
     if (!alignTo || !pm || !area || !d || d.rows.length < 2) return null;
     const rows = d.rows as Row[];
     const step = Math.abs(rows[0].strike - rows[1].strike) || 1;
-    const y0 = pm.toClientY(d.spot);
-    const y1 = pm.toClientY(d.spot + step);
+    // BASIS SHIFT (Partha 2026-09-02): the chart is the FUTURES contract but
+    // strikes are SPOT prices — place each strike at (strike + basis) so it
+    // sits where the futures line would be when spot touches that strike.
+    const basis = pm.lastPrice != null && d.spot > 0 ? pm.lastPrice - d.spot : 0;
+    const y0 = pm.toClientY(d.spot + basis);
+    const y1 = pm.toClientY(d.spot + basis + step);
     if (y0 == null || y1 == null) return null;
     const spacing = Math.abs(y1 - y0);
     const density: Density = spacing >= ROW_PX[3] ? 3 : spacing >= ROW_PX[2] ? 2 : 1;
     const minGap = ROW_PX[density];
     // Nearest-to-spot first so thinning drops the far strikes, never the ATM.
     const cands = rows
-      .map((r) => ({ r, y: pm.toClientY(r.strike) }))
+      .map((r) => ({ r, y: pm.toClientY(r.strike + basis) }))
       .filter((c): c is { r: Row; y: number } => c.y != null)
       .map((c) => ({ r: c.r, y: c.y - area.top }))
       .filter((c) => c.y >= 0 && c.y <= area.height)

@@ -178,7 +178,9 @@ export interface TickChartProps {
    *  UNDERLYING chart. Resistance = heaviest call-OI strikes above spot, support
    *  = heaviest put-OI strikes below. `strength` (0..1, vs the biggest wall on
    *  that side) drives line weight + brightness; the label carries the OI. */
-  oiWalls?: { resistance: { strike: number; oi: number; strength: number }[]; support: { strike: number; oi: number; strength: number }[] };
+  /** `at` = price to draw the line at when it differs from the strike (basis
+   *  shift on a futures chart); the label always shows the true strike. */
+  oiWalls?: { resistance: { strike: number; at?: number; oi: number; strength: number }[]; support: { strike: number; at?: number; oi: number; strength: number }[] };
   /** T169-B — server-authoritative SMA5 line, one sample per SIGNAL candle (t =
    *  raw bucket-start epoch). When present the "sma5" indicator maps these onto
    *  the display candles instead of recomputing. */
@@ -884,14 +886,14 @@ export function TickChart({
       const alpha = (s: number) => Math.round(90 + 165 * Math.min(1, Math.max(0, s))).toString(16).padStart(2, "0");
       oiWalls.resistance.forEach((w, i) => {
         series.createPriceLine({
-          price: w.strike, color: `#ef4444${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
-          axisLabelVisible: true, title: `R${i + 1} CE ${lakhs(w.oi)}`,
+          price: w.at ?? w.strike, color: `#ef4444${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: `R${i + 1} ${w.strike} CE ${lakhs(w.oi)}`,
         });
       });
       oiWalls.support.forEach((w, i) => {
         series.createPriceLine({
-          price: w.strike, color: `#22c55e${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
-          axisLabelVisible: true, title: `S${i + 1} PE ${lakhs(w.oi)}`,
+          price: w.at ?? w.strike, color: `#22c55e${alpha(w.strength)}`, lineWidth: weight(w.strength), lineStyle: LineStyle.Solid,
+          axisLabelVisible: true, title: `S${i + 1} ${w.strike} PE ${lakhs(w.oi)}`,
         });
       });
     }
@@ -1215,6 +1217,11 @@ export function TickChart({
   // the frequent chart rebuilds all keep the strip glued to the price axis.
   // (A poll, not requestAnimationFrame: a perpetual rAF never lets the page
   // reach "idle", which breaks headless screenshots and battery heuristics.)
+  // Latest close for the price-map basis computation (assigned every render so
+  // the polling closure below always sees the current value).
+  const lastCloseRef = useRef<number | null>(null);
+  lastCloseRef.current = candles.length ? candles[candles.length - 1].close : null;
+
   useEffect(() => {
     if (!priceMapKey) return;
     const key = priceMapKey;
@@ -1232,13 +1239,15 @@ export function TickChart({
         pTop = series.coordinateToPrice(0) as number | null;
         pBot = series.coordinateToPrice(rect.height) as number | null;
       } catch { return; }
-      const sig = `${rect.top}|${rect.left}|${rect.height}|${pTop}|${pBot}`;
+      const lastPrice = lastCloseRef.current;
+      const sig = `${rect.top}|${rect.left}|${rect.height}|${pTop}|${pBot}|${lastPrice}`;
       if (sig === lastSig && chart === lastChart) return;
       lastSig = sig;
       lastChart = chart;
       publishPriceMap(key, {
         top: rect.top,
         bottom: rect.bottom,
+        lastPrice,
         toClientY: (p) => {
           try {
             const c = series.priceToCoordinate(p);
