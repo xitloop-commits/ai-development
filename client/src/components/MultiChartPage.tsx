@@ -684,20 +684,34 @@ export function InstrumentPane({
           </div>
         );
       })()}
-      <button
-        className="absolute bottom-1 left-1 z-20 rounded border border-border/50 bg-background/80 px-1.5 py-0.5 text-[0.625rem] font-semibold backdrop-blur-sm hover:bg-accent"
-        title={replayMarker != null
-          ? "Clear the replay start marker"
-          : "Drop a replay-start marker at the latest candle — drag it to move, then use ▶ From marker in the Replay panel"}
-        onClick={() => {
-          if (replayMarker != null) setReplayMarker(null);
-          else if (c.candles.length) setReplayMarker(c.candles[c.candles.length - 1].time as number);
-        }}
-      >
-        {replayMarker != null ? "✕ marker" : "◎ marker"}
-      </button>
       <TickChart
         viewKey={forceSide ? `${instKey}#${forceSide}` : instKey}
+        // Replay-marker toggle lives in the chart's bottom controls bar
+        // (Partha 2026-09-02 — was a floating chip at bottom-left).
+        bottomBarExtra={
+          <button
+            type="button"
+            className={`rounded p-1 ${replayMarker != null ? "text-info-cyan" : "text-muted-foreground hover:text-foreground"}`}
+            title={replayMarker != null
+              ? "Clear the replay start marker"
+              : "Drop a replay-start marker at the latest candle — drag it to move, then use ▶ From marker in the Replay panel"}
+            onClick={() => {
+              if (replayMarker != null) setReplayMarker(null);
+              else if (c.candles.length) setReplayMarker(c.candles[c.candles.length - 1].time as number);
+            }}
+          >
+            {replayMarker != null ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="12" cy="12" r="7" />
+                <circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" />
+              </svg>
+            )}
+          </button>
+        }
         candles={c.candles}
         markers={markers}
         tradeLines={clean ? NO_LINES : tradeLines}

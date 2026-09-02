@@ -206,7 +206,10 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
     </div>
   );
 
-  if (alignTo) {
+  // Aligned layout only when at least one strike actually fits the chart's
+  // visible price range — pre-open the range is a single tick wide, so every
+  // strike is off-scale; the plain list is more useful than an empty column.
+  if (alignTo && placed && placed.kept.length > 0) {
     return (
       <div className="relative h-full min-h-0 text-xs">
         {/* Rows are placed at the chart's price heights; header/footer float over the ends. */}
@@ -230,11 +233,6 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
               <span className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-info-cyan px-1 text-[0.5625rem] font-bold tabular-nums text-black">
                 {d.spot.toFixed(1)}
               </span>
-            </div>
-          )}
-          {!placed && (
-            <div className="flex h-full items-center justify-center px-2 text-center text-[0.625rem] text-muted-foreground">
-              Waiting for the underlying chart…
             </div>
           )}
         </div>

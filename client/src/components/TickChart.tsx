@@ -253,6 +253,10 @@ export interface TickChartProps {
   priceMapKey?: string;
   /** Hide the top-left OHLC readout (instrument-window declutter, 2026-09-02). */
   hideLegend?: boolean;
+  /** Extra controls rendered INSIDE the bottom controls bar, between reset and
+   *  fullscreen (e.g. the replay-marker button — Partha 2026-09-02: "the marker
+   *  icon can be added to the chart bottom toolbar"). */
+  bottomBarExtra?: ReactNode;
 }
 
 /** Per-pane visible-window store that outlives the component. A component-local
@@ -313,6 +317,7 @@ export function TickChart({
   viewKey,
   priceMapKey,
   hideLegend,
+  bottomBarExtra,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Stable id so this pane can ignore its own crosshair echoes on the shared bus.
@@ -1429,6 +1434,7 @@ export function TickChart({
               <path d="M3 3v5h5" />
             </svg>
           </button>
+          {bottomBarExtra}
           {onToggleFullscreen && (
             <button
               type="button"

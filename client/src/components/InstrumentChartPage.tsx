@@ -808,6 +808,25 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   const btn = (active: boolean) =>
     `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
+  // Trades switch + its marker toggles + cohort legend, as one movable cluster —
+  // slim mode renders it on the RIGHT next to the date (Partha 2026-09-02).
+  const tradesControls = (
+    <>
+      <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
+      {showTrades && <TradeMarkerToggles filter={markerFilter} onChange={setMarkerFilter} />}
+      {showTrades && presentCohorts.length > 0 && (
+        <div className="flex items-center gap-2 pl-1" title="Trade-marker colour by strategy cohort">
+          {presentCohorts.map((c) => (
+            <span key={c} className="inline-flex items-center gap-1 text-[0.625rem] text-muted-foreground">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: resolveCohortHex(c) }} />
+              {cohortLabel(c)}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div
       className={`flex flex-col p-2 text-foreground ${instOverride ? "h-full w-full overflow-hidden" : "h-screen w-screen"}`}
@@ -821,30 +840,59 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
             <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { intervalTouchedRef.current = true; saveInterval(inst, iv.seconds); setIntervalSec(iv.seconds); }}>{iv.label}</button>
           ))}
         </div>
+        {slim ? (
+          /* Icon toggle group (Partha 2026-09-02): candlestick vs Heikin-Ashi.
+             HA glyph = ascending rounded bodies with no lower wicks (the HA
+             trend look); regular = sharp up/down candles. */
+          <div className="flex items-center overflow-hidden rounded border border-border/60">
+            <button
+              className={`p-1 transition-colors ${style === "candle" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setStyle("candle")}
+              title="Candlestick"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M7 2v3M7 19v3M17 5v3M17 16v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+                <rect x="4.5" y="5" width="5" height="14" rx="0.5" />
+                <rect x="14.5" y="8" width="5" height="8" rx="0.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
+            </button>
+            <button
+              className={`p-1 transition-colors ${style === "ha" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setStyle("ha")}
+              title="Heikin-Ashi (smoothed candles)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M5 11v-2M12 7v-2M19 3v-1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+                <rect x="2.8" y="12" width="4.4" height="9" rx="2" />
+                <rect x="9.8" y="8" width="4.4" height="9" rx="2" />
+                <rect x="16.8" y="4" width="4.4" height="9" rx="2" />
+              </svg>
+            </button>
+          </div>
+        ) : (
         <div className="flex items-center gap-0.5">
           <button className={btn(style === "candle")} onClick={() => setStyle("candle")}>Candle</button>
           <button className={btn(style === "ha")} onClick={() => setStyle("ha")}>HA</button>
-          {!slim && <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>}
+          <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
-        </div>
-        {showTrades && <TradeMarkerToggles filter={markerFilter} onChange={setMarkerFilter} />}
-        {/* Cohort legend — marker colours are per-cohort; this key makes them
-            readable (pink = MA-Signal, cyan = scalp, …). */}
-        {showTrades && presentCohorts.length > 0 && (
-          <div className="flex items-center gap-2 pl-1" title="Trade-marker colour by strategy cohort">
-            {presentCohorts.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 text-[0.625rem] text-muted-foreground">
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: resolveCohortHex(c) }} />
-                {cohortLabel(c)}
-              </span>
-            ))}
-          </div>
         )}
+        {!slim && <div className="flex items-center gap-1">{tradesControls}</div>}
         <div className="relative">
-          <button className={btn(indicators.size > 0)} onClick={() => setIndicatorMenuOpen((v) => !v)}>
-            Indicators{indicators.size ? ` (${indicators.size})` : ""} ▾
+          <button
+            className={btn(indicators.size > 0)}
+            onClick={() => setIndicatorMenuOpen((v) => !v)}
+            title={`Indicators${indicators.size ? ` (${indicators.size} on)` : ""}`}
+          >
+            {slim ? (
+              /* TradingView-style ƒx trigger (Partha 2026-09-02) */
+              <span className="inline-flex items-baseline leading-none">
+                <span className="font-serif text-[0.8125rem] font-bold italic">ƒ</span>
+                <span className="text-[0.5625rem] font-semibold">x</span>
+                {indicators.size > 0 && <span className="ml-0.5 text-[0.5625rem] text-info-cyan">{indicators.size}</span>}
+              </span>
+            ) : (
+              <>Indicators{indicators.size ? ` (${indicators.size})` : ""} ▾</>
+            )}
           </button>
           {indicatorMenuOpen && (
             <div className="absolute z-20 mt-1 w-40 rounded border border-border bg-background/95 p-1 shadow-xl backdrop-blur">
@@ -888,6 +936,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
           )}
         </div>}
         <div className="ml-auto flex items-center gap-2">
+          {slim && tradesControls}
           {!isToday && baseCandles.length > 0 && (
             <button className={btn(playing)} onClick={() => { if (playing) { setPlaying(false); return; } if (replayCount == null || replayCount >= baseCandles.length) setReplayCount(1); setPlaying(true); }} title="Replay this day tick-by-tick">
               {playing ? "❚❚ Pause" : replayCount != null && replayCount < baseCandles.length ? "▶ Resume" : "▶ Replay"}
