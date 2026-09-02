@@ -834,7 +834,10 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
     >
       {/* Control bar (drives every panel) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-2 text-xs">
-        <span className="font-bold tracking-wide">{meta.displayName}</span>
+        <span className="font-bold tracking-wide">
+          {meta.displayName}
+          {slim && expiryLabel && <span className="ml-1 font-semibold text-muted-foreground">({expiryLabel})</span>}
+        </span>
         <div className="flex items-center gap-0.5">
           {CHART_INTERVALS.map((iv) => (
             <button key={iv.seconds} className={btn(intervalSec === iv.seconds)} onClick={() => { intervalTouchedRef.current = true; saveInterval(inst, iv.seconds); setIntervalSec(iv.seconds); }}>{iv.label}</button>
