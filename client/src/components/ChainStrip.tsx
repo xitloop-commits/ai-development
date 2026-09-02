@@ -33,7 +33,11 @@ const signed = (n: number) => (n > 0 ? `+${lakhs(n)}` : n < 0 ? `−${lakhs(-n)}
 type Leg = {
   ltp: number; oi: number; oiChg5m: number | null; iv: number;
   perPt: number | null; decayHr: number | null; decayRatio: number | null;
+  securityId?: string;
 };
+/** Clicking a CALL/PUT cell loads that strike's contract on the matching
+ *  premium pane (Partha 2026-09-02). */
+type LegClick = (side: "CE" | "PE", strike: number, securityId: string) => void;
 type Row = { strike: number; isAtm: boolean; ce: Leg; pe: Leg };
 
 /** How much of a row fits between neighbouring strikes: 3 = full, 2 = no decay
@@ -48,14 +52,23 @@ function decayTone(ratio: number | null): string {
   return "text-muted-foreground";
 }
 
-function LegCell({ leg, max, side, density = 3 }: { leg: Leg; max: number; side: "CE" | "PE"; density?: Density }) {
+function LegCell({ leg, max, side, density = 3, onClick, active, dim }: {
+  leg: Leg; max: number; side: "CE" | "PE"; density?: Density;
+  onClick?: () => void; active?: boolean;
+  /** Active strike bright, the rest dim (Partha 2026-09-02). */
+  dim?: boolean;
+}) {
   const pct = max > 0 ? Math.min(100, (leg.oi / max) * 100) : 0;
   const bar = side === "CE" ? "bg-red-500/45" : "bg-emerald-500/45";
   const chg = leg.oiChg5m;
   const chgTone = chg == null ? "text-muted-foreground/60" : chg > 0 ? (side === "CE" ? "text-red-300" : "text-emerald-300") : chg < 0 ? "text-muted-foreground/70" : "text-muted-foreground/60";
   const pad = density === 1 ? "px-1" : "px-1 py-0.5";
   return (
-    <div className={`relative min-w-0 ${pad} ${side === "CE" ? "text-right" : "text-left"}`}>
+    <div
+      className={`relative min-w-0 ${pad} ${side === "CE" ? "text-right" : "text-left"} ${onClick ? "cursor-pointer hover:bg-foreground/5" : ""} ${active ? "ring-1 ring-inset ring-info-cyan bg-info-cyan/10" : dim ? "opacity-45" : ""}`}
+      onClick={onClick}
+      title={onClick ? `Load ${side} on the ${side} chart (click again to go back to the locked strike)` : undefined}
+    >
       {/* OI bar grows toward the strike column: CE from the left edge, PE from the right */}
       <div
         className={`absolute ${density === 1 ? "inset-y-0" : "inset-y-0.5"} ${bar} rounded-sm`}
@@ -90,30 +103,44 @@ function LegCell({ leg, max, side, density = 3 }: { leg: Leg; max: number; side:
   );
 }
 
-function StrikeRow({ r, maxCallOi, maxPutOi, density = 3, className = "", style }: {
+function StrikeRow({ r, maxCallOi, maxPutOi, density = 3, className = "", style, onLegClick, selected }: {
   r: Row; maxCallOi: number; maxPutOi: number; density?: Density; className?: string; style?: React.CSSProperties;
+  onLegClick?: LegClick; selected?: { CE?: number | null; PE?: number | null };
 }) {
   return (
     <div
       className={`grid grid-cols-[1fr_auto_1fr] items-stretch ${r.isAtm ? "bg-info-cyan/10" : ""} ${className}`}
       style={style}
     >
-      <LegCell leg={r.ce} max={maxCallOi} side="CE" density={density} />
+      <LegCell
+        leg={r.ce} max={maxCallOi} side="CE" density={density}
+        active={selected?.CE === r.strike}
+        dim={selected?.CE != null && selected.CE !== r.strike}
+        onClick={onLegClick && r.ce.securityId ? () => onLegClick("CE", r.strike, r.ce.securityId!) : undefined}
+      />
       <div
-        className={`flex items-center px-1.5 font-bold tabular-nums ${density === 1 ? "text-[0.625rem]" : ""} ${r.isAtm ? "text-info-cyan" : ""}`}
+        className={`flex items-center px-1.5 font-bold tabular-nums ${density === 1 ? "text-[0.625rem]" : ""} ${r.isAtm ? "text-info-cyan" : ""} ${selected != null && selected.CE !== r.strike && selected.PE !== r.strike && !r.isAtm ? "opacity-45" : ""}`}
         title={r.isAtm ? "ATM" : ""}
       >
         {r.strike}
       </div>
-      <LegCell leg={r.pe} max={maxPutOi} side="PE" density={density} />
+      <LegCell
+        leg={r.pe} max={maxPutOi} side="PE" density={density}
+        active={selected?.PE === r.strike}
+        dim={selected?.PE != null && selected.PE !== r.strike}
+        onClick={onLegClick && r.pe.securityId ? () => onLegClick("PE", r.strike, r.pe.securityId!) : undefined}
+      />
     </div>
   );
 }
 
-export function ChainStrip({ instrument, around = 5, alignTo, date }: {
+export function ChainStrip({ instrument, around = 5, alignTo, date, onLegClick, selected }: {
   instrument: string; around?: number; alignTo?: string;
   /** Review a past day: serve that date's recorded chain instead of the live one. */
   date?: string;
+  onLegClick?: LegClick;
+  /** Strike currently loaded on each premium pane (for the cell highlight). */
+  selected?: { CE?: number | null; PE?: number | null };
 }) {
   const q = trpc.trading.chainStrip.useQuery(
     { instrument, around, date },
@@ -193,11 +220,13 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
   // Aligned layout only when at least one strike actually fits the chart's
   // visible price range — pre-open the range is a single tick wide, so every
   // strike is off-scale; the plain list is more useful than an empty column.
+  // areaRef stays on the OUTER container in BOTH layouts so the list can flip
+  // back to aligned once strikes fit (the ref must exist to measure).
   if (alignTo && placed && placed.kept.length > 0) {
     return (
-      <div className="relative h-full min-h-0 text-xs">
+      <div ref={areaRef} className="relative h-full min-h-0 text-xs">
         {/* Rows are placed at the chart's price heights; header/footer float over the ends. */}
-        <div ref={areaRef} className="absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
           {placed?.kept.map(({ r, y }) => (
             <div key={r.strike} className="absolute inset-x-0" style={{ top: y }}>
               {/* hairline at the exact strike price, ties the row to the chart's wall line */}
@@ -208,6 +237,8 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
                 maxPutOi={d.maxPutOi}
                 density={placed.density}
                 className="absolute inset-x-0 -translate-y-1/2"
+                onLegClick={onLegClick}
+                selected={selected}
               />
             </div>
           ))}
@@ -226,10 +257,10 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-xs">
+    <div ref={areaRef} className="flex h-full min-h-0 flex-col text-xs">
       <div className="min-h-0 flex-1 overflow-y-auto">
         {(d.rows as Row[]).map((r) => (
-          <StrikeRow key={r.strike} r={r} maxCallOi={d.maxCallOi} maxPutOi={d.maxPutOi} className="border-t border-border/40" />
+          <StrikeRow key={r.strike} r={r} maxCallOi={d.maxCallOi} maxPutOi={d.maxPutOi} className="border-t border-border/40" onLegClick={onLegClick} selected={selected} />
         ))}
       </div>
       {footer}

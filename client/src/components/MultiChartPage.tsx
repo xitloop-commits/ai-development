@@ -128,6 +128,7 @@ type AtmShape = {
 export function InstrumentPane({
   instKey, intervalSec, style, indicators, markerFilter, activeOnly, crosshairSync,
   taOpts, tslXBack, chartDate, simCutoffRef, activeReplayRunId, fs, onToggleFs, forceSide,
+  contractOverride,
 }: {
   instKey: string;
   intervalSec: number;
@@ -150,6 +151,9 @@ export function InstrumentPane({
   /** Instrument-pill split view (2026-08-21): pin this pane to ONE leg — CE
    *  left, PE right — instead of following the shown trade's side. */
   forceSide?: "CE" | "PE";
+  /** T173 chain-strip pick (Partha 2026-09-02): clicking a CALL/PUT cell in
+   *  the chain loads that strike here. Beats every other contract source. */
+  contractOverride?: { strike: number; securityId: string } | null;
 }) {
   const tradesQ = trpc.trading.tradesForChart.useQuery(
     { channel: "paper", instrument: instKey, date: chartDate },
@@ -212,14 +216,17 @@ export function InstrumentPane({
     : null;
   const lockLeg = lock ? (side === "CE" ? lock.ce : lock.pe) : null;
 
-  // Contract precedence: the shown trade's contract > session lock > rolling ATM.
+  // Contract precedence: chain-strip pick > shown trade's contract > session
+  // lock > rolling ATM.
   const pinned = shown?.contractSecurityId ? shown : null;
-  const secId = pinned
-    ? pinned.contractSecurityId
-    : lockLeg
-      ? lockLeg.securityId
-      : (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
-  const strike = pinned ? pinned.strike : lockLeg ? lockLeg.strike : atm?.atm_strike ?? null;
+  const secId = contractOverride
+    ? contractOverride.securityId
+    : pinned
+      ? pinned.contractSecurityId
+      : lockLeg
+        ? lockLeg.securityId
+        : (side === "CE" ? atm?.atm_ce_security_id : atm?.atm_pe_security_id) ?? null;
+  const strike = contractOverride ? contractOverride.strike : pinned ? pinned.strike : lockLeg ? lockLeg.strike : atm?.atm_strike ?? null;
 
   const seedQ = trpc.trading.optionTicksForContract.useQuery(
     { instrument: instKey, date: chartDate, securityId: secId ?? "" },

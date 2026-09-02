@@ -56,6 +56,20 @@ export default function InstrumentWindowPage() {
   const chartDate = urlDate ?? istDateString();
   const [fsSide, setFsSide] = useState<"CE" | "PE" | null>(null);
 
+  // Chain-strip strike pick (Partha 2026-09-02): clicking a CALL/PUT cell
+  // loads that contract on the matching premium pane; clicking the same cell
+  // again returns the pane to the locked strike. The strip highlights the
+  // shown strike bright and dims the rest.
+  const [pick, setPick] = useState<{ CE: { strike: number; securityId: string } | null; PE: { strike: number; securityId: string } | null }>({ CE: null, PE: null });
+  const onLegClick = (side: "CE" | "PE", strike: number, securityId: string) =>
+    setPick((p) => ({ ...p, [side]: p[side]?.strike === strike ? null : { strike, securityId } }));
+  const lockQ = trpc.trading.strikeLockState.useQuery(undefined, { refetchInterval: 30_000, refetchOnWindowFocus: false });
+  const lock = lockQ.data?.locks?.[inst.toLowerCase().replace(/_/g, "")] ?? null;
+  const shownStrikes = {
+    CE: pick.CE?.strike ?? lock?.ce?.strike ?? null,
+    PE: pick.PE?.strike ?? lock?.pe?.strike ?? null,
+  };
+
   // ── Remember this window's screen box (position + size) ─────────────────
   // Polled (there is no reliable "moved" event for a top-level window); saved
   // only when it actually changed and held for one tick, to localStorage (the
@@ -102,6 +116,7 @@ export default function InstrumentWindowPage() {
       fs={fsSide === side}
       onToggleFs={() => setFsSide((p) => (p === side ? null : side))}
       forceSide={side}
+      contractOverride={pick[side]}
     />
   );
 
@@ -118,7 +133,7 @@ export default function InstrumentWindowPage() {
           {/* MIDDLE — option chain, each strike row at its price height on the
               underlying's scale (rows follow the chart's zoom/scroll live) */}
           <div className="min-h-0 min-w-0 rounded border border-border/60 p-1">
-            <ChainStrip instrument={inst} around={12} alignTo={`und:${inst}`} date={urlDate ?? undefined} />
+            <ChainStrip instrument={inst} around={12} alignTo={`und:${inst}`} date={urlDate ?? undefined} onLegClick={onLegClick} selected={shownStrikes} />
           </div>
           {/* RIGHT — CE over PE on the locked strikes */}
           <div className="grid min-h-0 min-w-0 grid-rows-2 gap-1">
