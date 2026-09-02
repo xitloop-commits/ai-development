@@ -879,7 +879,7 @@ export default function MultiChartPage() {
   }, [fullscreenInst]);
 
   const btn = (active: boolean) =>
-    `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
+    `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-info-cyan/15 border-info-cyan/60 text-info-cyan" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
   const pane = (inst: string, forceSide?: "CE" | "PE") => {
     const paneId = forceSide ? `${inst}#${forceSide}` : inst;

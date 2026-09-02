@@ -179,29 +179,16 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
     );
   }
 
-  const header = (
-    <>
-      <div className="flex items-baseline justify-between px-1 pb-1 text-[0.625rem] text-muted-foreground">
-        <span>spot <b className="text-foreground tabular-nums">{d.spot.toFixed(1)}</b></span>
-        <span>exp {d.expiry.slice(5)}</span>
-        {d.snapshotDate ? (
-          <span className="text-amber-400" title={`Recorded chain snapshot from ${d.snapshotDate} (live chain unavailable)`}>
-            snap {d.snapshotDate.slice(5)} {asOf.slice(0, 5)}
-          </span>
-        ) : (
-          <span>{asOf}</span>
-        )}
-      </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center px-1 pb-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide text-muted-foreground">
-        <span className="text-right text-red-400/80">Call · OI · ₹/pt · decay</span>
-        <span className="px-1">Strike</span>
-        <span className="text-emerald-400/80">Put · OI · ₹/pt · decay</span>
-      </div>
-    </>
-  );
+  // Header removed (Partha 2026-09-02) — the chain is self-explanatory; the
+  // footer keeps PCR/max pain and flags a recorded (non-live) snapshot.
   const footer = (
     <div className="flex items-center justify-between border-t border-border/60 px-1 pt-1 text-[0.625rem] tabular-nums text-muted-foreground">
       <span title="Put-call ratio (total put OI ÷ total call OI)">PCR <b className="text-foreground">{d.pcr != null ? d.pcr.toFixed(2) : "—"}</b></span>
+      {d.snapshotDate && (
+        <span className="text-amber-400" title={`Recorded chain snapshot from ${d.snapshotDate} at ${asOf} (live chain unavailable)`}>
+          snap {d.snapshotDate.slice(5)}
+        </span>
+      )}
       <span title="Strike where option writers' total payout is lowest">max pain <b className="text-foreground">{d.maxPain ?? "—"}</b></span>
     </div>
   );
@@ -236,7 +223,6 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
             </div>
           )}
         </div>
-        <div className="absolute inset-x-0 top-0 z-30 bg-background/85 backdrop-blur-[1px]">{header}</div>
         <div className="absolute inset-x-0 bottom-0 z-30 bg-background/85 pb-0.5 backdrop-blur-[1px]">{footer}</div>
       </div>
     );
@@ -244,7 +230,6 @@ export function ChainStrip({ instrument, around = 5, alignTo, date }: {
 
   return (
     <div className="flex h-full min-h-0 flex-col text-xs">
-      {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {(d.rows as Row[]).map((r) => (
           <StrikeRow key={r.strike} r={r} maxCallOi={d.maxCallOi} maxPutOi={d.maxPutOi} className="border-t border-border/40" />

@@ -806,7 +806,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
   const intervalLabel = CHART_INTERVALS.find((i) => i.seconds === intervalSec)?.label ?? "";
 
   const btn = (active: boolean) =>
-    `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
+    `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-info-cyan/15 border-info-cyan/60 text-info-cyan" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
   // Trades switch + its marker toggles + cohort legend, as one movable cluster —
   // slim mode renders it on the RIGHT next to the date (Partha 2026-09-02).
@@ -846,7 +846,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
              trend look); regular = sharp up/down candles. */
           <div className="flex items-center overflow-hidden rounded border border-border/60">
             <button
-              className={`p-1 transition-colors ${style === "candle" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`p-1 transition-colors ${style === "candle" ? "bg-info-cyan/15 text-info-cyan" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setStyle("candle")}
               title="Candlestick"
             >
@@ -857,7 +857,7 @@ export default function InstrumentChartPage({ instOverride, singlePane, dateOver
               </svg>
             </button>
             <button
-              className={`p-1 transition-colors ${style === "ha" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`p-1 transition-colors ${style === "ha" ? "bg-info-cyan/15 text-info-cyan" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setStyle("ha")}
               title="Heikin-Ashi (smoothed candles)"
             >
