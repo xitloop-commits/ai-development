@@ -51,6 +51,7 @@ export interface CohortsConfig {
   sma5: boolean; // SMA-5 price-cross cohort (2026-08-05) — rides, exits on the cross
   sma_model: boolean; // T154 learned SMA5 rider (external runner) — paper-only watch cohort
   candleblue: boolean; // CandleBlue HH+HL structure cohort (2026-08-30)
+  cb2: boolean; // CB2 — candleblue v2 (HH+HL + range gate, 5-min), parallel A/B (2026-09-02)
   swing: boolean; // shown in the UI but has no gate — always false for now
   // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
   // (one SEA process), so two books cannot hold different values. It lived here
@@ -167,7 +168,7 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
-export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "swing";
+export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "cb2" | "swing";
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
@@ -294,6 +295,12 @@ export interface CommonConfig {
   candleblueCandleSec: number;
   /** CandleBlue hard-stop buffer (%) below the last higher low. Pushed to SEA. */
   candleblueStopBufferPct: number;
+  /** CB2 candle timeframe (seconds). Pushed to SEA. */
+  cb2CandleSec: number;
+  /** CB2 hard-stop buffer (%) below the last higher low. Pushed to SEA. */
+  cb2StopBufferPct: number;
+  /** CB2 range-position gate — entry must sit at/above this fraction of range (0=off). Pushed to SEA. */
+  cb2MinRangePos: number;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
   lubasManagedExit: boolean;
@@ -382,6 +389,9 @@ function baseCommon(): CommonConfig {
     maCandleSec: 60, // 1-minute MA-Signal candles by default
     candleblueCandleSec: 60, // 1-minute CandleBlue structure by default
     candleblueStopBufferPct: 0.2, // stop 0.2% under the last higher low
+    cb2CandleSec: 300, // 5-minute CB2 structure by default (validated 2026-09-02)
+    cb2StopBufferPct: 0.2, // stop 0.2% under the last higher low
+    cb2MinRangePos: 0.5, // enter only in the upper half of the recent range
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -421,7 +431,7 @@ function baseCommon(): CommonConfig {
 
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, candleblue: false, swing: false },
+    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, candleblue: false, cb2: false, swing: false },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -444,7 +454,7 @@ function baseMode(): AiModeConfig {
  * accident. */
 function baseManual(): AiModeConfig {
   const m = baseMode();
-  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, candleblue: false, swing: false };
+  m.cohorts = { ...m.cohorts, scalp: false, trend: false, ma: true, sma5: false, sma_model: false, candleblue: false, cb2: false, swing: false };
   return m;
 }
 
@@ -567,6 +577,9 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
   // CandleBlue knobs — independent of the shared SMA5/MA timeframe.
   c.candleblueCandleSec = Math.round(clampNum(c.candleblueCandleSec, 1, 3600, 60));
   c.candleblueStopBufferPct = clampNum(c.candleblueStopBufferPct, 0, 5, 0.2);
+  c.cb2CandleSec = Math.round(clampNum(c.cb2CandleSec, 1, 3600, 300));
+  c.cb2StopBufferPct = clampNum(c.cb2StopBufferPct, 0, 5, 0.2);
+  c.cb2MinRangePos = clampNum(c.cb2MinRangePos, 0, 1, 0.5);
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);
@@ -659,7 +672,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "candleblue", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "candleblue", "cb2", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   // T171 — drop the legacy per-cohort strategy race if an old config carries it.
   delete (c as { strategies?: unknown }).strategies;
   delete (c as { cohortStrategies?: unknown }).cohortStrategies;
@@ -809,6 +822,7 @@ export function cohortKey(cohort: string | null | undefined): CohortKey | null {
     : cohort === "sma5_signal" ? "sma5"
     : cohort === "sma_model" ? "sma_model"
     : cohort === "candleblue" ? "candleblue"
+    : cohort === "cb2" ? "cb2"
     : cohort === "scalp" ? "scalp"
     : cohort === "trend" ? "trend"
     : cohort === "swing" ? "swing"

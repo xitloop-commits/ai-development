@@ -25,13 +25,14 @@ import { tickBus } from "./broker/tickBus";
 import { getAiConfig, getCommonConfig } from "./portfolio/aiModeConfig";
 import { listModelVersions } from "./modelVersions";
 
-export type Cohort = "scalp" | "trend" | "ma" | "sma5" | "candleblue";
+export type Cohort = "scalp" | "trend" | "ma" | "sma5" | "candleblue" | "cb2";
 export interface CohortState {
   scalp: boolean;
   trend: boolean;
   ma: boolean;
   sma5: boolean;
   candleblue: boolean;
+  cb2: boolean;
   /** MA-Signal reversal size (%). >0 = reversal mode (flip on a peak/trough
    *  pullback of this %); 0 = legacy 20-EMA slope mode. Live-tunable. */
   revPct: number;
@@ -66,6 +67,12 @@ export interface CohortState {
   candleblueCandleSec: number;
   /** CandleBlue hard-stop buffer (%) below the last higher low. Live-tunable. */
   candleblueStopBufferPct: number;
+  /** CB2 candle timeframe (seconds). Live-tunable (2026-09-02). */
+  cb2CandleSec: number;
+  /** CB2 hard-stop buffer (%) below the last higher low. Live-tunable. */
+  cb2StopBufferPct: number;
+  /** CB2 range-position gate — entry must sit at/above this fraction of range. */
+  cb2MinRangePos: number;
   /**
    * T94 — requested model version per instrument, e.g. { nifty50: "20260718_161937" }.
    * SEA hot-swaps to it at the top of its row loop (model + preprocessor together).
@@ -84,6 +91,7 @@ const CONFIG_BLOCK: Record<Cohort, string> = {
   ma: "ma_signal",
   sma5: "sma5_signal",
   candleblue: "candleblue",
+  cb2: "cb2",
 };
 // Every instrument SEA runs — the sma5/rev live-tune setters persist to each
 // one's config so a UI change reaches the MCX engines (crudeoil / naturalgas),
@@ -96,7 +104,7 @@ const cfgPath = (inst: string) =>
   resolve(process.cwd(), "config", "sea_thresholds", `${inst}.json`);
 
 // Global state; hydrated from config in initSeaControl().
-const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, candleblue: false, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, candleblueCandleSec: 60, candleblueStopBufferPct: 0.2, models: {} };
+const state: CohortState = { scalp: true, trend: false, ma: true, sma5: true, candleblue: false, cb2: false, revPct: 0.18, sma5Confirm: 1, sma5Buffer: 0, sma5EntryWatch: 0, sma5EntryGate: false, sma5CandleSec: 60, maCandleSec: 60, ribbonLookback: 5, ribbonGrayPctile: 40, candleblueCandleSec: 60, candleblueStopBufferPct: 0.2, cb2CandleSec: 300, cb2StopBufferPct: 0.2, cb2MinRangePos: 0.5, models: {} };
 let wss: WebSocketServer | null = null;
 
 /** The chart draws its SMA5 line to MATCH the SEA detector — read the detector's
@@ -394,6 +402,40 @@ export function setCandleblueKnobs(candleSec: number, stopBufferPct: number): Co
   return { ...state };
 }
 
+/** Persist the CB2 knobs into every instrument's config `cb2` block. */
+function persistCb2(candleSec: number, stopBufferPct: number, minRangePos: number): void {
+  for (const inst of INSTRUMENTS) {
+    try {
+      const p = cfgPath(inst);
+      if (!existsSync(p)) continue;
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      const b = j.cb2 ?? (j.cb2 = { enabled: false });
+      let changed = false;
+      if (b.candle_sec !== candleSec) { b.candle_sec = candleSec; changed = true; }
+      if (b.stop_buffer_pct !== stopBufferPct) { b.stop_buffer_pct = stopBufferPct; changed = true; }
+      if (b.min_range_pos !== minRangePos) { b.min_range_pos = minRangePos; changed = true; }
+      if (changed) writeFileSync(p, JSON.stringify(j, null, 2) + "\n", "utf8");
+    } catch {
+      /* best-effort; live control still works via ws */
+    }
+  }
+}
+
+/** Push the CB2 knobs (candle timeframe + stop buffer + range gate) to running SEA. */
+export function setCb2Knobs(candleSec: number, stopBufferPct: number, minRangePos: number): CohortState {
+  const cs = Math.round(Math.min(3600, Math.max(1, candleSec || 300)));
+  const sb = Math.min(10, Math.max(0, stopBufferPct ?? 0.2));
+  const rp = Math.min(1, Math.max(0, minRangePos ?? 0.5));
+  if (state.cb2CandleSec === cs && state.cb2StopBufferPct === sb && state.cb2MinRangePos === rp) return { ...state };
+  state.cb2CandleSec = cs;
+  state.cb2StopBufferPct = sb;
+  state.cb2MinRangePos = rp;
+  persistCb2(cs, sb, rp);
+  broadcastToSea();
+  tickBus.emitSeaControl({ ...state });
+  return { ...state };
+}
+
 function broadcastToSea(): void {
   if (!wss) return;
   const msg = JSON.stringify({ type: "sea_control", state });
@@ -589,7 +631,7 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   // its own experiment, not the paper/live union (Partha 2026-08-23). Dynamic
   // import avoids a static cycle (tickReplay imports this module).
   const { isReplayActive } = await import("./replay/tickReplay");
-  let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; candleblue: boolean }>;
+  let cohortsOf: Array<{ scalp: boolean; trend: boolean; ma: boolean; sma5: boolean; candleblue: boolean; cb2: boolean }>;
   // During a replay, SEA's detector candle size follows the REPLAY timeframe so
   // the chart, indicators, and SEA signals all run on ONE timeframe (Partha
   // 2026-08-23). null → paper/live use the common signal timeframe.
@@ -614,13 +656,14 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
     ];
     cohortsOf = books.map((b) => getAiConfig(b, "ai").cohorts);
   }
-  const anyWants = (k: "scalp" | "trend" | "ma" | "sma5" | "candleblue") => cohortsOf.some((c) => c[k]);
+  const anyWants = (k: "scalp" | "trend" | "ma" | "sma5" | "candleblue" | "cb2") => cohortsOf.some((c) => c[k]);
 
   setCohort("scalp", anyWants("scalp"));
   setCohort("trend", anyWants("trend"));
   setCohort("ma", anyWants("ma"));
   setCohort("sma5", anyWants("sma5"));
   setCohort("candleblue", anyWants("candleblue"));
+  setCohort("cb2", anyWants("cb2"));
 
   // revPct is a single detector parameter and now lives in the common block —
   // no per-book ambiguity to resolve (T129).
@@ -644,6 +687,8 @@ export async function syncCohortsFromAiConfig(): Promise<void> {
   setMaCandleSec(tfSec, persistTf);
   // CandleBlue knobs — a single common-block parameter set (one SEA process).
   setCandleblueKnobs(getCommonConfig().candleblueCandleSec, getCommonConfig().candleblueStopBufferPct);
+  // CB2 knobs — same single common-block parameter set.
+  setCb2Knobs(getCommonConfig().cb2CandleSec, getCommonConfig().cb2StopBufferPct, getCommonConfig().cb2MinRangePos);
   // T163 — premium-ribbon knobs follow Settings ▸ Trend angle (one source of
   // truth for chart AND engine, Partha 2026-08-13).
   const ta = getCommonConfig().trendAngle;

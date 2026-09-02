@@ -118,6 +118,8 @@ export const COHORT_COLORS: Record<string, string> = {
   ma_signal: '#F472B6',       // bright pink — 20-EMA slope legs (signal-only)
   sma5_signal: '#FB923C',     // bright orange — SMA-5 price-cross legs
   sma_model: '#2DD4BF',       // bright teal — learned SMA5 rider (T154, paper-only)
+  candleblue: '#60A5FA',      // bright blue — HH+HL structure (2026-08-30)
+  cb2: '#E879F9',             // bright fuchsia — candleblue v2 (range gate + 5min), paper A/B
 };
 
 const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
@@ -134,6 +136,8 @@ export function cohortLabel(cohort: string): string {
   if (cohort === 'ma_signal') return 'MA-Signal';
   if (cohort === 'sma5_signal') return 'SMA5';
   if (cohort === 'sma_model') return 'SMA-Model';
+  if (cohort === 'candleblue') return 'CandleBlue';
+  if (cohort === 'cb2') return 'CB2';
   return cohort;
 }
 

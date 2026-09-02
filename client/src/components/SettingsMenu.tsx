@@ -58,6 +58,9 @@ interface CommonCfg {
   maCandleSec: number;
   candleblueCandleSec: number;
   candleblueStopBufferPct: number;
+  cb2CandleSec: number;
+  cb2StopBufferPct: number;
+  cb2MinRangePos: number;
   globalExits: {
     rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number;
     ageEnabled: boolean; staleEnabled: boolean; volEnabled: boolean;
@@ -527,6 +530,18 @@ export function SettingsMenu() {
                   <NumRow label="Stop buffer" value={d.candleblueStopBufferPct} step={0.05} min={0} max={5} unit="%"
                     help="How far BELOW the last higher low the hard stop sits — a hair under it. Larger = looser stop, fewer premature stop-outs."
                     onChange={(v) => edit((x) => { x.candleblueStopBufferPct = v; })} />
+                </Group>
+
+                <Group title="CB2 detector" info="CandleBlue v2 (paper A/B): same HH+HL structure PLUS a range-position gate (enter only in the upper part of the recent range) on a 5-minute default candle. Runs parallel to CandleBlue for comparison.">
+                  <TfRow label="Candle timeframe" sec={d.cb2CandleSec}
+                    onChange={(s) => edit((x) => { x.cb2CandleSec = s; })}
+                    help="Candle size CB2 builds its structure on. Validated best around 5m; independent of CandleBlue and the SMA5/MA timeframe." />
+                  <NumRow label="Stop buffer" value={d.cb2StopBufferPct} step={0.05} min={0} max={5} unit="%"
+                    help="How far BELOW the last higher low the hard stop sits."
+                    onChange={(v) => edit((x) => { x.cb2StopBufferPct = v; })} />
+                  <NumRow label="Min range position" value={d.cb2MinRangePos} step={0.05} min={0} max={1} unit=""
+                    help="Entry must sit at/above this fraction of the recent range (0.5 = upper half). 0 disables the gate (= plain CandleBlue)."
+                    onChange={(v) => edit((x) => { x.cb2MinRangePos = v; })} />
                 </Group>
 
                 <Group title="MA-Signal detector" info="Reversal size: 0 = follow the chart's green/red MA line (EMA-slope). Above 0 = raw price reversal of that %. Timeframe: candle size the MA-Signal runs on (1m/3m/5m); changing it live re-warms the slope.">

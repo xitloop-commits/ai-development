@@ -23,7 +23,7 @@ try:
 except Exception:  # pragma: no cover — lib is expected to be present
     websockets = None  # type: ignore
 
-_COHORTS = ("scalp", "trend", "ma", "sma5", "candleblue")
+_COHORTS = ("scalp", "trend", "ma", "sma5", "candleblue", "cb2")
 
 
 def control_url() -> str:
@@ -112,6 +112,22 @@ def start_control_listener(live: dict, instrument: str | None = None) -> threadi
                         if "candleblueStopBufferPct" in st:
                             try:
                                 live["candleblue_stop_buffer"] = max(0.0, float(st["candleblueStopBufferPct"]))
+                            except (TypeError, ValueError):
+                                pass
+                        # CB2 knobs — candle timeframe (s) + stop buffer (%) + range gate.
+                        if "cb2CandleSec" in st:
+                            try:
+                                live["cb2_candle_sec"] = max(1, int(st["cb2CandleSec"]))
+                            except (TypeError, ValueError):
+                                pass
+                        if "cb2StopBufferPct" in st:
+                            try:
+                                live["cb2_stop_buffer"] = max(0.0, float(st["cb2StopBufferPct"]))
+                            except (TypeError, ValueError):
+                                pass
+                        if "cb2MinRangePos" in st:
+                            try:
+                                live["cb2_min_range_pos"] = max(0.0, min(1.0, float(st["cb2MinRangePos"])))
                             except (TypeError, ValueError):
                                 pass
                         # T163 premium-ribbon knobs (Settings ▸ Trend angle) —

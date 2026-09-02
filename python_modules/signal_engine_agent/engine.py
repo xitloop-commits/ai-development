@@ -65,12 +65,14 @@ from signal_engine_agent.thresholds import (
     load_thresholds_ma_signal,
     load_thresholds_sma5_signal,
     load_thresholds_candleblue,
+    load_thresholds_candleblue2,
     load_thresholds_trend,
 )
 from signal_engine_agent.leg_start import LegStartDetector
 from signal_engine_agent.ma_signal import MASignalDetector
 from signal_engine_agent.sma5_signal import Sma5SignalDetector
 from signal_engine_agent.candleblue_signal import CandleBlueDetector
+from signal_engine_agent.candleblue2_signal import CandleBlue2Detector
 from signal_engine_agent.premium_ribbon import LockedPremiumFeed, PremiumRibbonDetector
 from signal_engine_agent.control_client import start_control_listener
 
@@ -699,7 +701,7 @@ class _RestrictedCohorts(dict):
     silently dropped, so a global UI toggle can never wake a cohort this
     engine instance was told not to run (MCX engines are sma5-only)."""
 
-    _TOGGLEABLE = ("scalp", "trend", "ma", "sma5", "candleblue")
+    _TOGGLEABLE = ("scalp", "trend", "ma", "sma5", "candleblue", "cb2")
 
     def __init__(self, base: dict, allowed: frozenset[str]):
         super().__init__(base)
@@ -823,8 +825,17 @@ def run(
         stop_buffer_pct=candleblue_thresholds.stop_buffer_pct,
         range_window=candleblue_thresholds.range_window,
     )
+    # CB2 (candleblue v2, 2026-09-02) — HH+HL + range-position gate, 5-min default.
+    # Runs PARALLEL to candleblue on the same locked-premium feed for a live A/B.
+    cb2_thresholds = load_thresholds_candleblue2(instrument, config_dir)
+    cb2_detector = CandleBlue2Detector(
+        candle_sec=cb2_thresholds.candle_sec,
+        stop_buffer_pct=cb2_thresholds.stop_buffer_pct,
+        range_window=cb2_thresholds.range_window,
+        min_range_pos=cb2_thresholds.min_range_pos,
+    )
     premium_feed: LockedPremiumFeed | None = None
-    if ma_ribbon is not None or sma5_ribbon is not None or candleblue_detector is not None:
+    if ma_ribbon is not None or sma5_ribbon is not None or candleblue_detector is not None or cb2_detector is not None:
         premium_feed = LockedPremiumFeed(instrument)
         premium_feed.start()
     if gate_mode == "wave2":
@@ -1021,6 +1032,9 @@ def run(
         # CandleBlue HH+HL structure cohort (2026-08-30).
         "candleblue": candleblue_thresholds.enabled,
         "candleblue_candle_sec": candleblue_thresholds.candle_sec,  # live-tunable
+        # CB2 (candleblue v2, 2026-09-02) — parallel A/B cohort.
+        "cb2": cb2_thresholds.enabled,
+        "cb2_candle_sec": cb2_thresholds.candle_sec,  # live-tunable
     }
     # ── --only-cohorts allowlist (2026-08-10, MCX sma5-only mandate) ──────
     # Cohort control is GLOBAL across engines (T91 parked), so an MCX engine
@@ -1465,6 +1479,7 @@ def run(
             _rb_ma_events: list[str] = []
             _rb_s5_events: list[str] = []
             _rb_cb_events: list[str] = []
+            _rb_cb2_events: list[str] = []
             if premium_feed is not None:
                 try:
                     # Live ribbon knobs (Settings ▸ Trend angle → control ws).
@@ -1492,6 +1507,8 @@ def run(
                                 sma5_ribbon.reset_leg(_leg)
                             if candleblue_detector is not None:
                                 candleblue_detector.reset_leg(_leg)
+                            if cb2_detector is not None:
+                                cb2_detector.reset_leg(_leg)
                             print(f"  [ribbon] {instrument.upper()} {_leg} relocked — re-warming on the new contract", flush=True)
                             continue
                         if not _rb_live:
@@ -1505,6 +1522,8 @@ def run(
                                 _rb_s5_events.extend(sma5_ribbon.warm(_leg, _rb_ticks))
                             if candleblue_detector is not None:
                                 _rb_cb_events.extend(candleblue_detector.warm(_leg, _rb_ticks))
+                            if cb2_detector is not None:
+                                _rb_cb2_events.extend(cb2_detector.warm(_leg, _rb_ticks))
                             continue
                         for _pts, _pltp in _rb_ticks:
                             if ma_ribbon is not None:
@@ -1513,6 +1532,8 @@ def run(
                                 _rb_s5_events.extend(sma5_ribbon.on_leg_tick(_leg, _pts, _pltp))
                             if candleblue_detector is not None:
                                 _rb_cb_events.extend(candleblue_detector.on_leg_tick(_leg, _pts, _pltp))
+                            if cb2_detector is not None:
+                                _rb_cb2_events.extend(cb2_detector.on_leg_tick(_leg, _pts, _pltp))
                 except Exception as exc:
                     print(f"  premium-ribbon feed error: {exc}", file=sys.stderr)
 
@@ -1881,6 +1902,80 @@ def run(
                 except Exception as exc:
                     # Never let the CandleBlue cohort crash the inference loop.
                     print(f"  CandleBlue error: {exc}", file=sys.stderr)
+
+            # ── CB2 (candleblue v2, cohort="cb2") — parallel A/B ─────────────
+            # Same HH+HL structure as candleblue PLUS a range-position gate and a
+            # 5-min default candle. Runs alongside candleblue on the same premium
+            # feed (events from the drain above). Paper-only (pinned in discipline).
+            if cb2_detector is not None:
+                try:
+                    _c2cs = _live_cohorts.get("cb2_candle_sec")
+                    if _c2cs is not None:
+                        try:
+                            cb2_detector.set_candle_sec(int(_c2cs))
+                        except (TypeError, ValueError):
+                            pass
+                    _c2sb = _live_cohorts.get("cb2_stop_buffer")
+                    if _c2sb is not None:
+                        try:
+                            cb2_detector.set_stop_buffer(float(_c2sb))
+                        except (TypeError, ValueError):
+                            pass
+                    _c2rp = _live_cohorts.get("cb2_min_range_pos")
+                    if _c2rp is not None:
+                        try:
+                            cb2_detector.set_min_range_pos(float(_c2rp))
+                        except (TypeError, ValueError):
+                            pass
+                    cb2_events = _rb_cb2_events if _live_cohorts.get("cb2") else []
+                    for _ev in cb2_events:
+                        _c2_call = "CE" in _ev
+                        _c2_exit = _ev.startswith("EXIT")
+                        _c2_side = "CE" if _c2_call else "PE"
+                        _c2_ltp = None
+                        if premium_feed is not None:
+                            _c2_ltp = _finite(premium_feed.last_ltp.get(_c2_side))
+                        if _c2_ltp is None:
+                            _c2_ltp = _finite(ce_ltp if _c2_call else pe_ltp)
+                        cb2_out = {
+                            "timestamp": row.get("timestamp"),
+                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "correlationId": uuid.uuid4().hex,
+                            "instrument": instrument.upper(),
+                            "action": _ev,
+                            "cohort": "cb2",
+                            "reason": (
+                                f"CB2 {'lower-high/stop — exit' if _c2_exit else 'HH+HL+range — enter'} "
+                                f"{_c2_side} (locked {premium_feed.strikes.get(_c2_side) if premium_feed else '?'} premium)"
+                            ),
+                            "regime": regime,
+                            "entry": round(_c2_ltp, 2) if _c2_ltp else None,
+                            "tp": None,
+                            "sl": None,
+                            "rr": 0.0,
+                            "atm_strike": row.get("atm_strike"),
+                            "atm_ce_ltp": ce_ltp,
+                            "atm_pe_ltp": pe_ltp,
+                            "atm_ce_security_id": row.get("atm_ce_security_id"),
+                            "atm_pe_security_id": row.get("atm_pe_security_id"),
+                            "spot_price": row.get("spot_price"),
+                            "model_version": models.version,
+                            "gate_mode": "cb2",
+                            "direction": "GO_CALL" if _c2_call else "GO_PUT",
+                        }
+                        raw_logger.log(cb2_out)
+                        _send_signal_to_tray(cb2_out)  # Mongo + WS (chart)
+                        if _c2_exit:
+                            try:
+                                from signal_engine_agent.risk_control_client import close_glide_position
+                                close_glide_position(cb2_out["instrument"], _c2_side, cohort="cb2")
+                            except Exception as exc:
+                                print(f"  CB2 close error: {exc}", file=sys.stderr)
+                        else:
+                            _maybe_submit_ai_trade(cb2_out)
+                except Exception as exc:
+                    # Never let the CB2 cohort crash the inference loop.
+                    print(f"  CB2 error: {exc}", file=sys.stderr)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

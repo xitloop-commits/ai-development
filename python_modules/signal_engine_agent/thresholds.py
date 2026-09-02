@@ -1255,6 +1255,44 @@ def load_thresholds_candleblue(
     return CandleblueThresholds(**cb_raw) if cb_raw else CandleblueThresholds()
 
 
+@dataclass(frozen=True)
+class Candleblue2Thresholds:
+    """CB2 — candleblue v2 (cohort="cb2", 2026-09-02). Same HH+HL structure as
+    candleblue PLUS a range-position gate (entry must sit in the upper part of the
+    recent range) and a 5-minute default candle. Runs parallel to candleblue for a
+    live A/B. See ``signal_engine_agent.candleblue2_signal``. Tunable in
+    `config/sea_thresholds/<inst>.json`:
+      "cb2": { "enabled": true, "candle_sec": 300, "stop_buffer_pct": 0.2,
+               "range_window": 2, "min_range_pos": 0.5 }
+    """
+    # Master switch. Default OFF so the cohort is inert unless the JSON opts in.
+    enabled: bool = False
+    # Candle timeframe (seconds) — default 5 minutes (validated 2026-09-02).
+    candle_sec: int = 300
+    # Hard stop sits this % BELOW the higher low it trails.
+    stop_buffer_pct: float = 0.2
+    # A "higher high" must beat the highest of the previous `range_window` swings.
+    range_window: int = 2
+    # cb2 gate: entry must sit at/above this fraction of the recent range (0=off).
+    min_range_pos: float = 0.5
+
+
+def load_thresholds_candleblue2(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> Candleblue2Thresholds:
+    """Load the per-instrument CB2 config. Returns defaults (enabled=False) when
+    no ``cb2`` block is present in the JSON."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    if not path.exists():
+        return Candleblue2Thresholds()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cb2_raw = raw.get("cb2")
+    return Candleblue2Thresholds(**cb2_raw) if cb2_raw else Candleblue2Thresholds()
+
+
 def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),
@@ -1333,6 +1371,7 @@ def load_thresholds_full(
     raw.pop("ma_signal", None)
     raw.pop("sma5_signal", None)
     raw.pop("candleblue", None)
+    raw.pop("cb2", None)
     gate_mode = raw.pop("gate_mode", "current")
     if gate_mode not in ("current", "wave1", "wave2", "legstart"):
         raise ValueError(

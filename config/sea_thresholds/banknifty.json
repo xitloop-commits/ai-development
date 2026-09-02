@@ -69,5 +69,12 @@
     "candle_sec": 120,
     "stop_buffer_pct": 0.2,
     "range_window": 2
+  },
+  "cb2": {
+    "enabled": false,
+    "candle_sec": 300,
+    "stop_buffer_pct": 0.2,
+    "range_window": 2,
+    "min_range_pos": 0.5
   }
 }

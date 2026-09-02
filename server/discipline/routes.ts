@@ -216,7 +216,9 @@ export function registerDisciplineRoutes(app: Express): void {
         // never reach the live account, whatever the AI routing switches say.
         // candleblue is new + unvalidated (2026-08-30) — same paper-only pin
         // until its replay edge is confirmed; it must never reach the live book.
-        if (body.cohort === "sma_model" || body.cohort === "candleblue") {
+        // cb2 (candleblue v2, 2026-09-02) — same paper-only pin as candleblue; it
+        // runs parallel for a live A/B and must never reach the live book.
+        if (body.cohort === "sma_model" || body.cohort === "candleblue" || body.cohort === "cb2") {
           targetChannels = targetChannels.filter((ch) => ch === "paper");
           if (targetChannels.length === 0) {
             return res.json({
@@ -236,8 +238,8 @@ export function registerDisciplineRoutes(app: Express): void {
         // are not cohort-gated: you asked for that specific trade by hand.
         if (body.origin === "AI" && body.cohort) {
           const { getAiConfig, resolveBook } = await import("../portfolio/aiModeConfig");
-          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model", candleblue: "candleblue" } as const)[
-            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model" | "candleblue"
+          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model", candleblue: "candleblue", cb2: "cb2" } as const)[
+            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model" | "candleblue" | "cb2"
           ];
           if (cohortKey) {
             targetChannels = targetChannels.filter((ch) => {
