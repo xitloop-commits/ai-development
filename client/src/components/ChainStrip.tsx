@@ -65,7 +65,7 @@ function LegCell({ leg, max, side, density = 3 }: { leg: Leg; max: number; side:
         {density === 1 ? (
           <div className="whitespace-nowrap text-[0.5625rem] tabular-nums leading-[13px]">
             <span className="font-semibold">{lakhs(leg.oi)}</span>
-            <span className="ml-1 text-foreground/80">{leg.ltp.toFixed(1)}</span>
+            <span className="ml-1 text-foreground/80">{leg.perPt != null ? `${leg.perPt.toFixed(2)}/pt` : ""}</span>
           </div>
         ) : (
           <>
@@ -73,11 +73,8 @@ function LegCell({ leg, max, side, density = 3 }: { leg: Leg; max: number; side:
               <span className="font-semibold">{lakhs(leg.oi)}</span>
               <span className={`ml-1 text-[0.5625rem] ${chgTone}`} title="OI change over ~5 min">{chg == null ? "…" : signed(chg)}</span>
             </div>
-            <div className="text-[0.625rem] tabular-nums text-foreground/90">
-              {leg.ltp.toFixed(2)}
-              <span className="ml-1 text-muted-foreground" title="₹ the option moves per 1-point underlying move (delta)">
-                {leg.perPt != null ? `${leg.perPt.toFixed(2)}/pt` : "—"}
-              </span>
+            <div className="text-[0.625rem] tabular-nums text-foreground/90" title="₹ the option moves per 1-point underlying move (delta)">
+              {leg.perPt != null ? `${leg.perPt.toFixed(2)}/pt` : "—"}
             </div>
             {density === 3 && (
               <div className={`text-[0.5625rem] tabular-nums ${decayTone(leg.decayRatio)}`}
