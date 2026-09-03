@@ -1397,8 +1397,10 @@ export function TickChart({
           hidden={!!viewKey || !!hideLegend}
           className="absolute left-1 top-1 z-10 pointer-events-none text-[0.625rem] tabular-nums text-muted-foreground"
         />
-        {/* SMA5 readout (bottom-right) + its geometric-angle line underneath. */}
-        {trendReadoutRight && (
+        {/* SMA5 readout (bottom-right) + its geometric-angle line underneath.
+            Hidden on the compact multichart panes (viewKey set) — Partha wants
+            them free of the SMA5/geom clutter (2026-09-02). */}
+        {!viewKey && trendReadoutRight && (
           <div className="absolute bottom-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-0.5">
             <div
               ref={angleRightRef}
@@ -1412,8 +1414,9 @@ export function TickChart({
             />
           </div>
         )}
-        {/* MA readout (bottom-left) + its geometric-angle line underneath. */}
-        {(hoverAngleStrip || trendReadout) && (
+        {/* MA readout (bottom-left) + its geometric-angle line underneath.
+            Hidden on the compact multichart panes (viewKey set). */}
+        {!viewKey && (hoverAngleStrip || trendReadout) && (
           <div className="absolute bottom-1 left-1 z-10 pointer-events-none flex flex-col items-start gap-0.5">
             <div
               ref={angleRef}
