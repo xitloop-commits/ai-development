@@ -659,16 +659,42 @@ export function InstrumentPane({
         else if (lowerHigh) inPos = false;
       }
     }
+    // Forward-looking trigger levels — the concrete prices that would fire the
+    // next event, so the label can PREDICT what cb2 does from here.
+    const rlo = rng.length ? Math.min(...rng.map((r) => r[1])) : null;
+    const rhi = rng.length ? Math.max(...rng.map((r) => r[0])) : null;
+    const rangeThresh = (rlo != null && rhi != null && rhi > rlo) ? rlo + RP * (rhi - rlo) : null;
+    const hhLevel = sh.length >= W ? Math.max(...sh.slice(-W)) : (sh.length ? sh[sh.length - 1] : null);
+    const lastLow = sl.length ? sl[sl.length - 1] : null;
+    const last = a[a.length - 1].close as number;
+
     if (inPos) {
-      return { text: `CB2 ● in trade — riding; exit on a LOWER high${stop != null ? ` · stop ${stop.toFixed(2)}` : ""}`, color: "#39ff14" };
+      return {
+        text: `CB2 ● in trade — riding to the next higher low`,
+        pred: `predict: exits if price < ${stop != null ? stop.toFixed(2) : "?"} or a LOWER high prints`,
+        color: "#39ff14",
+      };
     }
-    let msg: string;
-    if (!hasHL && !hasHH) msg = "no higher-low / higher-high yet";
-    else if (hasHL && !hasHH) msg = "have HL ✓ — need a higher HIGH (clear last 2 swings)";
-    else if (!hasHL && hasHH) msg = "have HH ✓ — need a higher LOW";
-    else if (!rangeOk) msg = "HH+HL ✓ — need price to break the upper range";
-    else msg = "entry conditions forming…";
-    return { text: `CB2 ○ waiting — ${msg}`, color: "#e879f9" };
+    let msg: string, pred: string;
+    if (!hasHL && !hasHH) {
+      msg = "no higher-low / higher-high yet";
+      pred = "predict: needs a higher low, then a higher high to arm";
+    } else if (hasHL && !hasHH) {
+      msg = "have HL ✓ — need a higher HIGH";
+      pred = hhLevel != null
+        ? `predict: LONG when a new high clears ${hhLevel.toFixed(2)}${rangeThresh != null ? ` & closes > ${rangeThresh.toFixed(2)}` : ""} (now ${last.toFixed(2)})`
+        : "predict: LONG on a new range high";
+    } else if (!hasHL && hasHH) {
+      msg = "have HH ✓ — need a higher LOW";
+      pred = lastLow != null ? `predict: needs a higher low above ${lastLow.toFixed(2)}` : "predict: needs a higher low";
+    } else if (!rangeOk) {
+      msg = "HH+HL ✓ — need an upper-range break";
+      pred = rangeThresh != null ? `predict: LONG on a close above ${rangeThresh.toFixed(2)} (now ${last.toFixed(2)})` : "predict: LONG on an upper-range close";
+    } else {
+      msg = "entry conditions forming…";
+      pred = "predict: LONG imminent on the next confirmed candle";
+    }
+    return { text: `CB2 ○ waiting — ${msg}`, pred, color: "#e879f9" };
   }, [c.candles]);
 
   const replayMarker = useReplayMarker();
@@ -739,14 +765,15 @@ export function InstrumentPane({
           <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
         </div>
       )}
-      {/* CB2 live status — what the cb2 cohort is waiting for right now (bottom-left). */}
+      {/* CB2 live status + prediction — what the cb2 cohort is waiting for and
+          the price that would trigger the next move (bottom-left). */}
       {cb2Status && (
         <div
-          className="absolute bottom-1 left-1 z-20 max-w-[92%] truncate pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.625rem] font-semibold backdrop-blur-sm"
-          style={{ color: cb2Status.color }}
-          title="What the CB2 cohort is waiting for, from the current 5-min HH+HL structure"
+          className="absolute bottom-1 left-1 z-20 max-w-[94%] pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 backdrop-blur-sm flex flex-col gap-0.5"
+          title="What the CB2 cohort is waiting for + the trigger level, from the current 5-min HH+HL structure"
         >
-          {cb2Status.text}
+          <span className="truncate text-[0.625rem] font-bold" style={{ color: cb2Status.color }}>{cb2Status.text}</span>
+          <span className="truncate text-[0.5625rem] font-semibold text-muted-foreground tabular-nums">{cb2Status.pred}</span>
         </div>
       )}
       <TickChart
