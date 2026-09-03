@@ -609,6 +609,68 @@ export function InstrumentPane({
     }
     return tsl;
   }, [c.candles]);
+
+  // ── CB2 live status (Partha 2026-09-02) ────────────────────────────────
+  // Replays cb2's own logic on the pane's premium candles RE-BUCKETED to its
+  // 5-min timeframe (IST offset 19800 = 66×300, a multiple of 300, so time//300
+  // groups identically), so the label says exactly what cb2 is waiting for right
+  // now: which of higher-high / higher-low / range-breakout is still missing to
+  // enter, or — once in structure — that it's riding until a lower high / stop.
+  const cb2Status = useMemo(() => {
+    const CS = 300, W = 2, RP = 0.5, BUF = 0.2, LB = Math.max(4, Math.round(1800 / CS));
+    const a = c.candles;
+    if (a.length < 8) return null;
+    const bmap = new Map<number, { h: number; l: number; c: number }>();
+    const order: number[] = [];
+    for (const cd of a) {
+      const b = Math.floor((cd.time as number) / CS);
+      const h = cd.high as number, l = cd.low as number, cl = cd.close as number;
+      const o = bmap.get(b);
+      if (!o) { bmap.set(b, { h, l, c: cl }); order.push(b); }
+      else { o.h = Math.max(o.h, h); o.l = Math.min(o.l, l); o.c = cl; }
+    }
+    order.sort((x, y) => x - y);
+    const cs = order.map((b) => bmap.get(b)!);
+    if (cs.length < 5) return null;
+    const H: number[] = [], L: number[] = [], rng: [number, number][] = [];
+    const sh: number[] = [], sl: number[] = [];
+    let inPos = false, stop: number | null = null;
+    let hasHH = false, hasHL = false, lowerHigh = false, rangeOk = false;
+    for (const cd of cs) {
+      H.push(cd.h); if (H.length > 3) H.shift();
+      L.push(cd.l); if (L.length > 3) L.shift();
+      rng.push([cd.h, cd.l]); if (rng.length > LB) rng.shift();
+      if (H.length === 3) { const [x, y, z] = H; if (y > x && z <= y) sh.push(y); }
+      if (L.length === 3) { const [x, y, z] = L; if (y < x && z >= y) sl.push(y); }
+      hasHH = sh.length >= W + 1 && sh[sh.length - 1] > Math.max(...sh.slice(-W - 1, -1));
+      hasHL = sl.length >= 2 && sl[sl.length - 1] > sl[sl.length - 2];
+      lowerHigh = sh.length >= 2 && sh[sh.length - 1] < sh[sh.length - 2];
+      rangeOk = false;
+      if (rng.length >= 4) {
+        const lo = Math.min(...rng.map((r) => r[1])), hi = Math.max(...rng.map((r) => r[0]));
+        rangeOk = hi > lo && (cd.c - lo) / (hi - lo) >= RP;
+      }
+      const anchor = sl.length >= 2 ? sl[sl.length - 2] : (sl.length ? sl[sl.length - 1] : null);
+      if (!inPos) {
+        if (hasHH && hasHL && rangeOk && anchor != null) { stop = anchor * (1 - BUF / 100); inPos = true; }
+      } else {
+        if (hasHL && anchor != null) stop = Math.max(stop ?? 0, anchor * (1 - BUF / 100));
+        if (stop != null && cd.l < stop) inPos = false;
+        else if (lowerHigh) inPos = false;
+      }
+    }
+    if (inPos) {
+      return { text: `CB2 ● in trade — riding; exit on a LOWER high${stop != null ? ` · stop ${stop.toFixed(2)}` : ""}`, color: "#39ff14" };
+    }
+    let msg: string;
+    if (!hasHL && !hasHH) msg = "no higher-low / higher-high yet";
+    else if (hasHL && !hasHH) msg = "have HL ✓ — need a higher HIGH (clear last 2 swings)";
+    else if (!hasHL && hasHH) msg = "have HH ✓ — need a higher LOW";
+    else if (!rangeOk) msg = "HH+HL ✓ — need price to break the upper range";
+    else msg = "entry conditions forming…";
+    return { text: `CB2 ○ waiting — ${msg}`, color: "#e879f9" };
+  }, [c.candles]);
+
   const replayMarker = useReplayMarker();
   // Higher-high entry signals + stop, from the swing structure (completed candles):
   //  • pullback ▲ — a swing low that's HIGHER than the previous swing low.
@@ -675,6 +737,16 @@ export function InstrumentPane({
           <span style={{ color: openBelow ? "#ef4444" : "#22c55e" }}>open {openBelow ? "▼ below" : "▲ above"}</span>
           <span className="text-muted-foreground"> · </span>
           <span style={{ color: ltpBelow ? "#ef4444" : "#22c55e" }}>ltp {ltpBelow ? "▼ below" : "▲ above"}</span>
+        </div>
+      )}
+      {/* CB2 live status — what the cb2 cohort is waiting for right now (bottom-left). */}
+      {cb2Status && (
+        <div
+          className="absolute bottom-1 left-1 z-20 max-w-[92%] truncate pointer-events-none rounded border border-border/40 bg-background/85 px-2 py-0.5 text-[0.625rem] font-semibold backdrop-blur-sm"
+          style={{ color: cb2Status.color }}
+          title="What the CB2 cohort is waiting for, from the current 5-min HH+HL structure"
+        >
+          {cb2Status.text}
         </div>
       )}
       <TickChart
