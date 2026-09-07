@@ -81,7 +81,7 @@ def build_oos_preds(cfg: BlastConfig, rebuild: bool = False):
 
 
 def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
-             spread: float, require_gate: bool = True):
+             spread: float, require_gate: bool = True, side_filter: str | None = None):
     """One position at a time, long premium only. Returns (trades_df, summary)."""
     import pandas as pd
     from datetime import datetime, timedelta, timezone
@@ -105,6 +105,8 @@ def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
                                          else ("time" if held_min >= max_hold_min else "eod")))
                     pos = None
             if pos is None and r.ts < eod:
+                if side_filter and r.side != side_filter:
+                    continue
                 gate = (r.p60s_hh == 1.0 and r.p60s_hl == 1.0) if require_gate else True
                 if gate and r.p_enter >= enter_floor and r.premium > 0:
                     pos = {"side": r.side, "strike": r.strike, "day": day,
