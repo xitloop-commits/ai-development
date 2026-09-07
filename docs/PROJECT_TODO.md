@@ -3264,6 +3264,16 @@ structure or model-only; (c) CE side bleeds while PE carries — regime or
 structural, label sweep will tell. NEXT: dataset v2 (per-day locked-leg
 candle files → cheap label sweeps at +8/10/12% × 5/10/15m; run rebuild
 AFTER market close), per-strike scorer head, weekly-retrain cadence test.
+**LABEL SWEEP DONE 2026-09-07 (v2 rebuild + 9-variant sweep, ced27af4):**
+winner **+8% within 5 min** — best on BOTH windows (protocol-clean pick):
+tune ₹53,757, **judge ₹12,149 over the untouched 15 days** (62 trades, 47%
+win, ₹1,736/day, worst day +₹83 — no losing judge day), combo e0.60 x0.50
+h20 PE-only. Second: +12%/15m judge ₹5,868. Old default +10%/10m judged
+₹2,629 — the fast small blast is 4.6× better. CAUTION: every top combo is
+PE-only (these were falling weeks) — the paper gate must confirm on rising
+days before any live talk; CE handling re-examined there. LOCKED for the
+paper runner: label b8w5, floors e0.60/x0.50, hold 20m, gate off.
+NEXT: live paper runner (step 6), per-strike scorer, weekly retrain.
 
 ## How to use this file
 
