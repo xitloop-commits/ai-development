@@ -10,11 +10,8 @@ REM   (Server handles Dhan token: refreshes via TOTP on startup if
 REM    expired, and again on any 401 via the 401 handler. TFA reads
 REM    the live token from /api/broker/token on every reconnect.)
 REM
-REM   Then launches TFA instruments with 5s stagger:
-REM     crudeoil    (window 1)
-REM     naturalgas  (window 2, +5s)
-REM     nifty50     (window 3, +10s)
-REM     banknifty   (window 4, +15s)
+REM   Then launches TFA instruments:
+REM     nifty50 ONLY (nifty-only mandate, Partha 2026-09-07)
 REM
 REM   Each instrument runs in its own cmd window so logs and
 REM   Ctrl+C are independent.
@@ -143,28 +140,12 @@ echo   Extra args: !EXTRA_ARGS!
 echo ============================================================
 echo.
 
-REM ── 1. crudeoil ──────────────────────────────────────────────
-echo [1/4] Starting crudeoil...
-start "TFA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat crudeoil !EXTRA_ARGS!"
-
-REM --- 5s stagger ---
-timeout /t 5 /nobreak >nul
-
-REM ── 2. naturalgas ────────────────────────────────────────────
-echo [2/4] Starting naturalgas...
-start "TFA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat naturalgas !EXTRA_ARGS!"
-
-timeout /t 5 /nobreak >nul
-
-REM ── 3. nifty50 ───────────────────────────────────────────────
-echo [3/4] Starting nifty50...
+REM ── NIFTY-ONLY MANDATE (Partha 2026-09-07) ───────────────────
+REM The brand-new premium blast model is nifty50-alone; banknifty /
+REM crudeoil / naturalgas record + SEA are OFF. To re-enable an
+REM instrument, restore its block from git history.
+echo [1/1] Starting nifty50...
 start "TFA: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat nifty50 !EXTRA_ARGS!"
-
-timeout /t 5 /nobreak >nul
-
-REM ── 4. banknifty ─────────────────────────────────────────────
-echo [4/4] Starting banknifty...
-start "TFA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat banknifty !EXTRA_ARGS!"
 
 echo.
 echo ============================================================
@@ -179,46 +160,20 @@ REM Only the index instruments (nifty50, banknifty) have direction models
 REM today; crude/natgas have no SEA. Give TFA a head start first.
 timeout /t 8 /nobreak >nul
 
-echo [SEA 1/2] Starting nifty50...
+echo [SEA 1/1] Starting nifty50...
 start "SEA: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat nifty50 !EXTRA_ARGS!"
 
 timeout /t 5 /nobreak >nul
 
-echo [SEA 2/2] Starting banknifty...
-start "SEA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat banknifty !EXTRA_ARGS!"
-
-timeout /t 5 /nobreak >nul
-
-REM ── MCX engines: sma5 cohort ONLY (2026-08-10 mandate) ──────────────
-REM Their scalp/trend models are unvalidated stopgaps (trained only to
-REM satisfy SEA boot), so --only-cohorts pins everything but sma5 OFF and
-REM global cohort toggles cannot re-enable them in these two processes.
-echo [SEA MCX 1/2] Starting crudeoil (sma5 only)...
-start "SEA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat crudeoil --only-cohorts sma5+ma+candleblue+cb2 !EXTRA_ARGS!"
-
-timeout /t 5 /nobreak >nul
-
-echo [SEA MCX 2/2] Starting naturalgas (sma5 only)...
-start "SEA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat naturalgas --only-cohorts sma5+ma+candleblue+cb2 !EXTRA_ARGS!"
-
-timeout /t 5 /nobreak >nul
-
-REM ── T154: sma-model live runner (learned SMA5 rider, paper-only) ──
-REM Separate process; tails the nifty50 recorder files read-only and waits
-REM on its own for the recorder folder (~09:15), so starting it here at
-REM 08:55 alongside SEA is safe. Exits by itself at session end.
-echo [SMA-MODEL] Starting nifty50 learned rider (paper-only)...
-start "SMA-Model: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sma-model.bat"
+REM banknifty SEA, MCX SEA engines and the sma-model runner are OFF
+REM (nifty-only mandate + all old models retired, Partha 2026-09-07).
 
 echo.
 echo ============================================================
-echo   All 4 TFA + 4 SEA + sma-model processes launched.
-echo   MCX SEA engines (crudeoil, naturalgas) run sma5 ONLY.
-echo   Close each window individually to stop an instrument.
-echo   To stop all: close all "TFA: *" / "SEA: *" / "SMA-Model: *"
-echo   windows or use Task Manager.
+echo   nifty50 TFA + SEA launched (nifty-only mandate 2026-09-07).
+echo   Close the "TFA: *" / "SEA: *" windows to stop.
 echo ============================================================
 echo.
 
 REM Emit lifecycle event for the central log + Telegram (yow-partha).
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty full; crudeoil, naturalgas sma5-only) + sma-model (nifty50 paper)" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 1 -Detail "NIFTY 50 only (nifty-only mandate 2026-09-07): TFA + SEA" >nul 2>&1

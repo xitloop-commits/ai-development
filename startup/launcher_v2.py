@@ -82,8 +82,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Canonical display/launch order. Membership is *derived* from the
 # config/instrument_profiles/ directory below; this list controls only the
-# order of known instruments. New profiles appear at the end alphabetically.
-_INSTRUMENT_ORDER = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
+# Nifty-only mandate (Partha 2026-09-07): the brand-new premium blast model is
+# nifty50-alone, so record/replay run for nifty50 only. To bring an instrument
+# back, add it here again.
+_INSTRUMENT_ORDER = ["nifty50"]
 
 
 def _scan_instruments() -> list[str]:
@@ -92,8 +94,7 @@ def _scan_instruments() -> list[str]:
         return list(_INSTRUMENT_ORDER)
     found = {p.name.replace("_profile.json", "") for p in profile_dir.glob("*_profile.json")}
     ordered = [n for n in _INSTRUMENT_ORDER if n in found]
-    extras = sorted(found - set(_INSTRUMENT_ORDER))
-    return ordered + extras
+    return ordered or list(_INSTRUMENT_ORDER)
 
 
 _INSTRUMENTS = _scan_instruments()

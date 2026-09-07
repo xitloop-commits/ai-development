@@ -3177,8 +3177,15 @@ strictness on replay later (knob parked).**
 
 ## "Blast model" — retrain nifty50 for premium-native HH/HL entry (2026-08-31)
 
-Partha's rethink: repurpose the real nifty50 raw-tick model AWAY from spot scalp
-heads, TO a premium-native model that learns **when the option premium blasts up**
+**BRAND-NEW MODEL (Partha 2026-09-07): this is a fresh standalone build, NOT a
+repurpose. ALL existing models are RETIRED — the 84-head spot-scalp models (all
+4 instruments) and the sma-model. Their artifacts under `models/` are to be
+deleted and the engine's Wave-2 model-gate code stripped (gates already
+fail-open on missing models; running cohorts sma5/ma/candleblue are rule-based
+and unaffected). Only the feature/recording PIPELINE is reused. Nifty 50 alone
+first; replicate to other instruments only after it proves itself.**
+
+The model learns **when the option premium blasts up**
 (and when it's over) from the HH/HL structure + circumstances, and **which strike**
 gives the most profit-minus-decay.
 
