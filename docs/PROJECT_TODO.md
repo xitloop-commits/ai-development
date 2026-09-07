@@ -3241,7 +3241,12 @@ IV, theta, dealer_net_delta) — confirms "circumstances make it blast". Still A
 (raw readers → candles/structure → per-strike greeks → fast-flow velocity →
 labels), (2) generate datasets for ALL recorded days from `data/raw/`, (3) train
 the 3 heads (enter / exit / strike scorer) + walk-forward, (4) charge-aware
-premium backtest on a candle clock, (5) paper gate. Also: chart arrows still use
+premium backtest on a candle clock, (5) **PARAM SWEEP + TUNE (Partha
+2026-09-07):** backtest a grid of knob combinations — blast label (+8/10/12% ×
+5/10/15 min), confidence floor, EV floor, leg-size floor, strike-choice rule,
+exit timing — ranked by ₹ after costs; tune ONLY on the train tail, judge on
+untouched later days (no peeking), lock the winning combo, (6) paper gate with
+the locked combo. Also: chart arrows still use
 consecutive-swing (window=1) — align to range_window.
 
 ## How to use this file
