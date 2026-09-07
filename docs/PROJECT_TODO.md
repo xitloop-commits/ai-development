@@ -3273,7 +3273,15 @@ h20 PE-only. Second: +12%/15m judge ₹5,868. Old default +10%/10m judged
 PE-only (these were falling weeks) — the paper gate must confirm on rising
 days before any live talk; CE handling re-examined there. LOCKED for the
 paper runner: label b8w5, floors e0.60/x0.50, hold 20m, gate off.
-NEXT: live paper runner (step 6), per-strike scorer, weekly retrain.
+**PAPER RUNNER BUILT 2026-09-07 (dee2c38b):** `blast_model/live_runner.py`
+tails the recorder gzips read-only through the SHARED FeatureEngine (live ==
+training features, refactor validated 0-diff), scores with the final b8w5
+heads, paper-trades the locked combo, ledger `logs/blast_model/`. Launcher:
+start-blast-paper.bat, wired into start-all. Replay mechanics test (Sep 3,
+in-sample): 4 trades +₹4,675. **Two-week paper gate STARTS next session.**
+NOTE: 2026-09-07 recording is only ~15 min (109k ticks, recorder down most
+of the day) — check the recorder at tomorrow's freshday start.
+NEXT: run the gate, per-strike scorer head, weekly-retrain cadence.
 
 ## How to use this file
 
