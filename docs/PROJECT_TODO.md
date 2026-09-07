@@ -3237,9 +3237,12 @@ structure ALONE (range_pos, consec_hl, new_range_high top). **Phase-1b:** + 14 c
 features (greeks/IV/gamma/momentum/imbalance) → **AUC 0.782** (top: range_pos, gamma_flip_distance,
 IV, theta, dealer_net_delta) — confirms "circumstances make it blast". Still ATM-only greeks +
 14 days; per-strike greeks + all days + full features expected higher. Signal is real → proceed.
-**Next (clean-slate build order):** (1) scaffold `python_modules/blast_model/`
-(raw readers → candles/structure → per-strike greeks → fast-flow velocity →
-labels), (2) generate datasets for ALL recorded days from `data/raw/`, (3) train
+**Next (clean-slate build order):** (1) ~~scaffold `python_modules/blast_model/`~~
+**DONE 2026-09-07 (a4802e2c)** — raw readers (corruption-tolerant) + day lock,
+candles + HH/HL structure (1m/2m/5m), BS per-strike greeks, fast-flow velocity,
+blast/drop labels, dataset builder (161 features/row; verified Sep 1 expiry
+39.5% blast vs Aug 28 normal 13.5%), (2) generate datasets for ALL recorded
+days from `data/raw/` — RUNNING 2026-09-07, output `data/blast_model/nifty50/`, (3) train
 the 3 heads (enter / exit / strike scorer) + walk-forward, (4) charge-aware
 premium backtest on a candle clock, (5) **PARAM SWEEP + TUNE (Partha
 2026-09-07):** backtest a grid of knob combinations — blast label (+8/10/12% ×
