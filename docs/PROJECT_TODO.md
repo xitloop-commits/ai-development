@@ -3242,7 +3242,8 @@ IV, theta, dealer_net_delta) — confirms "circumstances make it blast". Still A
 candles + HH/HL structure (1m/2m/5m), BS per-strike greeks, fast-flow velocity,
 blast/drop labels, dataset builder (161 features/row; verified Sep 1 expiry
 39.5% blast vs Aug 28 normal 13.5%), (2) generate datasets for ALL recorded
-days from `data/raw/` — RUNNING 2026-09-07, output `data/blast_model/nifty50/`, (3) train
+days from `data/raw/` — **DONE 2026-09-07: 73 days, 51k rows, blast rate 18.1%
+(0–54% by day)**, output `data/blast_model/nifty50/`, (3) train
 the 3 heads (enter / exit / strike scorer) + walk-forward, (4) charge-aware
 premium backtest on a candle clock, (5) **PARAM SWEEP + TUNE (Partha
 2026-09-07):** backtest a grid of knob combinations — blast label (+8/10/12% ×
@@ -3251,6 +3252,18 @@ exit timing — ranked by ₹ after costs; tune ONLY on the train tail, judge on
 untouched later days (no peeking), lock the winning combo, (6) paper gate with
 the locked combo. Also: chart arrows still use
 consecutive-swing (window=1) — align to range_window.
+**Status 2026-09-07 (steps 3–5 first pass, commits e18eb7fd/9e034f3e/57e58492):**
+walk-forward AUC — enter 0.735, exit 0.745 (11 folds). Charge-aware OOS
+backtest, 1 lot: defaults +₹6.5k/52d (charges ate 71% of gross). Formal
+tune/judge: rank-1 on tune window (+₹26.6k/37d, PE-only, gate off) scored
+**+₹2,629 on the untouched last 15 days** (54 trades, win 41%, worst day
+−₹1,382) — positive but 10× below tune-window numbers. FINDINGS to attack:
+(a) tune→judge shrink = recent-regime drift (last fold AUC 0.56); (b) v0
+1m HH+HL gate HURTS (all top combos gate=off) — gate needs the 2m/5m
+structure or model-only; (c) CE side bleeds while PE carries — regime or
+structural, label sweep will tell. NEXT: dataset v2 (per-day locked-leg
+candle files → cheap label sweeps at +8/10/12% × 5/10/15m; run rebuild
+AFTER market close), per-strike scorer head, weekly-retrain cadence test.
 
 ## How to use this file
 
