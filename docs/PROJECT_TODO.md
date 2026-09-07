@@ -3218,22 +3218,31 @@ gives the most profit-minus-decay.
   add delta/gamma/theta across the **ATM ± 3** ladder (Black-Scholes from each strike's
   IV+premium+TTE) so the model can compare leverage vs decay.
 - **Feature set:** premium structure + the blast-driving circumstances (OI/buildup, spot
-  momentum, IV/greeks/**decay**, order-book imbalance) — lean, drop the pure-spot-direction
-  heads. The 488 existing features stay available; the 52 old heads are replaced by the
-  3 new ones.
+  momentum, IV/greeks/**decay**, order-book imbalance) — lean, built new.
+- **CLEAN SLATE (Partha 2026-09-07, supersedes any reuse wording):** carry NOTHING
+  from the old stack — not the 488 tick_feature_agent features, not the old
+  training parquets/labels, not sma_model code. The ONLY input is the raw tick
+  recordings (`data/raw/`: underlying + option ticks, chain snapshots). New
+  standalone module `python_modules/blast_model/` with its own feature builder,
+  labels, datasets and artifacts; zero imports from tick_feature_agent/sma_model.
+  (The old feature inventory below is reference-only for what the raw data can
+  yield — the features themselves get re-implemented fresh.)
 
-**What the model ALREADY has** (checked): 7-strike ladder ATM±3 × CE/PE, 22 price+depth
-fields per strike, 42 spot, 39 OI/buildup, spot-based pivots/HH-HL (16), MA/multi-TF (35),
-greeks **ATM-only** (10). Gap = premium-native HH/HL + per-strike greeks.
+**Raw data yields** (reference, from the old stack's inventory): 7-strike ladder
+ATM±3 × CE/PE with price+depth per strike, spot/futures ticks, OI/buildup,
+IV — all re-derivable from `data/raw/` directly.
 
 **Phase-1 signal check DONE (14 days):** blast rate 34.5%; walk-forward **AUC 0.70** from premium
 structure ALONE (range_pos, consec_hl, new_range_high top). **Phase-1b:** + 14 circumstance
 features (greeks/IV/gamma/momentum/imbalance) → **AUC 0.782** (top: range_pos, gamma_flip_distance,
 IV, theta, dealer_net_delta) — confirms "circumstances make it blast". Still ATM-only greeks +
-14 days; per-strike greeks + all days + full features expected higher. Signal is real → proceed. Next: add circumstances + per-strike greeks (expect higher AUC), then wire
-the label+features into tick_feature_agent, regenerate all days, retrain nifty50 (replacing
-scalp heads), rethink replay as a candle-clock charge-aware premium backtest, and add strike
-selection. Also: chart arrows still use consecutive-swing (window=1) — align to range_window.
+14 days; per-strike greeks + all days + full features expected higher. Signal is real → proceed.
+**Next (clean-slate build order):** (1) scaffold `python_modules/blast_model/`
+(raw readers → candles/structure → per-strike greeks → fast-flow velocity →
+labels), (2) generate datasets for ALL recorded days from `data/raw/`, (3) train
+the 3 heads (enter / exit / strike scorer) + walk-forward, (4) charge-aware
+premium backtest on a candle clock, (5) paper gate. Also: chart arrows still use
+consecutive-swing (window=1) — align to range_window.
 
 ## How to use this file
 
