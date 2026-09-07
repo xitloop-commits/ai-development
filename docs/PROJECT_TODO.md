@@ -3200,6 +3200,13 @@ gives the most profit-minus-decay.
   — HH/HL flags, new-range-high/low (the #6 breakout fix), consec HH/HL, dist-to-swing,
   up-leg %, bars-since-pivot, CandleBlue raw entry/exit flag — PLUS premium **MA(20-EMA)
   + SMA5 slope & price-vs-line**. ~24 structure + ~6 MA/SMA per leg × TFs.
+- **Fast-flow watch (Partha 2026-09-07):** watch WHERE buyers/sellers are entering
+  and exiting QUICKLY — per-strike flow VELOCITY across the ladder: 1/2/5-min OI
+  change rate + volume burst per strike-leg (chain snapshots ~22s + per-strike
+  option ticks), classified per strike as long-buildup / short-buildup /
+  long-unwind / short-cover. Feeds BOTH the ENTER confidence and the strike
+  scorer: rapid writer entry at a strike = wall forming → penalise; rapid
+  unwind at/above = blast fuel → boost.
 - **Strike selection needs PER-STRIKE GREEKS:** today greeks are ATM-only (10 feats);
   add delta/gamma/theta across the **ATM ± 3** ladder (Black-Scholes from each strike's
   IV+premium+TTE) so the model can compare leverage vs decay.
