@@ -168,6 +168,12 @@ timeout /t 5 /nobreak >nul
 REM banknifty SEA, MCX SEA engines and the sma-model runner are OFF
 REM (nifty-only mandate + all old models retired, Partha 2026-09-07).
 
+REM ── Blast-model PAPER runner (step-6 two-week gate, 2026-09-07) ──
+REM Paper-only self-ledger; tails the nifty50 recorder read-only and
+REM waits for files on its own, so starting alongside SEA is safe.
+echo [BLAST] Starting blast-model paper runner (nifty50)...
+start "Blast-Paper: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-blast-paper.bat"
+
 echo.
 echo ============================================================
 echo   nifty50 TFA + SEA launched (nifty-only mandate 2026-09-07).
