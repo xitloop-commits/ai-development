@@ -135,7 +135,7 @@ def build_day(date: str, cfg: BlastConfig | None = None, verbose: bool = True):
             i = len(b1.candles) - 1
             c = b1.candles[i]
             row: dict[str, Any] = {
-                "date": date, "ts": now_ts, "side": side,
+                "date": date, "ts": now_ts, "side": side, "candle_t": c.t,
                 "strike": locked[side], "premium": c.close,
                 "spot": chain.spot, "atm": chain.atm,
                 "dist_atm_strikes": _strike_dist(locked[side], side),
@@ -235,6 +235,15 @@ def build_day(date: str, cfg: BlastConfig | None = None, verbose: bool = True):
     from .raw_reader import _ROOT
     out_dir = cfg.out_dir if os.path.isabs(cfg.out_dir) else os.path.join(_ROOT, cfg.out_dir)
     os.makedirs(out_dir, exist_ok=True)
+    # Locked-leg 1m candles → label sweeps recompute any threshold cheaply
+    # (dataset v2, 2026-09-07) without re-reading the raw ticks.
+    cand_rows = [
+        {"side": side, "t": c.t, "open": c.open, "high": c.high,
+         "low": c.low, "close": c.close, "volume": c.volume}
+        for side in ("CE", "PE")
+        for c in prem[side][cfg.decision_candle_sec].candles
+    ]
+    pd.DataFrame(cand_rows).to_parquet(os.path.join(out_dir, f"{date}_candles1m.parquet"), index=False)
     out = os.path.join(out_dir, f"{date}_{cfg.label_tag()}.parquet")
     df.to_parquet(out, index=False)
     if verbose:
