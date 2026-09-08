@@ -30,7 +30,20 @@ from .config import BlastConfig
 from .feature_engine import FeatureEngine
 from .raw_reader import _ROOT, compute_day_lock, day_dir, session_open_ts
 
+# Platform trade path (Partha 2026-09-08: show blast trades in the paper
+# workspace). Reuses the SAME discipline-chain client the SEA engine uses —
+# cohort "blast", channel paper. This is platform plumbing, not old-model
+# code, so it does not break the clean-slate rule. Optional: if the import
+# or a POST fails, the runner still trades its own ledger.
+try:
+    from signal_engine_agent.risk_control_client import close_trade, send_signal, submit_new_trade
+    _PLATFORM = True
+except Exception:  # pragma: no cover — platform client unavailable
+    _PLATFORM = False
+
 IST = timezone(timedelta(hours=5, minutes=30))
+INSTRUMENT_NAME = "NIFTY50"
+COHORT = "blast"
 
 # ── locked trade combo (label sweep verdict 2026-09-07) ─────────────────────
 LABEL_TAG = "b8w5"
@@ -80,15 +93,21 @@ class GzTail:
 
 
 class Trader:
-    """One paper position, locked combo, ndjson ledger."""
+    """One paper position, locked combo, ndjson ledger (+ optional platform post)."""
 
-    def __init__(self, date: str, log_dir: str):
+    def __init__(self, date: str, log_dir: str, post: bool = False, sec_id_for=None):
         self.date = date
         os.makedirs(log_dir, exist_ok=True)
         self.trades_path = os.path.join(log_dir, f"{date}_trades.ndjson")
         self.scores_path = os.path.join(log_dir, f"{date}_scores.ndjson")
         self.pos: dict[str, Any] | None = None
         self.closed: list[dict[str, Any]] = []
+        self.post = post and _PLATFORM
+        self.sec_id_for = sec_id_for  # side -> contract security id (from chain)
+        # Catch-up guard: on a restart the tailer replays today's bytes from 0
+        # to rebuild candle/flow state. Rows older than this are STATE ONLY —
+        # no ledger, no trades, no platform posts (prevents duplicates).
+        self.live_after = time.time() - 90
         h, m = EOD_CUT_HHMM.split(":")
         self.eod = datetime.strptime(date, "%Y-%m-%d").replace(
             hour=int(h), minute=int(m), tzinfo=IST).timestamp()
@@ -99,6 +118,8 @@ class Trader:
 
     def on_row(self, row: dict[str, Any], p_enter: float, p_exit: float) -> None:
         ts = row["ts"]
+        if ts < self.live_after:
+            return  # catch-up replay after a restart: state only
         hhmm = datetime.fromtimestamp(ts, IST).strftime("%H:%M:%S")
         self._log(self.scores_path, {"ts": ts, "side": row["side"], "premium": row["premium"],
                                      "p_enter": round(p_enter, 4), "p_exit": round(p_exit, 4)})
@@ -117,6 +138,37 @@ class Trader:
                 print(f"{hhmm}  ENTER {row['side']} {row['strike']:g} @ {row['premium']:.2f} "
                       f"(p_enter {p_enter:.2f})", flush=True)
                 self._log(self.trades_path, {"ev": "entry", "ts": ts, **{k: v for k, v in self.pos.items() if k != "entry_ts"}})
+                if self.post:
+                    self._post_entry(row, p_enter)
+
+    def _post_entry(self, row: dict[str, Any], p_enter: float) -> None:
+        """Open the SAME trade in the platform's paper workspace (cohort blast)."""
+        try:
+            sec_id = self.sec_id_for(row["side"]) if self.sec_id_for else None
+            send_signal({"instrument": INSTRUMENT_NAME, "cohort": COHORT, "side": row["side"],
+                         "strike": row["strike"], "action": "LONG", "price": row["premium"],
+                         "confidence": round(p_enter, 3), "ts": row["ts"],
+                         "note": "blast model paper gate"})
+            payload = {
+                "executionId": f"BLAST-{int(row['ts'] * 1000)}",
+                "channel": "paper", "origin": "AI",
+                "instrument": INSTRUMENT_NAME, "exchange": "NSE",
+                "transactionType": "BUY", "optionType": row["side"],
+                "strike": row["strike"], "entryPrice": row["premium"],
+                "stopLoss": None, "takeProfit": None,
+                "cohort": COHORT, "aiConfidence": p_enter,
+            }
+            if sec_id:
+                payload["contractSecurityId"] = str(sec_id)
+            resp = submit_new_trade(payload, timeout=5.0)
+            tid = resp.get("tradeId") if isinstance(resp, dict) else None
+            if tid and self.pos is not None:
+                self.pos["server_trade_id"] = tid
+                print(f"          workspace trade opened ({tid})", flush=True)
+            else:
+                print(f"          workspace post rejected: {resp.get('reason', resp) if isinstance(resp, dict) else resp}", flush=True)
+        except Exception as exc:  # never let platform posting stall the model
+            print(f"          workspace post failed: {exc}", flush=True)
 
     def _close(self, ts: float, px: float, reason: str, hhmm: str) -> None:
         pos = self.pos
@@ -133,6 +185,13 @@ class Trader:
         self._log(self.trades_path, rec)
         print(f"{hhmm}  EXIT  {pos['side']} {pos['strike']:g} @ {px:.2f} "
               f"({reason}, net {net:+,.0f})", flush=True)
+        tid = pos.get("server_trade_id")
+        if self.post and tid:
+            try:
+                close_trade(str(tid), reason=f"BLAST_{reason.upper()}")
+                print(f"          workspace trade closed ({tid})", flush=True)
+            except Exception as exc:
+                print(f"          workspace close failed: {exc} — close {tid} manually!", flush=True)
         self.pos = None
 
     def mark_close_at_eod(self, last_px: dict[str, float]) -> None:
@@ -169,6 +228,8 @@ class Scorer:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="past date = replay test (process to EOF and exit)")
+    ap.add_argument("--no-post", action="store_true",
+                    help="ledger only — do not mirror trades into the paper workspace")
     args = ap.parse_args()
     cfg = BlastConfig()
     today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -197,7 +258,16 @@ def main() -> None:
 
     eng = FeatureEngine(date, lock, cfg)
     scorer = Scorer(cfg.instrument)
-    trader = Trader(date, os.path.join(_ROOT, "logs", "blast_model"))
+
+    def sec_id_for(side: str):
+        r = eng.chain.rows.get(eng.locked[side])
+        if not r:
+            return None
+        return r.get("callSecurityId") if side == "CE" else r.get("putSecurityId")
+
+    post = live and not args.no_post
+    print(f"workspace mirror: {'ON (cohort blast)' if post and _PLATFORM else 'off'}", flush=True)
+    trader = Trader(date, os.path.join(_ROOT, "logs", "blast_model"), post=post, sec_id_for=sec_id_for)
     tails = {k: GzTail(p) for k, p in files.items()}
     last_px: dict[str, float] = {}
     last_data = time.time()
