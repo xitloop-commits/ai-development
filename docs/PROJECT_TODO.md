@@ -3297,3 +3297,10 @@ too few. Plan: pull YEARS of daily Nifty OHLC via the broker's historical
 candle API → daily features (prev range, close-vs-range, streaks, expiry-day,
 VIX if available) → gap classifier; verdict must include the overnight risk
 math (theta + wrong-gap cost) before any hold rule. Own promotion gates.
+**TRAINED ON WHAT WE HAVE 2026-09-08 (Partha: no external history):**
+`blast_model/gap_model.py` — 61 usable day-samples from the dataset parquets
+(EOD spot path, PCR, IV, expiry, dow → next-day gap sign). Walk-forward OOS:
+**hit rate 35% over 31 predictions (chance 52%) — VERDICT: NOT TRADEABLE.**
+61 samples cannot support a daily model; the confident calls were WORSE (38%).
+Standing rule: NO overnight holds on this. Re-run monthly as recorded days
+accumulate (script re-runs in seconds); revisit external daily history later.
