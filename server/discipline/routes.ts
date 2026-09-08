@@ -238,8 +238,8 @@ export function registerDisciplineRoutes(app: Express): void {
         // are not cohort-gated: you asked for that specific trade by hand.
         if (body.origin === "AI" && body.cohort) {
           const { getAiConfig, resolveBook } = await import("../portfolio/aiModeConfig");
-          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model", candleblue: "candleblue", cb2: "cb2" } as const)[
-            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model" | "candleblue" | "cb2"
+          const cohortKey = ({ ma_signal: "ma", scalp: "scalp", trend: "trend", swing: "swing", sma5_signal: "sma5", sma_model: "sma_model", candleblue: "candleblue", cb2: "cb2", blast: "blast" } as const)[
+            body.cohort as "ma_signal" | "scalp" | "trend" | "swing" | "sma5_signal" | "sma_model" | "candleblue" | "cb2" | "blast"
           ];
           if (cohortKey) {
             targetChannels = targetChannels.filter((ch) => {

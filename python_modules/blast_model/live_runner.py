@@ -92,6 +92,30 @@ class GzTail:
         return out
 
 
+class CohortToggle:
+    """Follows the AI menu's Blast switch (paper book), polled every 30s.
+    Fails open to the last known state so a server blip never stops the gate."""
+
+    def __init__(self) -> None:
+        self._on = True
+        self._last = 0.0
+
+    def enabled(self) -> bool:
+        now = time.time()
+        if now - self._last > 30:
+            self._last = now
+            try:
+                import requests
+
+                url = os.environ.get("BROKER_URL", "http://localhost:3000")
+                r = requests.get(f"{url}/api/trpc/trading.aiConfig", timeout=3)
+                j = r.json()["result"]["data"]["json"]
+                self._on = bool(((j.get("paper") or {}).get("ai") or {}).get("cohorts", {}).get("blast", True))
+            except Exception:
+                pass
+        return self._on
+
+
 class Trader:
     """One paper position, locked combo, ndjson ledger (+ optional platform post)."""
 
@@ -104,6 +128,7 @@ class Trader:
         self.closed: list[dict[str, Any]] = []
         self.post = post and _PLATFORM
         self.sec_id_for = sec_id_for  # side -> contract security id (from chain)
+        self.toggle = CohortToggle() if self.post else None
         # Catch-up guard: on a restart the tailer replays today's bytes from 0
         # to rebuild candle/flow state. Rows older than this are STATE ONLY —
         # no ledger, no trades, no platform posts (prevents duplicates).
@@ -132,6 +157,8 @@ class Trader:
             if reason:
                 self._close(ts, row["premium"], reason, hhmm)
         if self.pos is None and ts < self.eod and row["side"] == SIDE_FILTER:
+            if self.toggle is not None and not self.toggle.enabled():
+                return  # Blast switched OFF in the AI menu — no new entries
             if p_enter >= ENTER_FLOOR and row["premium"] > 0:
                 self.pos = {"side": row["side"], "strike": row["strike"],
                             "entry_ts": ts, "entry_px": row["premium"], "p_enter": p_enter}

@@ -120,6 +120,7 @@ export const COHORT_COLORS: Record<string, string> = {
   sma_model: '#2DD4BF',       // bright teal — learned SMA5 rider (T154, paper-only)
   candleblue: '#60A5FA',      // bright blue — HH+HL structure (2026-08-30)
   cb2: '#E879F9',             // bright fuchsia — candleblue v2 (range gate + 5min), paper A/B
+  blast: '#F87171',           // bright red — premium blast model (paper gate 2026-09-08)
 };
 
 const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
@@ -138,6 +139,7 @@ export function cohortLabel(cohort: string): string {
   if (cohort === 'sma_model') return 'SMA-Model';
   if (cohort === 'candleblue') return 'CandleBlue';
   if (cohort === 'cb2') return 'CB2';
+  if (cohort === 'blast') return 'Blast';
   return cohort;
 }
 

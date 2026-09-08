@@ -52,6 +52,7 @@ export interface CohortsConfig {
   sma_model: boolean; // T154 learned SMA5 rider (external runner) — paper-only watch cohort
   candleblue: boolean; // CandleBlue HH+HL structure cohort (2026-08-30)
   cb2: boolean; // CB2 — candleblue v2 (HH+HL + range gate, 5-min), parallel A/B (2026-09-02)
+  blast: boolean; // Blast — premium blast model (external runner, paper gate 2026-09-08)
   swing: boolean; // shown in the UI but has no gate — always false for now
   // T129 — `revPct` moved to CommonConfig: it is a single detector parameter
   // (one SEA process), so two books cannot hold different values. It lived here
@@ -168,7 +169,7 @@ export interface SharedExitConfig {
 
 /** Per-(book, origin) config. Cohorts / strategies / sizing / order genuinely
  *  differ by book and stream; the system-wide knobs live in CommonConfig. */
-export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "cb2" | "swing";
+export type CohortKey = "scalp" | "trend" | "ma" | "sma5" | "sma_model" | "candleblue" | "cb2" | "blast" | "swing";
 
 export interface AiModeConfig {
   cohorts: CohortsConfig;
@@ -431,7 +432,7 @@ function baseCommon(): CommonConfig {
 
 function baseMode(): AiModeConfig {
   return {
-    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, candleblue: false, cb2: false, swing: false },
+    cohorts: { scalp: true, trend: false, ma: true, sma5: true, sma_model: true, candleblue: false, cb2: false, blast: true, swing: false },
     sizing: {
       perInstrument: {
         nifty50: { mode: "lots", value: 10 },
@@ -672,7 +673,7 @@ function sanitizeCommon(c: CommonConfig): CommonConfig {
 
 /** Clamp one block's config to safe ranges. */
 function sanitizeMode(c: AiModeConfig): AiModeConfig {
-  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "candleblue", "cb2", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
+  for (const k of ["scalp", "trend", "ma", "sma5", "sma_model", "candleblue", "cb2", "blast", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   // T171 — drop the legacy per-cohort strategy race if an old config carries it.
   delete (c as { strategies?: unknown }).strategies;
   delete (c as { cohortStrategies?: unknown }).cohortStrategies;
