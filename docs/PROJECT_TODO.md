@@ -3288,3 +3288,12 @@ NEXT: run the gate, per-strike scorer head, weekly-retrain cadence.
 - **Adding a new TODO:** Append at the appropriate priority slot. Keep entries tight — what / status / blocker / link.
 - **Marking done:** Move to "Closed items" section with a one-line outcome note. Next memory cleanup pass deletes the closed section.
 - **Cross-references:** Use `docs/<FILE>.md` for design docs (they live in the repo, survive cleanly), not wikilinks to memory files (which can be deleted out from under).
+
+### T-NEXT [ML] — overnight GAP model (predict next-day gap up/down) — SCOPED 2026-09-08 📋
+Partha 2026-09-08: predict whether tomorrow opens gap-up/gap-down so a position
+could be HELD overnight. NOT part of the blast model (strictly intraday, closes
+15:20). Honest constraint: our tick recordings = 73 days = 73 gap samples — far
+too few. Plan: pull YEARS of daily Nifty OHLC via the broker's historical
+candle API → daily features (prev range, close-vs-range, streaks, expiry-day,
+VIX if available) → gap classifier; verdict must include the overnight risk
+math (theta + wrong-gap cost) before any hold rule. Own promotion gates.
