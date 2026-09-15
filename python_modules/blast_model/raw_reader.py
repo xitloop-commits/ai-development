@@ -16,6 +16,12 @@ from __future__ import annotations
 import gzip
 import json
 import os
+
+# orjson parses ~4x faster — matters at MCX scale (30M+ ticks/day). Optional.
+try:
+    import orjson as _fastjson
+except ImportError:  # pragma: no cover
+    _fastjson = None
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
@@ -35,15 +41,16 @@ def _iter_ndjson_gz(path: str) -> Iterator[dict[str, Any]]:
     """Yield parsed lines; swallow truncation/corruption at the seam."""
     if not os.path.exists(path):
         return
+    loads = _fastjson.loads if _fastjson is not None else json.loads
     try:
-        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+        with gzip.open(path, "rb") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    yield json.loads(line)
-                except json.JSONDecodeError:
+                    yield loads(line)
+                except (ValueError, TypeError):
                     continue
     except (EOFError, OSError, gzip.BadGzipFile):
         return
