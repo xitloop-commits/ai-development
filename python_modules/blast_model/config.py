@@ -39,3 +39,23 @@ class BlastConfig:
 
     def label_tag(self) -> str:
         return f"b{int(self.blast_pct * 100)}w{self.blast_window_min}"
+
+    @staticmethod
+    def for_instrument(instrument: str) -> "BlastConfig":
+        """Per-instrument presets (Partha 2026-09-15: build MCX too — their
+        09:00–23:30 session gives a full-day test bench every day)."""
+        from dataclasses import replace
+
+        base = BlastConfig()
+        if instrument == "nifty50":
+            return base
+        if instrument in ("crudeoil", "naturalgas"):
+            return replace(
+                base,
+                instrument=instrument,
+                session_open_hhmm="09:00",
+                session_close_hhmm="23:30",
+                session_hours=14.5,
+                out_dir=f"data/blast_model/{instrument}",
+            )
+        raise ValueError(f"no blast preset for instrument {instrument!r}")

@@ -109,8 +109,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Build blast-model dataset parquets from raw recordings")
     ap.add_argument("--date", help="YYYY-MM-DD (one day)")
     ap.add_argument("--all", action="store_true", help="every recorded day")
+    ap.add_argument("--instrument", default="nifty50", help="nifty50 | crudeoil | naturalgas")
     args = ap.parse_args()
-    cfg = BlastConfig()
+    cfg = BlastConfig.for_instrument(args.instrument)
     dates = list_recorded_dates(cfg.instrument) if args.all else ([args.date] if args.date else [])
     if not dates:
         ap.error("pass --date YYYY-MM-DD or --all")
