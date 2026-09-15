@@ -3330,6 +3330,15 @@ expiries and premium liquidity (banknifty is monthly-only since 2024).
 Decision: stop replication for now; strengthen the proven nifty edge (finish
 its gate, per-strike scorer, weekly retrain). Re-attempt replication with
 more recorded days + instrument-specific features.
+**CRUDE OIL SWEEP VERDICT 2026-09-16: REAL EDGE — GATE LIVE (c61392bc).**
+Opposite of gas/banknifty: ALL testable variants positive on judge days.
+Winner +4%/15m: judge +₹91,468/15d at 0.20 spread; MEASURED real ATM spread
+(median 0.80 from raw bid/ask) → re-judged +₹78,271 at fair 0.40, +₹51,877
+even at 0.80 full-both-ways, worst judge day +₹74. Locked: BOTH sides,
+e0.60/x0.60/h20m, EOD cut 23:15, label b4w15, lot 100, MCX charges.
+Crude paper runner LIVE 2026-09-16 (own ledger *_crudeoil_*.ndjson, same
+blast cohort toggle/mirror); launcher starts both runners. Gate: 2 weeks
+alongside nifty's.
 
 ## How to use this file
 
