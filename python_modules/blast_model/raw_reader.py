@@ -16,6 +16,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import zlib
 
 # orjson parses ~4x faster — matters at MCX scale (30M+ ticks/day). Optional.
 try:
@@ -52,8 +53,8 @@ def _iter_ndjson_gz(path: str) -> Iterator[dict[str, Any]]:
                     yield loads(line)
                 except (ValueError, TypeError):
                     continue
-    except (EOFError, OSError, gzip.BadGzipFile):
-        return
+    except (EOFError, OSError, gzip.BadGzipFile, zlib.error):
+        return  # truncated / corrupt seam — keep what parsed
 
 
 def iter_underlying(date: str, instrument: str = "nifty50") -> Iterator[dict[str, Any]]:

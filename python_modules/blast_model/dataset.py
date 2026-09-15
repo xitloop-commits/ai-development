@@ -116,6 +116,10 @@ def main() -> None:
     if not dates:
         ap.error("pass --date YYYY-MM-DD or --all")
     for d in dates:
+        if args.all:
+            out_dir = cfg.out_dir if os.path.isabs(cfg.out_dir) else os.path.join(_ROOT, cfg.out_dir)
+            if os.path.exists(os.path.join(out_dir, f"{d}_{cfg.label_tag()}.parquet")):
+                continue  # resume: already built
         build_day(d, cfg)
 
 
