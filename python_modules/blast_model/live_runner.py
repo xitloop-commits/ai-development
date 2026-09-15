@@ -25,7 +25,7 @@ import zlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .backtest import LOT_SIZE, dhan_option_charges
+from .backtest import LOT_SIZE, LOT_SIZES, charges_for, dhan_option_charges
 from .config import BlastConfig
 from .feature_engine import FeatureEngine
 from .raw_reader import _ROOT, compute_day_lock, day_dir, session_open_ts
@@ -42,17 +42,32 @@ except Exception:  # pragma: no cover — platform client unavailable
     _PLATFORM = False
 
 IST = timezone(timedelta(hours=5, minutes=30))
-INSTRUMENT_NAME = "NIFTY50"
 COHORT = "blast"
 
-# ── locked trade combo (label sweep verdict 2026-09-07) ─────────────────────
+# ── locked trade combos per instrument (sweep verdicts 09-07 / 09-16) ──────
+PROFILES = {
+    "nifty50": dict(LABEL_TAG="b8w5", SIDE_FILTER="PE", ENTER_FLOOR=0.60,
+                    EXIT_FLOOR=0.50, MAX_HOLD_MIN=20, EOD_CUT_HHMM="15:20",
+                    SPREAD=0.10, INSTRUMENT_NAME="NIFTY50", EXCHANGE="NSE",
+                    SESSION_END="15:31"),
+    "crudeoil": dict(LABEL_TAG="b4w15", SIDE_FILTER=None, ENTER_FLOOR=0.60,
+                     EXIT_FLOOR=0.60, MAX_HOLD_MIN=20, EOD_CUT_HHMM="23:15",
+                     SPREAD=0.40, INSTRUMENT_NAME="CRUDEOIL", EXCHANGE="MCX",
+                     SESSION_END="23:31"),
+}
+# Defaults = nifty (rebound from the profile in main()).
+INSTRUMENT_NAME = "NIFTY50"
+EXCHANGE = "NSE"
 LABEL_TAG = "b8w5"
-SIDE_FILTER = "PE"
+SIDE_FILTER: str | None = "PE"
 ENTER_FLOOR = 0.60
 EXIT_FLOOR = 0.50
 MAX_HOLD_MIN = 20
 EOD_CUT_HHMM = "15:20"
 SPREAD = 0.10
+SESSION_END = "15:31"
+LEDGER_LOT = LOT_SIZE
+LEDGER_CHARGES = dhan_option_charges
 
 
 class GzTail:
@@ -119,20 +134,21 @@ class CohortToggle:
 class Trader:
     """One paper position, locked combo, ndjson ledger (+ optional platform post)."""
 
-    def __init__(self, date: str, log_dir: str, post: bool = False, sec_id_for=None):
+    def __init__(self, date: str, log_dir: str, post: bool = False, sec_id_for=None, live: bool = True):
         self.date = date
         os.makedirs(log_dir, exist_ok=True)
-        self.trades_path = os.path.join(log_dir, f"{date}_trades.ndjson")
-        self.scores_path = os.path.join(log_dir, f"{date}_scores.ndjson")
+        tag = "" if INSTRUMENT_NAME == "NIFTY50" else f"_{INSTRUMENT_NAME.lower()}"
+        self.trades_path = os.path.join(log_dir, f"{date}{tag}_trades.ndjson")
+        self.scores_path = os.path.join(log_dir, f"{date}{tag}_scores.ndjson")
         self.pos: dict[str, Any] | None = None
         self.closed: list[dict[str, Any]] = []
         self.post = post and _PLATFORM
         self.sec_id_for = sec_id_for  # side -> contract security id (from chain)
         self.toggle = CohortToggle() if self.post else None
-        # Catch-up guard: on a restart the tailer replays today's bytes from 0
-        # to rebuild candle/flow state. Rows older than this are STATE ONLY —
-        # no ledger, no trades, no platform posts (prevents duplicates).
-        self.live_after = time.time() - 90
+        # Catch-up guard (LIVE only): on a restart the tailer replays today's
+        # bytes from 0 to rebuild candle/flow state; rows older than this are
+        # STATE ONLY. In replay-test mode every row is fair game.
+        self.live_after = (time.time() - 90) if live else 0.0
         h, m = EOD_CUT_HHMM.split(":")
         self.eod = datetime.strptime(date, "%Y-%m-%d").replace(
             hour=int(h), minute=int(m), tzinfo=IST).timestamp()
@@ -156,7 +172,7 @@ class Trader:
                       else "eod" if ts >= self.eod else None)
             if reason:
                 self._close(ts, row["premium"], reason, hhmm)
-        if self.pos is None and ts < self.eod and row["side"] == SIDE_FILTER:
+        if self.pos is None and ts < self.eod and (SIDE_FILTER is None or row["side"] == SIDE_FILTER):
             if self.toggle is not None and not self.toggle.enabled():
                 return  # Blast switched OFF in the AI menu — no new entries
             if p_enter >= ENTER_FLOOR and row["premium"] > 0:
@@ -179,7 +195,7 @@ class Trader:
             payload = {
                 "executionId": f"BLAST-{int(row['ts'] * 1000)}",
                 "channel": "paper", "origin": "AI",
-                "instrument": INSTRUMENT_NAME, "exchange": "NSE",
+                "instrument": INSTRUMENT_NAME, "exchange": EXCHANGE,
                 "transactionType": "BUY", "optionType": row["side"],
                 "strike": row["strike"], "entryPrice": row["premium"],
                 "stopLoss": None, "takeProfit": None,
@@ -200,9 +216,9 @@ class Trader:
     def _close(self, ts: float, px: float, reason: str, hhmm: str) -> None:
         pos = self.pos
         assert pos is not None
-        buy = (pos["entry_px"] + SPREAD) * LOT_SIZE
-        sell = max(px - SPREAD, 0.05) * LOT_SIZE
-        charges = dhan_option_charges(buy, sell)
+        buy = (pos["entry_px"] + SPREAD) * LEDGER_LOT
+        sell = max(px - SPREAD, 0.05) * LEDGER_LOT
+        charges = LEDGER_CHARGES(buy, sell)
         net = (sell - buy) - charges
         rec = {"ev": "exit", "ts": ts, "side": pos["side"], "strike": pos["strike"],
                "entry_px": pos["entry_px"], "exit_px": px,
@@ -265,8 +281,12 @@ def main() -> None:
     ap.add_argument("--date", help="past date = replay test (process to EOF and exit)")
     ap.add_argument("--no-post", action="store_true",
                     help="ledger only — do not mirror trades into the paper workspace")
+    ap.add_argument("--instrument", default="nifty50", choices=sorted(PROFILES))
     args = ap.parse_args()
-    cfg = BlastConfig()
+    globals().update(PROFILES[args.instrument])
+    globals()["LEDGER_LOT"] = LOT_SIZES[args.instrument]
+    globals()["LEDGER_CHARGES"] = charges_for(args.instrument)
+    cfg = BlastConfig.for_instrument(args.instrument)
     today = datetime.now(IST).strftime("%Y-%m-%d")
     date = args.date or today
     live = date == today
@@ -274,8 +294,8 @@ def main() -> None:
     files = {k: os.path.join(base, f"{cfg.instrument}_{k}.ndjson.gz")
              for k in ("underlying_ticks", "option_ticks", "chain_snapshots")}
 
-    print(f"blast paper runner — {date} ({'LIVE tail' if live else 'replay test'}), "
-          f"combo: {SIDE_FILTER} e{ENTER_FLOOR} x{EXIT_FLOOR} h{MAX_HOLD_MIN}m, label {LABEL_TAG}", flush=True)
+    print(f"blast paper runner [{cfg.instrument}] — {date} ({'LIVE tail' if live else 'replay test'}), "
+          f"combo: {SIDE_FILTER or 'both'} e{ENTER_FLOOR} x{EXIT_FLOOR} h{MAX_HOLD_MIN}m, label {LABEL_TAG}", flush=True)
     while live and not all(os.path.exists(p) for p in files.values()):
         print("waiting for recorder files…", flush=True)
         time.sleep(20)
@@ -302,11 +322,12 @@ def main() -> None:
 
     post = live and not args.no_post
     print(f"workspace mirror: {'ON (cohort blast)' if post and _PLATFORM else 'off'}", flush=True)
-    trader = Trader(date, os.path.join(_ROOT, "logs", "blast_model"), post=post, sec_id_for=sec_id_for)
+    trader = Trader(date, os.path.join(_ROOT, "logs", "blast_model"), post=post, sec_id_for=sec_id_for, live=live)
     tails = {k: GzTail(p) for k, p in files.items()}
     last_px: dict[str, float] = {}
     last_data = time.time()
-    session_end = datetime.strptime(date, "%Y-%m-%d").replace(hour=15, minute=31, tzinfo=IST).timestamp()
+    se_h, se_m = SESSION_END.split(":")
+    session_end = datetime.strptime(date, "%Y-%m-%d").replace(hour=int(se_h), minute=int(se_m), tzinfo=IST).timestamp()
 
     while True:
         batch: list[tuple[float, str, dict[str, Any]]] = []

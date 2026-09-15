@@ -21,9 +21,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--blast-pct", type=float, default=0.08)
     ap.add_argument("--window-min", type=int, default=5)
+    ap.add_argument("--instrument", default="nifty50")
     args = ap.parse_args()
     tag = f"b{int(args.blast_pct * 100)}w{args.window_min}"
-    cfg = BlastConfig()
+    cfg = BlastConfig.for_instrument(args.instrument)
     df, feats, candles, idx = _load_all(cfg)
     df = relabel(df, candles, idx, args.blast_pct, args.window_min)
     lab = df["label_enter"].dropna()
