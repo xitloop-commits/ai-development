@@ -3282,6 +3282,15 @@ in-sample): 4 trades +₹4,675. **Two-week paper gate STARTS next session.**
 NOTE: 2026-09-07 recording is only ~15 min (109k ticks, recorder down most
 of the day) — check the recorder at tomorrow's freshday start.
 NEXT: run the gate, per-strike scorer head, weekly-retrain cadence.
+**MCX replication (Partha 2026-09-15, full-day test bench):** recorders back
+ON all instruments; pipeline instrument-aware (MCX sessions/lots/charges/EOD,
+orjson 2.6× reader). Datasets: naturalgas 82 days DONE; crudeoil building.
+**NATURAL GAS SWEEP VERDICT 2026-09-16: NO EDGE — do not build a gas runner.**
+12 variants; best judge +₹338 with worst day −₹12,140; most variants deeply
+negative OOS (tune +₹66k → judge −₹31k = total tune→judge collapse; win rates
+24–33%). Gas premiums are small vs its lot economics and the model cannot call
+gas blasts out-of-sample. Revisit only with event features (EIA Thursday
+release) + more data. Crude sweep queued when its dataset lands.
 
 ## How to use this file
 
