@@ -2,6 +2,36 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+### T-NEXT [ML/PLATFORM] — cohort verdicts + platform bugs — MEASURED 2026-09-15 📋
+Full write-up: **`docs/COHORT_FINDINGS_2026-09-15.md`**. Measured offline against
+raw tick recordings (not the live ledger — the ledger is not trustworthy, see below).
+
+- **CB2 — NO EDGE, recommend OFF.** 236 trades / 72 days OOS: 38% win, win:loss 1.18
+  (needs 1.63), **-Rs 571,666**, negative in 4 of 6 months. Same on NATURALGAS
+  (negative *before* costs) and BANKNIFTY. Mechanism: its pivot rule only confirms a
+  swing *after* the move pauses, so it always buys the second wind — index had already
+  moved +9.9 pts (median) before entry and +0.0 after. Winners and losers look
+  identical at entry. Held CE+PE simultaneously on 20 of 72 days. Filters, index
+  alignment and stop tweaks all failed OOS. Live: -Rs 102,230.
+- **candleblue v1 — OFF pending test.** Live -Rs 247,753 over 294 trades (33% win,
+  needs 38.6%). Same core logic as CB2. Not yet run through the offline harness.
+- **blast_model — PROMISING, keep the paper gate.** Positive gross edge and a
+  **positive median trade** (unlike the above). b8w5 is rank 1 in the label sweep and
+  its winning combo *is* the live config. 7 of 9 label variants positive on judge.
+  Caveats: judge window fell -2.7% (flatters a PUTs-only model), top 5 of 96 trades
+  carry the b10w10 result. Direction check passed — profitable on up days too.
+- **Platform bugs — fix regardless of strategy** (all corrupt measurement): stale
+  4-8 min price stamps (Rs 63,007 of error in one sample); feed drop on an open trade
+  then RCA exits at the frozen price (**one trade booked -Rs 1,949 that was really
+  +Rs 6,800**); `warm()` fires entries retroactively; replay drops data silently and
+  still reports COMPLETED; replay trades the live lock file instead of the signal;
+  no fill sanity guard (exit px 0 → -Rs 828k on Rs 100k); archive `date` wrong and
+  merges two trading days; `stop_buffer_pct` not tick-scaled (36 ticks BANKNIFTY vs
+  0.7 NATURALGAS).
+- **Standing validation bar before any cohort gets capital:** >=60 days OOS,
+  profitable in most months judged independently, survives removing the top 3 trades,
+  no look-ahead, and check the result isn't explained by market direction.
+
 ### T172 [UI] — Replay controls → chart bar; Replay as a 3rd desk tab — ✅ SHIPPED 2026-08-21 (needs client rebuild + eyeball)
 Partha restructure: replay was scattered in the main app; consolidated so you START a run
 from the chart window and VIEW its trades on the desk.
@@ -3291,6 +3321,15 @@ negative OOS (tune +₹66k → judge −₹31k = total tune→judge collapse; wi
 24–33%). Gas premiums are small vs its lot economics and the model cannot call
 gas blasts out-of-sample. Revisit only with event features (EIA Thursday
 release) + more data. Crude sweep queued when its dataset lands.
+**BANKNIFTY SWEEP VERDICT 2026-09-16: NO EDGE — do not build a banknifty
+runner.** 12 variants, 73 days: 11 of 12 NEGATIVE on the untouched judge days
+(tune +₹20-27k → judge −₹2k to −₹24k, win 30-42%); only +12%/5m positive at
++₹2,417 from 13 trades (statistically nothing). Same overfit collapse as gas.
+The blast edge is so far NIFTY-SPECIFIC — likely helped by nifty's weekly
+expiries and premium liquidity (banknifty is monthly-only since 2024).
+Decision: stop replication for now; strengthen the proven nifty edge (finish
+its gate, per-strike scorer, weekly retrain). Re-attempt replication with
+more recorded days + instrument-specific features.
 
 ## How to use this file
 
