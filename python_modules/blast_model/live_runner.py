@@ -214,11 +214,19 @@ class Trader:
               f"({reason}, net {net:+,.0f})", flush=True)
         tid = pos.get("server_trade_id")
         if self.post and tid:
+            # Server accepts only its exit-reason ENUM (found 2026-09-15 after
+            # silent 400s left mirror trades open for hours): map ours onto it
+            # and CHECK the result — retry once, then shout.
+            server_reason = {"exit": "AI_EXIT", "time": "AGE_EXIT", "eod": "EOD_SQUAREOFF"}.get(reason, "AI_EXIT")
+            ok = False
             try:
-                close_trade(str(tid), reason=f"BLAST_{reason.upper()}")
+                ok = close_trade(str(tid), reason=server_reason) or close_trade(str(tid), reason="AI_EXIT")
+            except Exception:
+                ok = False
+            if ok:
                 print(f"          workspace trade closed ({tid})", flush=True)
-            except Exception as exc:
-                print(f"          workspace close failed: {exc} — close {tid} manually!", flush=True)
+            else:
+                print(f"          WORKSPACE CLOSE FAILED ({tid}) — close it manually in the UI!", flush=True)
         self.pos = None
 
     def mark_close_at_eod(self, last_px: dict[str, float]) -> None:
