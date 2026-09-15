@@ -26,8 +26,8 @@ from .config import BlastConfig
 from .raw_reader import _ROOT
 from .train import DROP_COLS, MIN_LABELED_ROWS_PER_DAY, MIN_TRAIN_DAYS, TEST_CHUNK_DAYS, _fit
 
-LOT_SIZES = {"nifty50": 65, "crudeoil": 100, "naturalgas": 1250}
-EOD_CUTS = {"nifty50": "15:20", "crudeoil": "23:15", "naturalgas": "23:15"}
+LOT_SIZES = {"nifty50": 65, "banknifty": 30, "crudeoil": 100, "naturalgas": 1250}
+EOD_CUTS = {"nifty50": "15:20", "banknifty": "15:20", "crudeoil": "23:15", "naturalgas": "23:15"}
 LOT_SIZE = LOT_SIZES["nifty50"]   # back-compat alias (nifty runner)
 EOD_CUT_HHMM = EOD_CUTS["nifty50"]
 

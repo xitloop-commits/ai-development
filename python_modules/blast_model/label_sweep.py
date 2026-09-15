@@ -27,10 +27,11 @@ VARIANTS_BY_INST = {
     # MCX premiums pop in smaller percentages — search lower (found 2026-09-15:
     # crude/gas blast rate at +10% is near zero).
     "nifty50": [(p, w) for p in (0.08, 0.10, 0.12) for w in (5, 10, 15)],
+    "banknifty": [(p, w) for p in (0.06, 0.08, 0.10, 0.12) for w in (5, 10, 15)],
     "crudeoil": [(p, w) for p in (0.04, 0.06, 0.08, 0.10) for w in (5, 10, 15)],
     "naturalgas": [(p, w) for p in (0.04, 0.06, 0.08, 0.10) for w in (5, 10, 15)],
 }
-SPREADS = {"nifty50": 0.10, "crudeoil": 0.20, "naturalgas": 0.05}
+SPREADS = {"nifty50": 0.10, "banknifty": 0.30, "crudeoil": 0.20, "naturalgas": 0.05}
 ENTER_FLOORS = (0.60, 0.65, 0.70, 0.75)
 EXIT_FLOORS = (0.50, 0.60)
 HOLDS_MIN = (10, 20, 30)

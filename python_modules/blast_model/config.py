@@ -49,6 +49,9 @@ class BlastConfig:
         base = BlastConfig()
         if instrument == "nifty50":
             return base
+        if instrument == "banknifty":
+            # Same NSE session as nifty — only identity and output differ.
+            return replace(base, instrument="banknifty", out_dir="data/blast_model/banknifty")
         if instrument in ("crudeoil", "naturalgas"):
             return replace(
                 base,
