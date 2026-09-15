@@ -26,12 +26,14 @@ from .config import BlastConfig
 from .raw_reader import _ROOT
 from .train import DROP_COLS, MIN_LABELED_ROWS_PER_DAY, MIN_TRAIN_DAYS, TEST_CHUNK_DAYS, _fit
 
-LOT_SIZE = 65          # NIFTY lot (matches the live book's records)
-EOD_CUT_HHMM = "15:20"  # square off before close
+LOT_SIZES = {"nifty50": 65, "crudeoil": 100, "naturalgas": 1250}
+EOD_CUTS = {"nifty50": "15:20", "crudeoil": "23:15", "naturalgas": "23:15"}
+LOT_SIZE = LOT_SIZES["nifty50"]   # back-compat alias (nifty runner)
+EOD_CUT_HHMM = EOD_CUTS["nifty50"]
 
 
 def dhan_option_charges(buy_value: float, sell_value: float) -> float:
-    """Round-trip charges for one buy + one sell order of given ₹ values."""
+    """NSE index options round-trip charges (one buy + one sell order)."""
     brokerage = 20.0 * 2
     txn = (buy_value + sell_value) * 0.0005030
     gst = 0.18 * (brokerage + txn)
@@ -39,6 +41,22 @@ def dhan_option_charges(buy_value: float, sell_value: float) -> float:
     stamp = buy_value * 0.00003
     stt = sell_value * 0.000625
     return brokerage + txn + gst + sebi + stamp + stt
+
+
+def mcx_option_charges(buy_value: float, sell_value: float) -> float:
+    """MCX commodity options round-trip: CTT 0.05% on sell, MCX txn fee
+    ~0.0418% both sides, stamp 0.002% buy, GST on brokerage+txn."""
+    brokerage = 20.0 * 2
+    txn = (buy_value + sell_value) * 0.000418
+    gst = 0.18 * (brokerage + txn)
+    sebi = (buy_value + sell_value) * 10.0 / 1e7
+    stamp = buy_value * 0.00002
+    ctt = sell_value * 0.0005
+    return brokerage + txn + gst + sebi + stamp + ctt
+
+
+def charges_for(instrument: str):
+    return mcx_option_charges if instrument in ("crudeoil", "naturalgas") else dhan_option_charges
 
 
 def _load_rows(cfg: BlastConfig):
@@ -81,16 +99,20 @@ def build_oos_preds(cfg: BlastConfig, rebuild: bool = False):
 
 
 def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
-             spread: float, require_gate: bool = True, side_filter: str | None = None):
+             spread: float, require_gate: bool = True, side_filter: str | None = None,
+             instrument: str = "nifty50"):
     """One position at a time, long premium only. Returns (trades_df, summary)."""
     import pandas as pd
     from datetime import datetime, timedelta, timezone
 
     ist = timezone(timedelta(hours=5, minutes=30))
+    lot = LOT_SIZES[instrument]
+    charges_fn = charges_for(instrument)
+    eod_hhmm = EOD_CUTS[instrument]
     trades = []
     pos = None  # dict(side, strike, entry_ts, entry_px, day)
     for day, g in preds.groupby("date", sort=True):
-        h, m = EOD_CUT_HHMM.split(":")
+        h, m = eod_hhmm.split(":")
         eod = datetime.strptime(day, "%Y-%m-%d").replace(
             hour=int(h), minute=int(m), tzinfo=ist).timestamp()
         pos = None
@@ -102,7 +124,8 @@ def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
                 if r.p_exit >= exit_floor or held_min >= max_hold_min or r.ts >= eod:
                     trades.append(_close(pos, r.ts, r.premium, spread,
                                          "exit" if r.p_exit >= exit_floor
-                                         else ("time" if held_min >= max_hold_min else "eod")))
+                                         else ("time" if held_min >= max_hold_min else "eod"),
+                                         lot, charges_fn))
                     pos = None
             if pos is None and r.ts < eod:
                 if side_filter and r.side != side_filter:
@@ -113,7 +136,7 @@ def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
                            "entry_ts": r.ts, "entry_px": r.premium, "p_enter": r.p_enter}
         if pos is not None:  # safety: mark closed at last seen price
             px = last_px.get(pos["side"], pos["entry_px"])
-            trades.append(_close(pos, eod, px, spread, "eod"))
+            trades.append(_close(pos, eod, px, spread, "eod", lot, charges_fn))
             pos = None
     t = pd.DataFrame(trades)
     if t.empty:
@@ -133,10 +156,10 @@ def simulate(preds, enter_floor: float, exit_floor: float, max_hold_min: int,
     return t, summary
 
 
-def _close(pos, ts, px, spread, reason):
-    buy = (pos["entry_px"] + spread) * LOT_SIZE
-    sell = max(px - spread, 0.05) * LOT_SIZE
-    charges = dhan_option_charges(buy, sell)
+def _close(pos, ts, px, spread, reason, lot=LOT_SIZE, charges_fn=dhan_option_charges):
+    buy = (pos["entry_px"] + spread) * lot
+    sell = max(px - spread, 0.05) * lot
+    charges = charges_fn(buy, sell)
     gross = sell - buy
     return {"day": pos["day"], "side": pos["side"], "strike": pos["strike"],
             "entry_ts": pos["entry_ts"], "exit_ts": ts,

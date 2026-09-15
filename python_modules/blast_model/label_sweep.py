@@ -23,12 +23,18 @@ from .labels import blast_labels
 from .raw_reader import _ROOT
 from .train import DROP_COLS, MIN_LABELED_ROWS_PER_DAY, MIN_TRAIN_DAYS, TEST_CHUNK_DAYS, _fit
 
-VARIANTS = [(p, w) for p in (0.08, 0.10, 0.12) for w in (5, 10, 15)]
+VARIANTS_BY_INST = {
+    # MCX premiums pop in smaller percentages — search lower (found 2026-09-15:
+    # crude/gas blast rate at +10% is near zero).
+    "nifty50": [(p, w) for p in (0.08, 0.10, 0.12) for w in (5, 10, 15)],
+    "crudeoil": [(p, w) for p in (0.04, 0.06, 0.08, 0.10) for w in (5, 10, 15)],
+    "naturalgas": [(p, w) for p in (0.04, 0.06, 0.08, 0.10) for w in (5, 10, 15)],
+}
+SPREADS = {"nifty50": 0.10, "crudeoil": 0.20, "naturalgas": 0.05}
 ENTER_FLOORS = (0.60, 0.65, 0.70, 0.75)
 EXIT_FLOORS = (0.50, 0.60)
 HOLDS_MIN = (10, 20, 30)
 SIDES = (None, "PE")
-SPREAD = 0.10
 MIN_TUNE_TRADES = 40
 
 
@@ -102,36 +108,37 @@ def oos_preds(df, feats):
         ["date", "ts", "side", "strike", "premium", "p60s_hh", "p60s_hl", "p_enter", "p_exit"]]
 
 
-def tune_judge(preds, judge_n: int):
+def tune_judge(preds, judge_n: int, instrument: str = "nifty50"):
     days = sorted(preds["date"].unique())
     judge_days = days[-judge_n:]
     tune = preds[~preds["date"].isin(judge_days)]
     judge = preds[preds["date"].isin(judge_days)]
     best = None
     for ef, xf, hold, side in itertools.product(ENTER_FLOORS, EXIT_FLOORS, HOLDS_MIN, SIDES):
-        _, s = simulate(tune, ef, xf, hold, SPREAD, require_gate=False, side_filter=side)
+        _, s = simulate(tune, ef, xf, hold, SPREADS[instrument], require_gate=False, side_filter=side, instrument=instrument)
         if s.get("trades", 0) >= MIN_TUNE_TRADES and (best is None or s["net"] > best[0]):
             best = (s["net"], (ef, xf, hold, side))
     if best is None:
         return None
     tn, combo = best
-    _, j = simulate(judge, *combo[:3], SPREAD, require_gate=False, side_filter=combo[3])
+    _, j = simulate(judge, *combo[:3], SPREADS[instrument], require_gate=False, side_filter=combo[3], instrument=instrument)
     return tn, combo, j
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--judge-days", type=int, default=15)
+    ap.add_argument("--instrument", default="nifty50")
     args = ap.parse_args()
-    cfg = BlastConfig()
+    cfg = BlastConfig.for_instrument(args.instrument)
     df, feats, candles, idx = _load_all(cfg)
     print(f"data: {df['date'].nunique()} days, {len(df):,} rows, {len(feats)} features\n")
     print("label        rate   TUNE-net  |  JUDGE-net trades win  ₹/day  worst | combo")
-    for pct, wmin in VARIANTS:
+    for pct, wmin in VARIANTS_BY_INST[args.instrument]:
         d2 = relabel(df, candles, idx, pct, wmin)
         rate = d2["label_enter"].dropna().mean()
         preds = oos_preds(d2, feats)
-        r = tune_judge(preds, args.judge_days)
+        r = tune_judge(preds, args.judge_days, args.instrument)
         if r is None:
             print(f"+{pct:.0%}/{wmin:2d}m  {rate:5.1%}   (no combo with enough tune trades)")
             continue
