@@ -8,7 +8,7 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 - **All open work** lives in [docs/PROJECT_TODO.md](../PROJECT_TODO.md) — single source for pending/done.
 - **Behavioural rules** live in [docs/PARTHA_RULES.md](../PARTHA_RULES.md).
 
-## The 10 major systems
+## The major systems
 
 | # | System | What it does |
 |---|---|---|
@@ -23,6 +23,8 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 | 09 | [Control Bot](09_control_bot.md) | yow-partha — Telegram phone-based control surface |
 | 10 | [Launcher & Ops](10_launcher_ops.md) | Lubas launcher + scheduled tasks + AI canary + RUNBOOK |
 | 11 | [SMA-Model](11_sma_model.md) | Learned SMA5 leg-riding entry/exit model (SPEC DRAFT — no code yet) |
+| 12 | [Market Status Screen](12_market_status_screen.md) | Python 2x2 screen — session + market condition across all 4 instruments, expiry lifecycle view (SPEC — no code yet) |
+| 13 | [Claude cohort](13_claude_cohort.md) | Context-first option buying — index/flow/OI decides, strike follows (SPEC — backtest first, no code yet) |
 
 ## End-to-end data flow
 

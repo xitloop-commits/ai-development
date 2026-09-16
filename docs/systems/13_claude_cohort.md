@@ -1,0 +1,229 @@
+# 13 — Claude cohort (context-first option buying)
+
+**STATUS: SPEC — 2026-09-16. No code yet. Backtest-first by Partha's decision; paper wiring only after the backtest clears §8.**
+
+Scope: nifty50 + banknifty. Buy options only (CE/PE), never write. Paper-pinned until validated.
+
+---
+
+## 1. The idea in plain words
+
+Every cohort we have run so far decided from **one narrow view**. CB2 and candleblue watched only the ATM premium tape — each leg blind to the index, to order flow, and to what the option writers were doing. The 2026-09-15 audit showed exactly what that costs: CB2 could not tell continuation from reversal (winners had +10.9 pts of pre-entry move, losers +8.9 — statistically identical), and on 20 of 72 days it held CE and PE at the same time because neither leg knew the other existed.
+
+The Claude cohort inverts that. It decides **on the index first** — trend, order flow, levels, volatility, option-writer positioning — and only then picks a strike to express the view. The premium tape is the vehicle, never the compass.
+
+It also starts from an honest premise: **no data predicts direction.** Data gives odds. So this cohort's job is narrower than "find the move":
+
+1. Say when conditions are favourable versus hostile.
+2. Say when to stay out — which is where most of the money is.
+3. Size the bet to the confidence.
+
+The expected shape of a good day is **zero to three trades, flat most of the day**.
+
+---
+
+## 2. Locked decisions (2026-09-16)
+
+| # | Decision | Choice |
+|---|---|---|
+| C1 | Instruments | nifty50 + banknifty. Crude/gas later. |
+| C2 | Direction | Both CE and PE. No side filter — `blast`'s PE-only was in-sample selection (findings §3 caveat 4). |
+| C3 | Vehicle | Buy ATM / slightly ITM, current weekly expiry. Delta target 0.45–0.60. Never deep OTM. |
+| C4 | Decision cadence | Every 1 minute, on the feature row nearest the minute boundary. |
+| C5 | Hold horizon | 15 min – 2 h. Default time stop 30 min. Halved on expiry day. |
+| C6 | Position rule | 1 lot. One position per instrument at a time. Exit before enter — no reversal in the same minute. |
+| C7 | Rules vs learning | **Hand-written rules with swept thresholds.** Deliberately not a model — we need to see why it acted. A learned layer can come later. |
+| C8 | Implementation pattern | Standalone runner (`blast` pattern), consuming the TFA feature row. **Not** an `engine.py` cohort — it does not need the locked-premium tape, and the external pattern touches ~1/3 the files. |
+| C9 | Data source | `data/features/<date>/<inst>_features.parquet` for decisions; `<inst>_option_ticks.ndjson.gz` for fills. |
+| C10 | Validation | Backtest first. Standing bar in §8. No paper wiring until it passes. |
+| C11 | Budget | Rs 50,000 paper capital. 1 lot. See §7. |
+| C12 | Name | `claude` in code, config, UI and chat. |
+
+---
+
+## 3. Data availability (verified 2026-09-16)
+
+| Item | nifty50 | banknifty |
+|---|---|---|
+| Feature parquets (576 cols, ~27k rows/day) | **78 days** | **72 days** |
+| Chain snapshots (full ladder, ~230 strikes, ~22 s) | 79 days → 09-16 | 74 days → **09-07 only** |
+| Option tick recordings | yes | yes |
+| Window | 2026-04-21 → 2026-09-16 | 2026-04-21 → 2026-09-07 |
+
+Both clear the 60-day bar. **Known gap:** banknifty chain + feature recording has been dead since 2026-09-07 (that day is itself truncated at 10:12). Fix separately — tracked in PROJECT_TODO.
+
+---
+
+## 4. Session filters (all must pass before any setup is considered)
+
+| Filter | Rule | Why |
+|---|---|---|
+| Market open | `is_market_open == 1` | — |
+| Opening noise | `minutes_from_open >= 15` | Opening range is noise, spreads wide |
+| Lunch dead zone | `lunch_session_flag == 0` | No follow-through |
+| Closing window | `minutes_to_close >= 30` | No time for the idea to work |
+| Feed health | `time_since_chain_sec < 120` | Stale chain = blind to OI |
+| Event days | crude inventory (Wed), gas storage (Thu), CPI / policy days | Trade after the release or not at all |
+| Day loss limit | set before the session, non-negotiable | |
+| Two-loss rule | no new entries after 2 losing trades that day | |
+
+---
+
+## 5. The two setups
+
+Only these. Everything else is passed.
+
+### Setup A — Break with flow behind it
+
+Long CE (mirror for PE):
+
+| Condition | Field |
+|---|---|
+| Clears opening range high, or day high | `distance_to_opening_range_high_pct > 0` or `distance_to_day_high_pct >= 0` |
+| Flow pushing the same way, not fading | `underlying_ofi_20 > 0` and `underlying_tick_imbalance_20 > 0` |
+| Range expanding, not drifting | `underlying_realized_vol_20` above its own session median |
+| Trending, not chopping | `adx_5min >= ADX_MIN` |
+| Not already exhausted | `rsi_14_5min < RSI_MAX` |
+| **Room to the wall** | nearest call-OI wall above spot is **further than the target**. If the wall is inside the target, there is no trade. |
+
+### Setup B — Failed move (fade back)
+
+The higher-hit-rate setup. Long PE after a failed upside break (mirror for CE):
+
+| Condition | Field |
+|---|---|
+| Price poked beyond the level then came back | OR/day-high distance went positive, then negative, within `FADE_WINDOW` min |
+| Flow flipped against the break | `underlying_ofi_20` sign flips |
+| Writers defending the level | call OI at that strike rising over the last 15 min |
+| Target | session VWAP (`dist_from_session_vwap_pct → 0`) |
+
+Setup B is permitted in chop; Setup A is not.
+
+### Liquidity / cost gate (both setups)
+
+| Gate | Rule |
+|---|---|
+| Spread | `opt_0_<leg>_spread` <= `SPREAD_MAX_PCT` of the rupee target |
+| Delta | `atm_<leg>_delta` in 0.45–0.60 |
+| Depth | enough size on the bid to exit 1 lot |
+| Breakeven | breakeven distance < realistic target |
+
+---
+
+## 6. Exits — all decided at entry, none discretionary
+
+| Exit | Rule |
+|---|---|
+| **Hard stop** | On the **underlying** level, not the premium. Premium moves for reasons unrelated to the thesis. |
+| Stop distance | `max(STOP_PCT, N ticks)` — **scale-invariant**. Findings bug 8: a flat 0.2% is 36 ticks on BANKNIFTY and under 1 tick on NATURALGAS. |
+| Target 1 | Nearest OI wall or prior swing. **Take half off.** |
+| Trail | Remainder under 5-min structure / 5 MA on 5-min. |
+| Time stop | 30 min default. Not working = information; theta charges rent while you wait. |
+| Flow flip | Hard `underlying_ofi_20` reversal → exit immediately, do not wait for the stop. |
+| Expiry day | All hold times halved. Gamma cuts both ways. |
+
+Never: average down, hold through lunch hoping, re-enter after two losses, buy into a known event for the vol crush.
+
+---
+
+## 7. Sizing and budget
+
+Rs 50,000 paper capital.
+
+| | nifty50 | banknifty |
+|---|---|---|
+| Lot size | 75 | 30 (verify against scrip master at runtime) |
+| ATM premium (typical) | ~200 | ~400 |
+| Cost per lot | ~Rs 15,000 | ~Rs 12,000 |
+| Risk per trade at stop | ~Rs 800–900 | ~Rs 900 |
+
+Worst case both open ≈ Rs 27,000, leaving ~45% buffer. Risk per trade ≈ **1.8% of capital**.
+
+**Trap to avoid:** `aiModeConfig.ts` default sizing is `{mode:"lots", value:10}` — that is Rs 150,000 a trade. Must be set to **1 lot** for this cohort before anything runs.
+
+Lot size is authoritative from the Dhan scrip master (`scripMaster.ts:553`), not hardcoded. The 75/30 figures above are from `sim_pnl.py:81-86` (marked "as of 2026-05") and must be re-verified.
+
+---
+
+## 8. Validation protocol
+
+Adopted verbatim from the 2026-09-15 standing bar, plus the method lessons that caused repeated false positives.
+
+**Bar — all five must pass before any capital:**
+
+1. >= 60 trading days, out-of-sample, walk-forward (the rules see only prior days)
+2. Profitable in the **majority of months judged independently**
+3. Survives **removing the top 3 trades**
+4. **No look-ahead** — every input knowable at decision time
+5. Not explained by **market direction** over the window
+
+**Look-ahead ban list.** The feature parquet contains forward labels. These are banned as inputs, no exceptions:
+`max_upside_*`, `max_drawdown_*`, `risk_reward_ratio_*`, `direction_*`, `trend_*_{900,1800}s`, `swing_*_{3600,7200}s`, and any column whose value depends on data after the decision timestamp.
+
+**Method rules:**
+
+- Sweep thresholds on train days only; judge on held-out days never touched by tuning.
+- Judge **per month**, not on the last N days — the last window (08-11 → 09-07) fell 2.7% and flatters any short-biased rule.
+- Report net excluding top 1 / 3 / 5 trades, always.
+- **Test Setup A and Setup B independently**, with separate verdicts. Combining them before each is proven repeats the in-sample selection trap.
+- Charge-aware throughout — reuse `blast_model/backtest.py` conventions.
+- Short windows lie: CB2 showed +Rs 179,742 in August alone and -Rs 571,666 over the full 72 days.
+
+---
+
+## 9. Why this may differ from CB2 — and why that is not a guarantee
+
+CB2's failure was mechanical, not a tuning problem:
+
+- Its pivot rule confirmed a swing only **after the move paused** — ~5–6 bars, structurally buying the second wind.
+- The index had already moved +9.9 pts (median) before entry; median move after entry was **+0.0**.
+- Neither leg saw the index, the flow, or the other leg.
+
+This cohort enters on **flow at the level**, not on a confirmed pivot after the fact, and holds a single index-level view that both legs share, so CE and PE can never be open together. That addresses the diagnosed cause directly.
+
+It is still only a hypothesis. Every threshold in §5 and §6 is a **starting point, not a tested truth** — the 30-minute time stop, the 10% spread rule, the 0.45–0.60 delta band. §8 decides.
+
+---
+
+## 10. Build order
+
+| Step | What | Status |
+|---|---|---|
+| 1 | This spec | done 2026-09-16 |
+| 2 | `python_modules/claude_cohort/rules.py` — pure functions, feature row in, decision out | pending |
+| 3 | `python_modules/claude_cohort/backtest.py` — walk-forward, charge-aware, fills off recorded option ticks | pending |
+| 4 | Run Setup A and Setup B independently, nifty50 then banknifty | pending |
+| 5 | Verdict against §8 | pending |
+| 6 | **Gate** — only if passed: `live_runner.py` + cohort registration | blocked on 5 |
+| 7 | Paper wiring + tracker | blocked on 6 |
+
+## 11. Registration checklist (step 6 — do not start early)
+
+External-runner pattern, so the file list is short:
+
+- `server/portfolio/aiModeConfig.ts` — `CohortsConfig` field, `CohortKey` union, defaults, `sanitizeMode`, `cohortKey()`
+- `server/discipline/routes.ts` — paper-pin + cohort→key map
+- `client/src/lib/tradeThemes.ts` — colour + label
+- `config/ai_mode_config.json` — `cohorts.claude` in all 6 blocks
+- `scripts/cb2_tracker.py:22` — add `"claude"` to `COHORTS`
+
+Not needed (external runner bypasses these): `engine.py`, `thresholds.py`, `control_client.py`, `seaControl.ts`.
+
+## 12. Platform bugs that will corrupt any paper result
+
+From the 2026-09-15 audit. These affect **every** cohort and are why the backtest, not the paper ledger, is the verdict:
+
+1. Stale entry/exit price stamps, 4–8 min old
+2. Feed drop on an open trade → RCA exits at the frozen price
+3. `warm()` emits entries retroactively (engine cohorts only — not applicable to this one)
+4. Replay silently drops data above ~2.5x and still reports COMPLETED
+5. Replay executes on live `strike_lock_state.json`, not the signal
+6. No sanity guard on fills — an exit price of 0 was accepted
+7. Archive records carry wrong dates and merge trading days
+8. `stop_buffer_pct` not scale-invariant — addressed for this cohort in §6
+
+## 13. Related
+
+- [12 — Market Status Screen](12_market_status_screen.md) — the human-facing view of the same data points
+- [docs/COHORT_FINDINGS_2026-09-15.md](../COHORT_FINDINGS_2026-09-15.md) — the audit this spec is built on
+- [04 — Signal Engine](04_signal_engine.md), [06 — Risk & Discipline](06_risk_discipline.md)

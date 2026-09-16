@@ -3361,3 +3361,43 @@ math (theta + wrong-gap cost) before any hold rule. Own promotion gates.
 61 samples cannot support a daily model; the confident calls were WORSE (38%).
 Standing rule: NO overnight holds on this. Re-run monthly as recorded days
 accumulate (script re-runs in seconds); revisit external daily history later.
+
+### T179 [STRAT] — Claude cohort (context-first option buying) — SPEC WRITTEN 2026-09-16, BACKTEST FIRST 🚧
+Spec: `docs/systems/13_claude_cohort.md`. New cohort for nifty50 + banknifty
+that decides on the INDEX (trend, order flow, levels, volatility, OI
+positioning) and only then picks a strike — the opposite of CB2/candleblue,
+which watched only the premium tape and could not tell continuation from
+reversal (findings 2026-09-15). Two setups only: break-with-flow, and
+failed-move fade. Buy CE/PE, ATM/slightly-ITM, delta 0.45-0.60, 1 lot,
+one position per instrument, hold 15 min - 2 h, 30 min time stop.
+Budget Rs 50,000 paper (~Rs 27k worst-case exposure, ~1.8% risk/trade).
+**Partha decision 2026-09-16: BACKTEST FIRST, no paper wiring until it passes.**
+Data verified available: 78 nifty50 / 72 banknifty feature-parquet days (576
+cols), plus full-ladder chain snapshots and option tick recordings.
+Validation bar = the 2026-09-15 standing bar (>=60 OOS days, majority of
+months positive judged independently, survives removing top 3 trades, no
+look-ahead, not explained by market direction). Setups A and B judged
+SEPARATELY. Forward-label columns (`max_upside_*`, `direction_*`, `trend_*`,
+`swing_*`, `risk_reward_*`) banned as inputs.
+Next: `claude_cohort/rules.py` then `claude_cohort/backtest.py`.
+
+### T180 [UI] — Market Status Screen (Python, 2x2, four instruments) — SPEC WRITTEN 2026-09-16 📋
+Spec: `docs/systems/12_market_status_screen.md`. Full-screen 2x2 grid —
+nifty50 top-left, banknifty top-right, crudeoil bottom-left, naturalgas
+bottom-right. Shows session state, trend, strength, energy, levels, OI/IV,
+tradeability, and an expiry-lifecycle view (strike x day OI map, wall
+migration, cycle phase, same-day-last-expiry compare). Reads TFA's live
+NDJSON / feature socket — no new ingestion for v1. Display = raw number +
+colour, no hidden logic.
+Differentiator: a MEASURED hit rate shown next to each field, so fields that
+never predicted anything get greyed out. Blocked on nothing; sequenced after
+T179's backtest since the measurement layer shares that harness.
+Open: verify Dhan historical OI for EXPIRED contracts (one test call);
+decide on monthly-expiry polling; pick the Python UI toolkit.
+
+### T181 [DATA] — banknifty recording dead since 2026-09-07 — NEEDS FIX 🚨
+`data/raw/2026-09-07/banknifty_*` is truncated at 10:12 and there has been no
+banknifty chain-snapshot or feature-parquet recording since. nifty50, crudeoil
+and naturalgas are unaffected (nifty50 recorded through 2026-09-16). Caps the
+T179 banknifty backtest at 72 days ending 09-07. Find why the recorder stopped
+for this one instrument and restart it.
