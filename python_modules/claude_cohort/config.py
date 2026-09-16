@@ -152,6 +152,13 @@ class Params:
     half_off_at_target: bool = True    # take half at T1, trail the rest
     expiry_day_shrink: float = 0.5     # halve hold times on expiry day
 
+    # -- flow-based setups (2026-09-17, Partha's 15-rule spec)
+    flow_window_sec: float = 300.0     # rule 15 confirmation window
+    delta_ratio_min: float = 0.25      # rules 2,3,8 — how one-sided is one-sided
+    require_cumdelta_confirm: bool = True   # rule 9
+    rejection_min_back_pct: float = 0.05    # rule 14 — a real return, not a tick
+    require_corroboration: bool = True      # rules 5,6,10 must back rule 14
+
     # -- risk (spec §4)
     max_trades_per_day: int = 3
     stop_after_losses: int = 2

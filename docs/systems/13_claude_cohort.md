@@ -289,3 +289,114 @@ Build cost ~2 min per instrument-day, ~4 MB per day, done once and cached.
 `opt_0_*` (or the `opt_m3..opt_p3` ladder) as a *time series* across a hold has
 the same defect. Reading it at a single instant is fine — the splice only
 corrupts a series. Worth auditing separately.
+
+
+---
+
+## 15 — Order flow / tape reading (Partha's 15-rule spec, 2026-09-17)
+
+Code: `python_modules/claude_cohort/flow.py`, 27 tests in `tests/test_flow.py`.
+
+### 15.1 What the feed can and cannot support
+
+Rule 1 asks to classify **every** trade as bid-side or ask-side. That is not
+possible on this feed, and claiming it would be dishonest.
+
+Measured, nifty50 2026-09-11:
+
+| | value |
+|---|---|
+| packets per minute | ~74 (median gap 0.81 s, p90 1.48 s) |
+| contracts traded between packets | median 130 (2 lots), p90 780, max 12,935 |
+| packets with no new volume | 65% |
+
+Each packet carries the **last** print's price plus cumulative volume, so all
+volume since the previous packet is attributed to that one print's side. Near
+exact at the median; coarse in the tail, where a 199-lot block certainly traded
+both ways.
+
+**Survives this:** everything measured over Rule 15's 1–5 minute confirmation
+windows — pressure, delta, cumulative delta, absorption, exhaustion, rejection.
+**Does not:** per-trade granularity. We never claim it.
+
+### 15.2 Where each rule lives
+
+| Rule | Status | Where |
+|---|---|---|
+| 1 trade side | **already in TFA** | `underlying_trade_direction` (features/ofi.py), mirrored by `flow.classify` — tested identical |
+| 2, 3 aggressive buy/sell | **already in TFA** | same field + volume delta |
+| 4 price + quantity | built | `pressure().price_move` |
+| 5, 6 absorption | **new** | `FlowState.absorption()` |
+| 7 pressure vs response | built | `pressure().price_responded` |
+| 8 delta | **already in TFA** | `underlying_ofi_5/20/50` IS delta; `pressure().delta` |
+| 9 cumulative delta | **new** | `cumulative_delta()`, with divergence flag |
+| 10 exhaustion | **new** | `exhaustion()` |
+| 11, 12 depth / imbalance | options only in TFA | `depth_imbalance()` adds it for the underlying |
+| 13 liquidity removal | **new** | `liquidity_removed()` |
+| 14 rejection | **new** | `rejection()`, against levels built from the tape |
+| 15 confirmation | design rule | windows 60 / 120 / 300 s; `snapshot()` returns all |
+
+### 15.3 Rules that deliberately return no verdict
+
+Partha's own wording, enforced by negative tests:
+
+- Rule 8 — "Delta is an observation, not an entry signal by itself."
+- Rule 12 — "Do not treat imbalance alone as a directional signal."
+- Rule 7 — "Pressure without price movement needs further observation."
+
+`pressure()` and `depth_imbalance()` return measurements only; the tests assert
+no key named signal / direction / bias / verdict ever appears.
+
+### 15.4 Everything is scale-free
+
+Thresholds are multiples of the session's **own** distribution so far (median
+trade size, median |ofi_50|), never absolute. Raw flow numbers are not
+comparable between NIFTY and BANKNIFTY, and an absolute threshold silently
+becomes a different rule on each instrument — the same defect as findings bug 8.
+
+### 15.5 Calibration (nifty50 2026-09-11, 372 decision points)
+
+| trigger | fires | read |
+|---|---|---|
+| cumulative-delta divergence | 36% of minutes | context only, far too common to trigger on |
+| seller exhaustion | 20% | filter, not a trigger |
+| buyer exhaustion | 17% | filter, not a trigger |
+| buyer absorption | 3% | rare enough to be a trigger |
+| seller absorption | 3% | rare enough to be a trigger |
+
+### 15.6 Look-ahead bug found in this layer
+
+The window helpers filtered only the **lower** time bound, so a snapshot "as of
+T" included prints from after T, and `cumulative_delta` returned the
+whole-session total instead of the value at T. Fixed in three places. Caught by
+`test_everything_is_causal`, which replays the same instant from two different
+feed lengths and requires an identical answer.
+
+### 15.7 The rewritten setups
+
+Originals kept as **controls** — the flow work has to beat them, not be assumed
+better.
+
+**A2 `break_with_pressure`** (rules 2,3,4,7,9,6,10) — a break is only bought when
+aggressive volume is genuinely one-sided, price is *responding* to it (rule 7),
+cumulative delta agrees (rule 9), the other side is not absorbing (5,6), and our
+own side is not already exhausted (10).
+
+**B2 `rejection_confirmed`** (rules 14,5,6,10) — rule 14 asks for confirmation by
+the *subsequent* trades. A rejection counts only when the prints on the way back
+are genuinely on the other side, the return is a real distance rather than a
+tick, and something corroborates it: the level absorbing the push, or the push
+exhausting.
+
+### 15.8 Baseline the flow work must beat
+
+nifty50, 78 days, real per-contract fills, fixed params, no sweep:
+
+| setup | trades | net | months positive |
+|---|---|---|---|
+| `break_with_flow` (control) | 67 | **-Rs 6,250** | 1 of 6 |
+| `failed_move` (control) | 89 | **-Rs 26,126** | 0 of 6 |
+
+`failed_move` showed **+Rs 3,505** under the old spliced fill model and looked
+like the promising one. On real contracts it loses Rs 26,126 — a Rs 29,600 swing,
+and it is the worse of the two. This is why §14.2 mattered.

@@ -35,11 +35,14 @@ from .config import (
     sweep_params,
 )
 from .book import load_book, quote_at
+from .flow import build_day_snapshots
 from .rules import (
     RULE_INPUTS,
     liquidity_gate_quote,
     SETUP_A,
+    SETUP_A2,
     SETUP_B,
+    SETUP_B2,
     Position,
     SessionState,
     evaluate_entry,
@@ -91,6 +94,16 @@ def available_dates(instrument: str) -> list[str]:
 
 _DAY_CACHE: dict = {}
 _BOOK_CACHE: dict = {}
+_FLOW_CACHE: dict = {}
+
+
+def load_flow_cached(instrument: str, date: str):
+    """Flow snapshots per minute. ~4 s to build a day, so cache aggressively —
+    the sweep replays the same day many times."""
+    key = (instrument, date)
+    if key not in _FLOW_CACHE:
+        _FLOW_CACHE[key] = build_day_snapshots(instrument, date)
+    return _FLOW_CACHE[key]
 
 
 def load_book_cached(instrument: str, date: str):
@@ -160,6 +173,7 @@ def simulate_day(
     allow: tuple[str, ...],
     lots: int = 1,
     book: Optional[dict] = None,
+    flow: Optional[dict] = None,
 ) -> list[Trade]:
     """Run one day. Returns closed trades.
 
@@ -261,7 +275,9 @@ def simulate_day(
         if eod:
             continue
 
-        sig = evaluate_entry(row, state, p, allow=allow)
+        sig = evaluate_entry(
+            row, state, p, allow=allow, flow=(flow or {}).get(minute)
+        )
         if sig is None:
             continue
 
@@ -299,16 +315,18 @@ def run_days(
     instrument: str, dates: Iterable[str], p: Params, allow: tuple[str, ...], lots: int = 1
 ) -> list[Trade]:
     out: list[Trade] = []
+    needs_flow = any(a in (SETUP_A2, SETUP_B2) for a in allow)
     for d in dates:
         try:
             df = load_day(instrument, d)
             bk = load_book_cached(instrument, d)
+            fl = load_flow_cached(instrument, d) if needs_flow else None
         except Exception as exc:  # truncated / corrupt recordings are expected
             print(f"  [skip] {d}: {type(exc).__name__}: {exc}")
             continue
         if bk is None:
             continue  # no contract book for this day -> cannot price it honestly
-        out.extend(simulate_day(instrument, d, df, p, allow, lots, book=bk))
+        out.extend(simulate_day(instrument, d, df, p, allow, lots, book=bk, flow=fl))
     return out
 
 
@@ -457,7 +475,10 @@ def report(trades: list[Trade], label: str, dates: list[str], instrument: str) -
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Claude cohort walk-forward backtest")
     ap.add_argument("--instrument", default="nifty50", choices=sorted(LOT_SIZES))
-    ap.add_argument("--setup", default="both", choices=[SETUP_A, SETUP_B, "both"])
+    ap.add_argument(
+        "--setup", default="both",
+        choices=[SETUP_A, SETUP_B, SETUP_A2, SETUP_B2, "both", "both_flow"],
+    )
     ap.add_argument("--lots", type=int, default=1)
     ap.add_argument("--no-sweep", action="store_true", help="fixed default params (no selection bias)")
     ap.add_argument("--limit-days", type=int, default=0, help="debug: only the first N days")
@@ -470,7 +491,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"No feature parquets for {args.instrument} under {FEATURES_DIR}")
         return 1
 
-    allow = (SETUP_A, SETUP_B) if args.setup == "both" else (args.setup,)
+    if args.setup == "both":
+        allow = (SETUP_A, SETUP_B)
+    elif args.setup == "both_flow":
+        allow = (SETUP_A2, SETUP_B2)
+    else:
+        allow = (args.setup,)
     print(f"instrument   {args.instrument}   lot={LOT_SIZES[args.instrument]}   lots={args.lots}")
     print(f"days         {len(dates)}   {dates[0]} -> {dates[-1]}")
     print(f"setup(s)     {', '.join(allow)}")

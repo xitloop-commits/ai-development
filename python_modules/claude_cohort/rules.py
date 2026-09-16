@@ -358,7 +358,11 @@ def detect_fade(row, state: SessionState, p: Params) -> Optional[str]:
 
 
 def evaluate_entry(
-    row, state: SessionState, p: Params, allow: tuple[str, ...] = (SETUP_A, SETUP_B)
+    row,
+    state: SessionState,
+    p: Params,
+    allow: tuple[str, ...] = (SETUP_A, SETUP_B),
+    flow: Optional[dict] = None,
 ) -> Optional[Signal]:
     """One decision point. Returns a Signal or None.
 
@@ -388,6 +392,14 @@ def evaluate_entry(
         leg = detect_fade(row, state, p)
         if leg:
             setup = SETUP_B
+    if leg is None and SETUP_A2 in allow:
+        leg = detect_break_pressure(row, flow or {}, p)
+        if leg:
+            setup = SETUP_A2
+    if leg is None and SETUP_B2 in allow:
+        leg = detect_rejection(row, flow or {}, p)
+        if leg:
+            setup = SETUP_B2
     if leg is None:
         return None
 
@@ -468,4 +480,140 @@ def evaluate_exit(
     if _ok(ts) and held_sec >= p.time_stop_min * 60.0:
         return "time_stop"
 
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Flow-based setups (2026-09-17)
+#
+# The originals above stay as CONTROLS. Their baseline on 78 nifty50 days with
+# real per-contract fills was break_with_flow -Rs 6,250 and failed_move
+# -Rs 26,126 (0 of 6 months positive, 25% win). Both are kept so the flow work
+# has to prove it beats them, rather than being assumed better.
+#
+# What was actually wrong with the originals:
+#   * "flow" was one number, `underlying_ofi_20`, read as a bare sign
+#   * "price came back" counted as a rejection with nothing confirming it
+#   * nothing checked whether pressure was actually MOVING price (rule 7)
+#   * nothing noticed the other side absorbing (rules 5, 6)
+# ─────────────────────────────────────────────────────────────────────────
+
+SETUP_A2 = "break_with_pressure"
+SETUP_B2 = "rejection_confirmed"
+
+
+def detect_break_pressure(row, flow: dict, p: Params) -> Optional[str]:
+    """Setup A rewritten on the tape (rules 2, 3, 4, 7, 9, 6, 10).
+
+    A break is only worth buying when aggressive volume is genuinely one-sided,
+    price is RESPONDING to it, cumulative delta agrees, and the other side is
+    neither absorbing it nor is our own side exhausted.
+    """
+    if not flow:
+        return None
+    pr = flow.get(f"pressure_{int(p.flow_window_sec)}s") or {}
+    if not pr.get("n"):
+        return None
+
+    # Rule 7 — pressure without price movement is not a break.
+    if not pr.get("price_responded"):
+        return None
+
+    ratio = pr.get("delta_ratio", 0.0)
+    if abs(ratio) < p.delta_ratio_min:
+        return None
+
+    # Rule 9 — cumulative delta must agree over the same stretch.
+    cd = flow.get(f"cumdelta_{int(p.flow_window_sec)}s") or {}
+    if p.require_cumdelta_confirm and not cd.get("confirms"):
+        return None
+
+    want = "CE" if ratio > 0 else "PE"
+
+    # Rules 5, 6 — if the other side is absorbing, the break is being sold into.
+    absorb = flow.get("absorption")
+    if absorb:
+        if want == "CE" and absorb["type"] == "seller_absorption":
+            return None
+        if want == "PE" and absorb["type"] == "buyer_absorption":
+            return None
+
+    # Rule 10 — do not board aggression that is already fading.
+    exh = flow.get("exhaustion")
+    if exh:
+        if want == "CE" and exh["type"] == "buyer_exhaustion":
+            return None
+        if want == "PE" and exh["type"] == "seller_exhaustion":
+            return None
+
+    # The level still has to actually break.
+    lv = flow.get("levels") or {}
+    px = flow.get("price")
+    if not px or not lv.get("or_frozen"):
+        return None
+    if want == "CE" and not (
+        (lv.get("or_high") and px > lv["or_high"]) or (lv.get("session_high") and px >= lv["session_high"])
+    ):
+        return None
+    if want == "PE" and not (
+        (lv.get("or_low") and px < lv["or_low"]) or (lv.get("session_low") and px <= lv["session_low"])
+    ):
+        return None
+
+    # Chop filter is kept but can be swept away — the flow test may make it
+    # redundant, and we want the data to say so rather than assuming it.
+    adx = _f(row, "adx_5min")
+    if p.adx_min > 0 and (not _ok(adx) or adx < p.adx_min):
+        return None
+    return want
+
+
+def detect_rejection(row, flow: dict, p: Params) -> Optional[str]:
+    """Setup B rewritten on the tape (rules 14, 5, 6, 10, 9).
+
+    Rule 14 asks for confirmation by the SUBSEQUENT trades, not by the poke.
+    So a rejection counts only when the prints on the way back are genuinely on
+    the other side, and something corroborates it — the level absorbing the
+    move, or the aggression that made the move running out.
+    """
+    if not flow:
+        return None
+    rejections = flow.get("rejections") or {}
+    if not rejections:
+        return None
+
+    absorb = flow.get("absorption")
+    exh = flow.get("exhaustion")
+
+    # Prefer the opening-range levels, then the session extremes.
+    for name in ("or_high", "or_low", "session_high", "session_low"):
+        r = rejections.get(name)
+        if not r or not r.get("confirmed"):
+            continue
+
+        want = "PE" if r["direction"] == "down" else "CE"
+
+        # Rule 14 — the return has to be worth something, not a tick.
+        und = _f(row, "underlying_ltp")
+        if _ok(und) and und > 0:
+            if r.get("back_by", 0.0) < und * p.rejection_min_back_pct / 100.0:
+                continue
+
+        if not p.require_corroboration:
+            return want
+
+        # Corroboration: the level absorbed the push, or the push exhausted.
+        corroborated = False
+        if absorb:
+            if want == "PE" and absorb["type"] == "seller_absorption":
+                corroborated = True     # sellers soaked up the buying at the high
+            if want == "CE" and absorb["type"] == "buyer_absorption":
+                corroborated = True
+        if exh:
+            if want == "PE" and exh["type"] == "buyer_exhaustion":
+                corroborated = True
+            if want == "CE" and exh["type"] == "seller_exhaustion":
+                corroborated = True
+        if corroborated:
+            return want
     return None

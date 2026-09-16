@@ -49,6 +49,10 @@ PASSIVE = 0  # inside the spread, or no book yet
 # Rule 15: never one tick. These are the confirmation windows.
 WINDOWS_SEC = (60, 120, 300)
 
+# Opening range length. The session filter already blocks entries inside this
+# window, so the range is always frozen before any rule reads it.
+OR_MINUTES = 15.0
+
 
 def classify(ltp: float, bid: float, ask: float) -> int:
     """Rule 1 — which side of the book did this print happen on.
@@ -98,6 +102,15 @@ class FlowState:
     _prev_volume: Optional[float] = None
     _session_qty: list = field(default_factory=list)   # for scale-free thresholds
     _last_price: Optional[float] = None
+    # Session levels, built from the tape itself rather than read from a feature
+    # column — the rejection rule needs absolute prices, and deriving them here
+    # avoids depending on another module's sign convention.
+    first_ts: Optional[float] = None
+    session_high: Optional[float] = None
+    session_low: Optional[float] = None
+    or_high: Optional[float] = None      # opening range, frozen after OR_MINUTES
+    or_low: Optional[float] = None
+    _or_frozen: bool = False
 
     # ── ingest ───────────────────────────────────────────────────────────
 
@@ -125,8 +138,33 @@ class FlowState:
             self.cum_delta += side * dv
             self.cum_delta_hist.append((float(ts), self.cum_delta, float(ltp)))
 
+        self._track_levels(float(ts), float(ltp))
         self._ingest_depth(tick, float(ts))
         self._last_price = float(ltp)
+
+    def _track_levels(self, ts: float, px: float) -> None:
+        if self.first_ts is None:
+            self.first_ts = ts
+            self.session_high = self.session_low = px
+            self.or_high = self.or_low = px
+            return
+        self.session_high = max(self.session_high, px)
+        self.session_low = min(self.session_low, px)
+        if not self._or_frozen:
+            if ts - self.first_ts <= OR_MINUTES * 60.0:
+                self.or_high = max(self.or_high, px)
+                self.or_low = min(self.or_low, px)
+            else:
+                self._or_frozen = True
+
+    def levels(self) -> dict:
+        return {
+            "session_high": self.session_high,
+            "session_low": self.session_low,
+            "or_high": self.or_high,
+            "or_low": self.or_low,
+            "or_frozen": self._or_frozen,
+        }
 
     def _ingest_depth(self, tick: dict, ts: float) -> None:
         """Rules 11-13 — the visible book, and what disappears from it."""
@@ -399,10 +437,21 @@ class FlowState:
         """
         out = {
             "cum_delta": self.cum_delta,
+            "price": self._last_price,
+            "levels": self.levels(),
             "depth": self.depth_imbalance(),
             "absorption": self.absorption(now=now),
             "exhaustion": self.exhaustion(now=now),
         }
+        # Rule 14 against each session level that is actually established.
+        rej = {}
+        for name in ("or_high", "or_low", "session_high", "session_low"):
+            lv = self.levels().get(name)
+            if lv:
+                r = self.rejection(lv, now=now)
+                if r:
+                    rej[name] = r
+        out["rejections"] = rej
         for sec in WINDOWS_SEC:
             out[f"pressure_{sec}s"] = self.pressure(sec, now)
             out[f"cumdelta_{sec}s"] = self.cumulative_delta(sec, now)
@@ -412,3 +461,61 @@ class FlowState:
 
 def _same_sign(a: float, b: float) -> bool:
     return (a > 0 and b > 0) or (a < 0 and b < 0)
+
+
+# ── per-day snapshot cache ───────────────────────────────────────────────
+#
+# The backtest needs the flow read at each 1-minute decision point. Streaming
+# the tick file once per day and emitting a snapshot per minute is far cheaper
+# than re-deriving it, and keeps the decision points identical between the
+# baseline and the flow-based setups.
+
+import glob
+import gzip
+import json
+import os
+import zlib
+
+_FLOW_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+UNDERLYING_GLOB = os.path.join(_FLOW_ROOT, "data", "raw", "{date}", "{inst}_underlying_ticks.ndjson.gz")
+
+
+def build_day_snapshots(instrument: str, date: str, cadence_sec: float = 60.0) -> dict:
+    """Stream one day's underlying ticks, emitting a flow snapshot per minute.
+
+    Returns {minute_index: snapshot}, where minute_index is int(ts // 60) — the
+    same key the backtest uses for its decision points, so a rule can look up
+    "the flow as of this minute" with no alignment guesswork.
+
+    Each snapshot is taken with `now` pinned to that minute, so it can never
+    contain prints from later in the day.
+    """
+    path = UNDERLYING_GLOB.format(date=date, inst=instrument)
+    if not os.path.exists(path):
+        return {}
+
+    fs = FlowState()
+    out: dict = {}
+    last_emit = None
+    try:
+        with gzip.open(path, "rt") as fh:
+            for line in fh:
+                try:
+                    t = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                fs.on_tick(t)
+                ts = t.get("recv_ts")
+                if ts is None:
+                    continue
+                if last_emit is None or ts - last_emit >= cadence_sec:
+                    last_emit = ts
+                    out[int(ts // 60)] = fs.snapshot(now=ts)
+    except (EOFError, zlib.error, OSError):
+        pass  # truncated recording — keep what we have, same as book.py
+    return out
+
+
+def available_flow_dates(instrument: str) -> list:
+    pat = UNDERLYING_GLOB.format(date="*", inst=instrument)
+    return sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(pat))
