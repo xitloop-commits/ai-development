@@ -458,3 +458,91 @@ be the third tuning pass, and findings method-lesson 2 is explicit that
 in-sample filter selection inverted out-of-sample last time. The legitimate
 next step is the walk-forward sweep defined in §8 (tunes only on prior days),
 not more hand-picked conditions.
+
+
+---
+
+## 16 — MEASURED: do the flow rules predict anything? (2026-09-17)
+
+Code: `python_modules/claude_cohort/study.py`. nifty50, **77 days, 26,671
+decision points**. Every trigger computed causally, then the forward path read
+from the underlying at 15 / 30 / 60 minutes. Edge is against the base rate on
+the same days, the same decision points and the same horizons.
+
+### 16.1 The answer is no
+
+**Not one rule cleared the bar.** Not a single trigger beat the base rate on
+both direction and the 2R test at any horizon. The threshold was declared before
+looking: edge inside +/-3 points is noise.
+
+Best and worst, direction edge in percentage points:
+
+| rule | 15 min | 30 min | 60 min |
+|---|---|---|---|
+| `liq_ask_pulled` (rule 13) | +0.4 | +0.6 | **+2.6** |
+| `buyer_absorption` (rule 5) | +1.4 | +0.5 | +1.3 |
+| `cumdelta_divergence` (rule 9) | +0.4 | +0.1 | -0.2 |
+| `rejection_down_confirmed` (rule 14) | -1.1 | -1.9 | -1.5 |
+| `rejection_up_confirmed` (rule 14) | -2.5 | -4.4 | -3.8 |
+| `delta_strong_buy_responding` (rules 7,8) | -4.2 | -4.0 | **-4.4** |
+
+Sample sizes are 1,179–11,239 per rule, so this is not small-n noise — the
+standard error on a 1,695-sample proportion is about 1.2 points.
+
+Three findings worth stating plainly:
+
+1. **Rule 7 — "pressure with price responding" — was the WORST performer**, at
+   roughly -4 points at every horizon. The rule I singled out as the strongest
+   idea in the set is, measured, the most reliably wrong one. Buying strength
+   that has already moved price is buying the second wind — which is exactly the
+   mechanism that killed CB2 (findings §1).
+2. **Confirmation barely mattered for rule 14.** Confirmed rejection -1.1 vs
+   unconfirmed -1.4 at 15 min. The corroboration machinery is not what changed
+   the backtest.
+3. **No rule improved the 2R rate**, which is the one that survives costs. Base
+   2R is 4% / 11% / 19% at the three horizons and nothing beat it by more than
+   1.8 points.
+
+### 16.2 Reconciling this with §15.9
+
+§15.9 showed the flow rules improving the backtest by Rs 8,659 and Rs 24,314.
+§16.1 shows they predict nothing. Both are true, and the explanation matters:
+
+**The flow rules removed a negative edge; they did not add a positive one.**
+
+`failed_move` won 25% of the time — far WORSE than the 50% base rate. It was
+actively selecting bad trades. `rejection_confirmed` wins 46%, which is much
+closer to random. The Rs 24,314 improvement came from trading less badly, not
+from trading well. The rules are a good filter against self-harm and are not a
+source of edge.
+
+### 16.3 What this means for the cohort
+
+Rules-based **directional** entry on this data does not work. Three independent
+measurements now agree:
+
+- both original setups lose (§15.8)
+- both flow setups fail the standing bar, one profitable only because of a
+  single trade (§15.9)
+- no individual rule predicts direction better than the coin (§16.1)
+
+Adding a fourth set of hand-written conditions is not warranted by any of this.
+
+### 16.4 Honest limits of this study
+
+- nifty50 only; banknifty book was still building.
+- One threshold per trigger (delta ratio 0.30, depth imbalance 0.30, 70% removal
+  skew). A different cut could behave differently.
+- Horizons 15/60 min only — the cohort's design range, but the rules might carry
+  information at 1–5 min that is unmonetisable after spread (which is itself a
+  finding, see §7 of the screen spec).
+- Direction only. A rule could predict **volatility** rather than direction and
+  score zero here while still being useful for sizing or for staying out.
+
+### 16.5 Where the flow layer still earns its place
+
+- The flow-flip **exit** was profitable across 46 trades (§15.9).
+- `buyer_absorption` is the only trigger positive at all three horizons, though
+  by too little to trade.
+- The whole layer is the right content for the Market Status Screen (system 12),
+  where a human reads it as context rather than a machine trading it blind.

@@ -3481,3 +3481,27 @@ bid/ask from `<inst>_option_ticks.ndjson.gz` (carries `security_id`, `strike`,
 438 in the spliced column.
 Audit: TFA feature consumers, sma_model, blast_model, any notebook or research
 script that holds a position across rows using opt_0.
+
+### T179 UPDATE 2026-09-17 — flow layer built, measured, NO DIRECTIONAL EDGE 🚧
+Built Partha's 15-rule order-flow/tape layer (`claude_cohort/flow.py`, 27 tests)
+and rewrote both setups on it. Full results in `docs/systems/13_claude_cohort.md`
+§15-16. Headlines:
+- Baseline (real per-contract fills, 78 days): break -Rs 6,250, failed_move
+  -Rs 26,126. Both fail.
+- With flow rules: break_with_pressure +Rs 2,409, rejection_confirmed -Rs 1,812.
+  Big improvement (+Rs 8,659 / +Rs 24,314) but NEITHER passes the standing bar —
+  break_with_pressure's ex-top1 is -Rs 249, so one trade carries all the profit.
+- **Forward hit-rate study over 26,671 decision points: NOT ONE of the 15 rules
+  beats the base rate on both direction and 2R, at any horizon.** Rule 7
+  ("pressure with price responding") is the WORST at ~-4 points. Confirmed vs
+  unconfirmed rejection barely differ.
+- Reconciliation: the flow rules REMOVED a negative edge, they did not add a
+  positive one. failed_move won 25% (worse than the 50% coin); the flow version
+  wins 46% (near random). Trading less badly, not trading well.
+Decision: NOT going to paper, and NOT adding a fourth pass of hand-written
+filters. Open options for next session: (a) the §8 walk-forward sweep (~1.7 h,
+tunes only on prior days, the protocol we committed to before seeing results);
+(b) treat the loss engine — 30 stop-outs cost Rs 26,826 — as a measurement
+question; (c) stop rules-based entry and keep the flow layer for the Market
+Status Screen (T180) where a human reads it as context.
+Pending: banknifty option-book cache ~28/72 built (resumes free, skips existing).
