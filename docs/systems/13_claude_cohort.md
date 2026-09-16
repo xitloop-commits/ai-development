@@ -400,3 +400,61 @@ nifty50, 78 days, real per-contract fills, fixed params, no sweep:
 `failed_move` showed **+Rs 3,505** under the old spliced fill model and looked
 like the promising one. On real contracts it loses Rs 26,126 — a Rs 29,600 swing,
 and it is the worse of the two. This is why §14.2 mattered.
+
+
+### 15.9 RESULT — the flow layer helps a lot, and still does not pass
+
+nifty50, 78 days, real per-contract fills, fixed params, **no sweep** (so zero
+selection bias). Controls run through the identical harness, so the difference
+is attributable to the flow rules and not to a changed backtest.
+
+| setup | trades | net | win | months + | ex-top3 |
+|---|---|---|---|---|---|
+| `break_with_flow` (control) | 67 | -Rs 6,250 | — | 1/6 | -Rs 12,847 |
+| **`break_with_pressure`** | 108 | **+Rs 2,409** | 43% | 3/6 | -Rs 4,806 |
+| `failed_move` (control) | 89 | -Rs 26,126 | 25% | 0/6 | -Rs 32,013 |
+| **`rejection_confirmed`** | 103 | **-Rs 1,812** | 46% | 2/6 | -Rs 6,631 |
+
+**The tape reading is worth something, measurably:**
+
+| | control | with flow rules | delta |
+|---|---|---|---|
+| break | -Rs 6,250 | +Rs 2,409 | **+Rs 8,659** |
+| rejection | -Rs 26,126 | -Rs 1,812 | **+Rs 24,314** |
+
+Rule 14 done properly — confirmation by the subsequent prints, a real return
+distance, and corroboration by absorption or exhaustion — turned the worst
+setup we had into a near-breakeven one. That is a real finding and the flow
+layer is worth keeping regardless of what happens to these two setups.
+
+**Neither passes the §8 bar.**
+
+| check | break_with_pressure | rejection_confirmed |
+|---|---|---|
+| >= 60 OOS days | PASS (78) | PASS (78) |
+| majority of months positive | FAIL (3/6) | FAIL (2/6) |
+| survives removing top 3 | FAIL (-Rs 4,806) | FAIL (-Rs 6,631) |
+| net positive after charges | PASS | FAIL |
+
+The decisive one: `break_with_pressure` ex-top**1** is **-Rs 249**. A single
+trade carries the entire profit. By the standing bar that is not an edge.
+
+**Where the money actually goes** (break_with_pressure):
+
+| exit | trades | net |
+|---|---|---|
+| target | 13 | +Rs 22,566 |
+| flow_flip | 46 | +Rs 6,721 |
+| time_stop | 18 | +Rs 992 |
+| stop | 30 | **-Rs 26,826** |
+
+Net is the small residue of two large opposing numbers, which is exactly the
+fragile shape the audit warns about. Worth noting the flow-flip **exit** is
+profitable across 46 trades — the flow work is earning its place on the exit
+side even while the entries are not good enough.
+
+**Decision: not proceeding to paper, and not adding more filters.** This would
+be the third tuning pass, and findings method-lesson 2 is explicit that
+in-sample filter selection inverted out-of-sample last time. The legitimate
+next step is the walk-forward sweep defined in §8 (tunes only on prior days),
+not more hand-picked conditions.
