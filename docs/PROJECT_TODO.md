@@ -3395,12 +3395,38 @@ T179's backtest since the measurement layer shares that harness.
 Open: verify Dhan historical OI for EXPIRED contracts (one test call);
 decide on monthly-expiry polling; pick the Python UI toolkit.
 
-### T181 [DATA] — banknifty recording dead since 2026-09-07 — NEEDS FIX 🚨
+### T181 [DATA] — banknifty recording dead since 2026-09-07 — ROOT CAUSE FOUND + FIXED 2026-09-16 ✅
 `data/raw/2026-09-07/banknifty_*` is truncated at 10:12 and there has been no
 banknifty chain-snapshot or feature-parquet recording since. nifty50, crudeoil
 and naturalgas are unaffected (nifty50 recorded through 2026-09-16). Caps the
-T179 banknifty backtest at 72 days ending 09-07. Find why the recorder stopped
-for this one instrument and restart it.
+T179 banknifty backtest at 72 days ending 09-07.
+
+**Root cause (2026-09-16):** not a recorder crash — nothing was ever started.
+Two independent failures stacked:
+1. `_INSTRUMENT_ORDER` in `startup/launcher_v2.py` was hard-trimmed to
+   `["nifty50"]` under the 2026-09-07 nifty-only mandate, so the launcher's
+   record/replay menus only ever offered nifty50. banknifty/crudeoil/naturalgas
+   could not be started from the launcher at all.
+2. The `Lubas-Startup` scheduled task was **not registered on this machine** —
+   only `Lubas-YowPartha-Daily`, `Lubas-PnL-Log-Daily`, `Lubas-CB2-Tracker-Daily`
+   and `Lubas-SubscriptionAlert-Daily` existed. So `start-all.bat` never fired
+   automatically, even after it was restored to all-4 recorders on 2026-09-15.
+(crudeoil/naturalgas kept recording only because they were started by hand.)
+
+**Fix applied 2026-09-16:**
+- `_INSTRUMENT_ORDER` restored to all 4 instruments (recording for every
+  instrument; TRADING stays nifty-only — SEA still runs nifty50 alone).
+- Stale "nifty-only" wording + `TfaCount 1` corrected in `startup/start-all.bat`
+  (it already launched all 4 recorders since 2026-09-15).
+- `Lubas-Startup` re-registered (AtLogOn, current user, RunLevel Limited,
+  weekday + market-holiday guarded via `startup/_scheduled-start.bat`).
+
+**Still open:** `Lubas-Shutdown`, `Lubas-Shutdown-Warning` and
+`Lubas-Retrain-Saturday` are also missing from this machine. Re-registering them
+needs an elevated `startup/install-scheduled-tasks.ps1` run, and `Lubas-Shutdown`
+powers the PC off at 00:00 daily — deliberately NOT done without Partha's
+say-so. Verify on the next trading morning that all 4 TFA windows come up on
+their own.
 
 ### T182 [CONFIG] — all configuration into MongoDB, retire config JSON — SCOPED 2026-09-16 📋
 Partha 2026-09-16: "No configuration should be shown in any JSON. All should

@@ -11,7 +11,8 @@ REM    expired, and again on any 401 via the 401 handler. TFA reads
 REM    the live token from /api/broker/token on every reconnect.)
 REM
 REM   Then launches TFA instruments:
-REM     nifty50 ONLY (nifty-only mandate, Partha 2026-09-07)
+REM     ALL 4 (nifty50, banknifty, crudeoil, naturalgas)
+REM   Trading stays nifty-only: SEA runs nifty50 alone.
 REM
 REM   Each instrument runs in its own cmd window so logs and
 REM   Ctrl+C are independent.
@@ -195,10 +196,10 @@ start "Blast-Paper: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call 
 
 echo.
 echo ============================================================
-echo   nifty50 TFA + SEA launched (nifty-only mandate 2026-09-07).
+echo   All 4 TFA recorders launched; SEA on nifty50 only.
 echo   Close the "TFA: *" / "SEA: *" windows to stop.
 echo ============================================================
 echo.
 
 REM Emit lifecycle event for the central log + Telegram (yow-partha).
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 1 -Detail "NIFTY 50 only (nifty-only mandate 2026-09-07): TFA + SEA" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "All 4 TFA recorders + SEA on nifty50 only" >nul 2>&1

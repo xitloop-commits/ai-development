@@ -82,10 +82,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Canonical display/launch order. Membership is *derived* from the
 # config/instrument_profiles/ directory below; this list controls only the
-# Nifty-only mandate (Partha 2026-09-07): the brand-new premium blast model is
-# nifty50-alone, so record/replay run for nifty50 only. To bring an instrument
-# back, add it here again.
-_INSTRUMENT_ORDER = ["nifty50"]
+# display/launch order and which instruments the menus offer.
+# 2026-09-07: trimmed to nifty50 alone under the nifty-only mandate.
+# 2026-09-16: all 4 restored (Partha) — RECORDING runs for every instrument so
+# future blast replication has fresh history. TRADING stays nifty-only: SEA
+# still runs nifty50 alone (see startup/start-all.bat).
+_INSTRUMENT_ORDER = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
 
 
 def _scan_instruments() -> list[str]:
