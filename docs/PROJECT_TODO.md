@@ -3453,3 +3453,31 @@ disagreeing copies happened.
 **NOT a blocker for T179** — the Claude-cohort backtest is pure Python over
 recorded files and never touches server config. Sizing config only matters when
 paper trading is wired, which is already gated on the backtest passing.
+
+### T183 [DATA] — blast_model backtest uses STALE charge rates — NEEDS FIX 🚨
+`python_modules/blast_model/backtest.py:13,42-44` charges STT **0.0625%** on the
+sell and exchange txn **0.05030%**. Production truth (`server/userSettings.ts:204-211`
+DEFAULT_CHARGES, self-healed by CURRENT_STATUTORY_RATES) is STT **0.15%** and txn
+**0.03553%**. STT is understated 2.4x, so blast's costs are too low and its net
+is optimistic. Its documented verdict (+Rs 8,944 net over 52 OOS days, +Rs 93/trade,
+`docs/COHORT_FINDINGS_2026-09-15.md` §3) was computed with these rates and needs
+recomputing before blast is sized up or promoted. `sma_model/config.py:44-66`
+already mirrors production correctly — reuse that, or the copy now in
+`claude_cohort/config.py`.
+
+### T184 [DATA] — audit anything reading `opt_0_*` as a TIME SERIES — 🚨
+Found while building T179. `opt_0_<leg>_*` (and the `opt_m3..opt_p3` ladder) is
+the ATM **slot**, not a contract. Measured nifty50 2026-09-11: the ATM strike
+changes **434 times in one day**; premium jumps CE 90.40 -> 69.15 across a single
+row; 438 jumps over Rs 5 in the day. Reading it at one instant is fine — the
+splice only corrupts a SERIES held across time.
+Impact is directional, not random: when spot moves against a PE position the ATM
+rolls up and the pricier higher-strike put makes a LOSING trade print as a WIN.
+In T179's first run this produced 44 stop-loss exits netting +Rs 3,391 — stops
+cannot be profitable, which is how it was caught.
+Fix pattern: `python_modules/claude_cohort/book.py` — extract true per-contract
+bid/ask from `<inst>_option_ticks.ndjson.gz` (carries `security_id`, `strike`,
+`opt_type`), cache one parquet per instrument-day. Verified: 1 jump over Rs 5 vs
+438 in the spliced column.
+Audit: TFA feature consumers, sma_model, blast_model, any notebook or research
+script that holds a position across rows using opt_0.

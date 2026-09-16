@@ -1,6 +1,6 @@
 # 13 — Claude cohort (context-first option buying)
 
-**STATUS: SPEC — 2026-09-16. No code yet. Backtest-first by Partha's decision; paper wiring only after the backtest clears §8.**
+**STATUS: BUILT, NOT YET JUDGED — 2026-09-16. Rules + backtest + per-contract book + 32 green tests at `python_modules/claude_cohort/`. No verdict yet: the first run was invalidated by a fill-model bug (§14) and the corrected run is blocked on the option-book cache build. Nothing wired, nothing live.**
 
 Scope: nifty50 + banknifty. Buy options only (CE/PE), never write. Paper-pinned until validated.
 
@@ -132,12 +132,19 @@ Rs 50,000 paper capital.
 
 | | nifty50 | banknifty |
 |---|---|---|
-| Lot size | 75 | 30 (verify against scrip master at runtime) |
+| Lot size | **65** | **30** |
 | ATM premium (typical) | ~200 | ~400 |
-| Cost per lot | ~Rs 15,000 | ~Rs 12,000 |
-| Risk per trade at stop | ~Rs 800–900 | ~Rs 900 |
+| Cost per lot | ~Rs 13,000 | ~Rs 12,000 |
+| Risk per trade at stop | ~Rs 865 (measured) | ~Rs 900 |
 
-Worst case both open ≈ Rs 27,000, leaving ~45% buffer. Risk per trade ≈ **1.8% of capital**.
+Worst case both open ≈ Rs 25,000, leaving ~50% buffer. Risk per trade ≈ **1.7% of capital**.
+
+**Lot sizes settled EMPIRICALLY 2026-09-16**, because the repo disagreed with
+itself (`blast_model/backtest.py` said 65, `sim_pnl.py` said 75). Every `ltq` in
+the recorded option ticks is an exact multiple of the lot: nifty50 2026-09-11,
+35,804 ticks, GCD = 65; banknifty 2026-09-04, 38,863 ticks, GCD = 30. blast was
+right. The Rs 865 risk figure is from an actual simulated stop-out, and matches
+the arithmetic (23 pt stop x 0.5 delta x 65 qty + Rs 80 charges).
 
 **Trap to avoid:** `aiModeConfig.ts` default sizing is `{mode:"lots", value:10}` — that is Rs 150,000 a trade. Must be set to **1 lot** for this cohort before anything runs.
 
@@ -191,8 +198,10 @@ It is still only a hypothesis. Every threshold in §5 and §6 is a **starting po
 |---|---|---|
 | 1 | This spec | done 2026-09-16 |
 | 2 | `python_modules/claude_cohort/rules.py` — pure functions, feature row in, decision out | pending |
-| 3 | `python_modules/claude_cohort/backtest.py` — walk-forward, charge-aware, fills off recorded option ticks | pending |
-| 4 | Run Setup A and Setup B independently, nifty50 then banknifty | pending |
+| 3 | `python_modules/claude_cohort/backtest.py` — walk-forward, charge-aware, fills off recorded option ticks | done 2026-09-16 |
+| 3b | `python_modules/claude_cohort/book.py` — per-contract option book cache (see §14) | done 2026-09-16 |
+| 3c | 32 unit tests, all green | done 2026-09-16 |
+| 4 | Run Setup A and Setup B independently, nifty50 then banknifty | blocked on the book cache build (~2.5 h) |
 | 5 | Verdict against §8 | pending |
 | 6 | **Gate** — only if passed: `live_runner.py` + cohort registration | blocked on 5 |
 | 7 | Paper wiring + tracker | blocked on 6 |
@@ -227,3 +236,56 @@ From the 2026-09-15 audit. These affect **every** cohort and are why the backtes
 - [12 — Market Status Screen](12_market_status_screen.md) — the human-facing view of the same data points
 - [docs/COHORT_FINDINGS_2026-09-15.md](../COHORT_FINDINGS_2026-09-15.md) — the audit this spec is built on
 - [04 — Signal Engine](04_signal_engine.md), [06 — Risk & Discipline](06_risk_discipline.md)
+
+
+---
+
+## 14 — Bugs found while building this (2026-09-16)
+
+Both were mine, in this cohort's own code. Recorded because the second one is a
+trap any future backtest over this data will fall into.
+
+### 14.1 Flow-flip exit fired on noise — median hold of ONE minute
+
+The exit rule "leave if flow flips against me" was implemented as a bare sign
+change on `underlying_ofi_20`. Measured on nifty50 2026-09-11, that series
+changes sign **762 times a day**, roughly every 30 seconds. Every trade was
+knocked out almost immediately, against a design hold of 15 min – 2 h.
+
+Fix: a flip now needs all three of direction, **magnitude** beyond the session's
+own median `|ofi_50|` (causal and scale-free, because BANKNIFTY prints much
+larger raw OFI than NIFTY), and **persistence** for `flow_flip_confirm_sec` —
+plus a `min_hold_min` floor so a trade can breathe. Holds moved to a sensible
+10–12 min median. Regression test:
+`test_flow_flip_ignores_a_single_sign_change`.
+
+### 14.2 FATAL — the ATM premium column splices across strikes
+
+`opt_0_<leg>_*` in the feature parquet is the ATM **slot**, not a contract. On
+nifty50 2026-09-11 the ATM strike changed **434 times in one day**, and each
+change jumps the premium instantly — CE 90.40 -> 69.15 across a single row, 438
+jumps over Rs 5 in the day. Holding a position while reading that column prices
+the trade on a series that silently switches contract underneath it.
+
+The error is **directional, not random**: when the underlying moves against a PE
+trade the ATM rolls UP, and the higher strike's put costs more — so losing trades
+print as wins.
+
+**How it was caught:** the first full run reported **44 stop-loss exits netting
++Rs 3,391**. A stop cannot be profitable. Everything in that run was fiction and
+it was discarded.
+
+Fix: `book.py` extracts the true per-contract bid/ask series from
+`data/raw/<date>/<inst>_option_ticks.ndjson.gz` (which carries `security_id`,
+`strike` and `opt_type` per tick), caches one parquet per instrument-day at
+1-second resolution, and every trade is priced on the contract it locked at
+entry. Verified: the busiest PE contract shows **1** jump over Rs 5 in a day
+versus 438 in the spliced column. After the fix, stop-outs lose money, as they
+must.
+
+Build cost ~2 min per instrument-day, ~4 MB per day, done once and cached.
+
+**Applies to more than this cohort.** Any backtest, feature or model that reads
+`opt_0_*` (or the `opt_m3..opt_p3` ladder) as a *time series* across a hold has
+the same defect. Reading it at a single instant is fine — the splice only
+corrupts a series. Worth auditing separately.
