@@ -3401,3 +3401,29 @@ banknifty chain-snapshot or feature-parquet recording since. nifty50, crudeoil
 and naturalgas are unaffected (nifty50 recorded through 2026-09-16). Caps the
 T179 banknifty backtest at 72 days ending 09-07. Find why the recorder stopped
 for this one instrument and restart it.
+
+### T182 [CONFIG] — all configuration into MongoDB, retire config JSON — SCOPED 2026-09-16 📋
+Partha 2026-09-16: "No configuration should be shown in any JSON. All should
+come from MongoDB." Books paper / live / replay / manual each keep their OWN
+settings; **every one defaults to 1 lot**; the system must behave according to
+that configuration alone.
+Problem found: the same lot-size concept is stored in 3 systems / 8 places —
+`config/ai_mode_config.json` (6 blocks: paper|live|replay x ai|manual, currently
+5 and 10 lots), `BrokerConfig.settings.instrumentSizing` in Mongo (defaults 10
+at `brokerConfig.ts:338-341`), and `defaultQty` (1). Consumed at
+`discipline/routes.ts:384` via `sizedLots()` (`executor/positionSizing.ts:16`).
+Mongo settings pattern already exists: UserSettings, ExecutorSettings,
+DisciplineSettings, BrokerConfig.
+**Phased, risk order:**
+- P1 sizing -> Mongo, all four books default 1 lot, migrate existing 5s/10s. Node-only.
+- P2 rest of ai_mode_config.json (cohorts, exits, order) -> same Mongo doc; retire the file. Node-only.
+- P3 `config/sea_thresholds/*.json` -> Mongo; SEA reads via the internal API it
+  already uses (`internal_api.py`). Touches the running signal engine.
+- P4 `config/instrument_profiles/*.json` -> Mongo. Touches TFA startup — riskiest,
+  do alone and verify the recorder after.
+Rule for all phases: TypeScript defaults SEED an empty DB once and must never act
+as a silent runtime fallback — that silent fallback to 10 lots is how the three
+disagreeing copies happened.
+**NOT a blocker for T179** — the Claude-cohort backtest is pure Python over
+recorded files and never touches server config. Sizing config only matters when
+paper trading is wired, which is already gated on the backtest passing.
