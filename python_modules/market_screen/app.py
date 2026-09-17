@@ -82,6 +82,14 @@ COLOURS = {
     WATCH: "#d29922",
     NEUTRAL: "#484f58",
 }
+# Slightly softer for running text: the arrow colours are tuned for a single
+# glyph and read as shouting across a whole sentence.
+TEXT_COLOURS = {
+    POSITIVE: "#56d364",
+    NEGATIVE: "#ff7b72",
+    WATCH: "#e3b341",
+    NEUTRAL: "#8b949e",
+}
 
 # The table spans 1-30 minutes; refreshing faster than once a second only burns
 # CPU re-deriving windows that cannot have meaningfully changed.
@@ -240,10 +248,14 @@ class Quadrant:
                 text = ref.meaning or ref.detail
                 if agree and ref.rule not in INSTANTANEOUS:
                     text = f"{text}   [{agree}]"
-                detail_w.config(text=text, fg=FG if ref.verdict != NEUTRAL else DIM)
+                # The words carry the same colour as the arrow, so the row reads
+                # as one statement instead of a coloured symbol beside grey text.
+                detail_w.config(text=text, fg=TEXT_COLOURS.get(ref.verdict, DIM))
 
         if self.app.view == VIEW_TABLE:
-            self.footer.config(text=f"{sel_label}: {sel_reads[-1].meaning}", fg=DIM)
+            last = sel_reads[-1]
+            self.footer.config(text=f"{sel_label}: {last.meaning}",
+                               fg=TEXT_COLOURS.get(last.verdict, DIM))
 
 
 class App:
