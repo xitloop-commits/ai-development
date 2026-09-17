@@ -206,6 +206,16 @@ class FlowState:
 
     # ── scale-free yardsticks ────────────────────────────────────────────
 
+    def data_span(self) -> float:
+        """Seconds of tape held, oldest print to newest.
+
+        The screen uses this to tell a genuinely quiet window apart from one that
+        simply has no history yet.
+        """
+        if len(self.prints) < 2:
+            return 0.0
+        return self.prints[-1].ts - self.prints[0].ts
+
     def _qty_yardstick(self) -> float:
         """Median trade size so far today. All size thresholds are multiples of
         this, so the same rule means the same thing on NIFTY and BANKNIFTY."""

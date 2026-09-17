@@ -8,15 +8,20 @@ Spec: docs/systems/12_market_status_screen.md
     |      CRUDE OIL      |     NATURAL GAS     |
     +---------------------+---------------------+
 
-Each quadrant is a table: Partha's 15 order-flow rules down the side, his six
-confirmation windows across the top (1m 2m 5m 10m 15m 30m), and each rule's
-MEASURED edge in the last column.
+Each quadrant is a table: Partha's 15 order-flow rules down the side, "now" plus
+his confirmation windows across the top (now 1m 2m 5m 10m 15m 30m), the MEASURED
+edge, and what the reading MEANS in plain English.
+
+A window with less history than it needs shows an en-dash, not a dot: a cold 30m
+window must not look like "nothing is happening". On a mid-session restart the
+tail re-reads today's whole recording, so the windows refill straight away; at
+the open, or with TFA not recording, they are genuinely cold and say so.
 
 Two views, toggled with V:
-  A  table only       — scan consistency across timeframes
-  B  table + detail   — the same grid plus the numbers for the selected window
+  B  table + meaning  — the default; every row explained in words
+  A  table only       — compact, for scanning consistency across timeframes
 
-Keys: V toggle view, 1-6 select window, F11 fullscreen, Esc quit.
+Keys: V toggle view, 1-7 select window, F11 fullscreen, Esc quit.
 
 Run:
   python -m market_screen.app                      # live (tails TFA's recordings)
@@ -50,6 +55,7 @@ from .verdicts import (
     WATCH,
     WINDOW_LABELS,
     WINDOWS,
+    agreement,
     read_grid,
 )
 
@@ -115,9 +121,9 @@ class Quadrant:
         body = tk.Frame(self.frame, bg=PANEL)
         body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
         self.body = body
-        body.columnconfigure(0, minsize=100)
+        body.columnconfigure(0, minsize=112)
         for c in range(1, 1 + len(WINDOWS)):
-            body.columnconfigure(c, minsize=40)
+            body.columnconfigure(c, minsize=38)
         body.columnconfigure(EDGE_COL, minsize=60)
         body.columnconfigure(DETAIL_COL, weight=1)
 
@@ -207,8 +213,9 @@ class Quadrant:
             )
 
             if ref.rule in INSTANTANEOUS:
-                # The book right now — one value spanning every window column,
-                # because a 30-minute depth reading does not exist.
+                # The book is only ever "now", so it lives in the now column and
+                # spans the rest. A 30-minute depth reading does not exist and
+                # inventing one would be fabricating data.
                 cells[0].config(text=ref.detail, fg=FG, anchor="w",
                                 font=("Consolas", 8))
                 cells[0].grid(row=1 + r, column=1, columnspan=len(WINDOWS), sticky="ew")
@@ -228,11 +235,14 @@ class Quadrant:
             edge_w.config(text=ref.edge_label,
                           fg=DIM if ref.edge is not None and abs(ref.edge) >= 3 else FAINT)
             if self.app.view == VIEW_DETAIL:
-                detail_w.config(text=ref.detail[:52],
-                                fg=FG if ref.verdict != NEUTRAL else DIM)
+                agree = agreement(grid, r, sel)
+                text = ref.meaning or ref.detail
+                if agree and ref.rule not in INSTANTANEOUS:
+                    text = f"{text}   [{agree}]"
+                detail_w.config(text=text, fg=FG if ref.verdict != NEUTRAL else DIM)
 
         if self.app.view == VIEW_TABLE:
-            self.footer.config(text=f"{sel_label}: {sel_reads[1].detail}", fg=DIM)
+            self.footer.config(text=f"{sel_label}: {sel_reads[-1].meaning}", fg=DIM)
 
 
 class App:
@@ -302,7 +312,8 @@ class App:
                   f"view {self.view} ({view_label})   |   "
                   f"▲ positive  ▼ negative  ◆ watch  · nothing   |   "
                   f"edge = measured vs base rate, 77 nifty days; inside ±3pp is noise   |   "
-                  f"V view, 1-6 window, F11 fullscreen, Esc quit")
+                  f"– not enough history yet   |   "
+                  f"V view, 1-7 window, F11 fullscreen, Esc quit")
         )
         self.root.after(REFRESH_MS, self.tick)
 
@@ -324,7 +335,7 @@ def main(argv: Optional[list] = None) -> int:
                     help="live source: tfa = tail TFA's recordings (default, always "
                          "flowing); ws = the server relay (only carries data when a "
                          "desk is subscribed)")
-    ap.add_argument("--view", default=VIEW_TABLE, choices=[VIEW_TABLE, VIEW_DETAIL],
+    ap.add_argument("--view", default=VIEW_DETAIL, choices=[VIEW_TABLE, VIEW_DETAIL],
                     help="A = table only, B = table + detail column (toggle with V)")
     ap.add_argument("--fullscreen", action="store_true")
     args = ap.parse_args(argv)

@@ -340,3 +340,57 @@ Keys `1`-`6` pick the detail window (default 5m); `V` toggles; `F11` fullscreen;
 Six windows x four instruments recomputed once a second. Redraw is 1 Hz rather
 than 2: the table spans 1-30 minutes, so a faster refresh would only burn CPU
 re-deriving windows that cannot have meaningfully changed.
+
+
+---
+
+## 13 — "now" column, plain-English meanings, cold-window marking (2026-09-17)
+
+Three changes after Partha saw v1 on screen.
+
+### 13.1 A "now" column, first
+
+| | now | 1m | 2m | 5m | 10m | 15m | 30m |
+|---|---|---|---|---|---|---|---|
+| seconds | 10 | 60 | 120 | 300 | 600 | 900 | 1800 |
+
+"now" is a **10-second** look-back, not a single tick. 65% of packets carry no
+new volume at all, so a literal instant would blink empty most of the time.
+
+### 13.2 Every row says what it MEANS
+
+The arrow gives the direction; the text gives the why, so the screen reads
+without knowing which field produced it. Examples straight off the tape:
+
+| rule | meaning |
+|---|---|
+| 2 | "68% of volume lifted the ask - buyers paying up" |
+| 4 | "12,400 traded but price moved only +0.4 - someone is absorbing it" |
+| 7 | "net selling of -325 but price is NOT following - watch" |
+| 9 | "delta +9,100 but price -3.2 - they disagree, possible absorption or exhaustion" |
+| 12 | "buy side shows 53% more resting size - NOT a direction signal on its own" |
+| 13 | "size left the bid side - cancelled or filled, the book cannot tell which" |
+| 15 | "4 rules point up, 1 down - buying is what is HAPPENING, not a forecast" |
+
+Each row also carries **how many windows agree** — `[6/7]` versus `[2/7]`. That
+is the question the grid exists to answer, so it should not need counting by eye.
+
+View **B (table + meaning) is now the default**; `V` toggles to the compact
+table. There is plenty of screen for the words.
+
+### 13.3 Cold windows are marked, not faked
+
+Partha asked the right question: *on restart we will not have values for all the
+intervals, right?*
+
+Mostly we do — `TailSource` re-reads today's whole recording on start, so a
+mid-session restart refills every window immediately. But at the open, or with
+TFA not recording, a 30m window genuinely has nothing in it.
+
+Previously that printed `·`, identical to "nothing is happening". It now prints
+**`–`** and the meaning says `only 3m of tape so far - this 5m window needs 2m
+more`. `FlowState.data_span()` reports the seconds of tape held.
+
+This is the same class of silent failure as the security-id bug (§11.3) and the
+empty relay (§2): the screen showing something plausible when it actually has
+nothing. Marking it is not cosmetic.
