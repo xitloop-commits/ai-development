@@ -378,7 +378,7 @@ is the question the grid exists to answer, so it should not need counting by eye
 View **B (table + meaning) is now the default**; `V` toggles to the compact
 table. There is plenty of screen for the words.
 
-### 13.3 Cold windows are marked, not faked
+### 13.3 Cold windows are left BLANK, and fill in as the tape arrives
 
 Partha asked the right question: *on restart we will not have values for all the
 intervals, right?*
@@ -387,9 +387,27 @@ Mostly we do — `TailSource` re-reads today's whole recording on start, so a
 mid-session restart refills every window immediately. But at the open, or with
 TFA not recording, a 30m window genuinely has nothing in it.
 
-Previously that printed `·`, identical to "nothing is happening". It now prints
-**`–`** and the meaning says `only 3m of tape so far - this 5m window needs 2m
-more`. `FlowState.data_span()` reports the seconds of tape held.
+Previously that printed `·`, identical to "nothing is happening". A window
+without enough history is now left **blank** — blank means "no data yet", a dot
+means "nothing is happening", and those are different facts that must not share
+a glyph. The meaning reads `waiting - 3m of tape so far, this window needs 5m`.
+`FlowState.data_span()` reports the seconds of tape held.
+
+**"now" is live from the first print.** It is a 10-second look-back, so making
+it wait for a full 10 seconds of span would blank the column at exactly the
+moment you most want to see the tape move. The rest fill in left to right:
+
+```
+     fed    span     now    1m    2m    5m   10m   15m   30m
+       5    0.0m       ▼
+     400    5.3m       ·     ▲     ·     ·
+     900   12.3m       ·     ·     ▼     ▲     ▲
+    1600   21.9m       ·     ▼     ▼     ▼     ▲     ▲
+    2500   34.2m       ▼     ·     ·     ▲     ▼     ▼     ▲
+```
+
+At one tick even `now` is blank, correctly: the first packet has no predecessor
+to diff cumulative volume against, so no trade has been observed yet.
 
 This is the same class of silent failure as the security-id bug (§11.3) and the
 empty relay (§2): the screen showing something plausible when it actually has

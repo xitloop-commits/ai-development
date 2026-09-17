@@ -51,10 +51,14 @@ DEFAULT_WINDOW = 300
 
 SYMBOL = {POSITIVE: "▲", NEGATIVE: "▼", WATCH: "◆", NEUTRAL: "·"}
 
-# Shown when a window has less history than it needs. A cold 30m window would
-# otherwise print "·" — indistinguishable from "nothing is happening", which is
-# exactly the silent-failure shape we keep running into.
-COLD = "–"
+# Shown when a window has less history than it needs: NOTHING. Blank reads as
+# "no data yet"; "·" reads as "nothing is happening". They are different facts
+# and must not share a glyph — a cold 30m window printing a dot is the same
+# silent-failure shape as the security-id bug and the empty relay.
+#
+# A window fills in on its own as the tape reaches its length, so the table
+# populates left to right through the first half hour of a session.
+COLD = ""
 
 # Measured directional edge in percentage points vs the base rate, nifty50,
 # 60-minute horizon (claude_cohort/study.py, 2026-09-17). Anything inside +/-3
@@ -362,14 +366,19 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
     # the open, or if TFA is not recording, a 30m window has nothing in it — and
     # a cold window must say so rather than print "nothing happening".
     span = fs.data_span()
+    # "now" is live from the very first print — it is a 10-second look-back, so
+    # waiting for a full 10 seconds of span before showing anything would leave
+    # the column blank at exactly the moment you most want to see the tape move.
+    warm = len(fs.prints) >= 1 if sec <= NOW_SEC else span >= sec
+
     for rd in out:
         if rd.rule in INSTANTANEOUS:
             continue                      # the book is always "now"
-        if span < sec:
+        if not warm:
             rd.warm = False
             have = int(span // 60)
-            rd.meaning = (f"only {have}m of tape so far - this {mins}m window needs "
-                          f"{mins - have}m more")
+            rd.meaning = (f"waiting - {have}m of tape so far, this window needs {mins}m"
+                          if span else "waiting for the first trades")
     return out
 
 

@@ -12,10 +12,11 @@ Each quadrant is a table: Partha's 15 order-flow rules down the side, "now" plus
 his confirmation windows across the top (now 1m 2m 5m 10m 15m 30m), the MEASURED
 edge, and what the reading MEANS in plain English.
 
-A window with less history than it needs shows an en-dash, not a dot: a cold 30m
-window must not look like "nothing is happening". On a mid-session restart the
-tail re-reads today's whole recording, so the windows refill straight away; at
-the open, or with TFA not recording, they are genuinely cold and say so.
+A window with less history than it needs is left BLANK - blank means "no data
+yet", a dot means "nothing is happening", and those are different facts. "now"
+is live from the first print, and the rest fill in left to right as the tape
+reaches each length. On a mid-session restart the tail re-reads today's whole
+recording, so they refill immediately.
 
 Two views, toggled with V:
   B  table + meaning  — the default; every row explained in words
@@ -312,7 +313,7 @@ class App:
                   f"view {self.view} ({view_label})   |   "
                   f"▲ positive  ▼ negative  ◆ watch  · nothing   |   "
                   f"edge = measured vs base rate, 77 nifty days; inside ±3pp is noise   |   "
-                  f"– not enough history yet   |   "
+                  f"blank = window still filling   |   "
                   f"V view, 1-7 window, F11 fullscreen, Esc quit")
         )
         self.root.after(REFRESH_MS, self.tick)
