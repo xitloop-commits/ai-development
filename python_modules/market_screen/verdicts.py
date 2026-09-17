@@ -125,8 +125,12 @@ RULE_HELP = {
     1: ("TRADE SIDE\n\n"
         "Every trade happens either at the price a seller is asking, or at the "
         "price a buyer is bidding. We record which one, on every trade.\n\n"
-        "This is the raw material for everything below it. On its own it says "
-        "nothing."),
+        "Shown as buys/sells by COUNT - how many trades went each way. Rules 2 "
+        "and 3 split the same window by VOLUME.\n\nWhen those two disagree it is "
+        "worth noticing. Lots of small buys against a few large sells means "
+        "somebody substantial is unloading into eager buying, and summing volume "
+        "alone hides that completely. The explanation on the right says which "
+        "side is trading in bigger clips."),
     2: ("AGGRESSIVE BUYING\n\n"
         "Somebody wanted in badly enough to pay the seller's asking price rather "
         "than wait for a better one.\n\n"
@@ -277,14 +281,30 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
     delta = pr.get("delta", 0.0)
     move = pr.get("price_move", 0.0)
     mins = sec // 60
+    buy_pct = 100 * buy / total if total else 0.0
+    sell_pct = 100 * sell / total if total else 0.0
     out: list[Read] = []
 
-    # 1 — trade side: the raw input, no verdict by design
+    # 1 — trade side. Shows the COUNT split by side, not just how many trades.
+    #
+    # This is deliberately different from rules 2 and 3, which split by VOLUME.
+    # Counts one way while the size goes the other is a real tell: many small
+    # buys against a few large sells means retail is lifting offers while
+    # somebody substantial is unloading into them. Summing volume alone hides it.
+    buy_n = pr.get("buy_n", 0)
+    sell_n = pr.get("sell_n", 0)
     out.append(Read(
-        1, "Trade side", NEUTRAL,
-        f"{n} prints" if n else "no prints yet",
-        value=f"{n}" if n else "-",
-        meaning=(f"{n} trades carried volume in the last {mins}m"
+        1, "Trade side",
+        POSITIVE if buy_n > sell_n else (NEGATIVE if sell_n > buy_n else NEUTRAL),
+        f"{n} prints: {buy_n} buy / {sell_n} sell" if n else "no prints yet",
+        value=f"{buy_n}/{sell_n}" if n else "",
+        meaning=(f"{buy_n} trades at the ask, {sell_n} at the bid"
+                 + (f", {n - buy_n - sell_n} inside the spread" if n - buy_n - sell_n else "")
+                 + (f" - {100 * buy_n / (buy_n + sell_n):.0f}% of TRADES are buys "
+                    f"vs {buy_pct:.0f}% of VOLUME"
+                    f"{'; sells are the bigger clips' if 100 * buy_n / (buy_n + sell_n) - buy_pct > 8 else ''}"
+                    f"{'; buys are the bigger clips' if buy_pct - 100 * buy_n / (buy_n + sell_n) > 8 else ''}"
+                    if (buy_n + sell_n) else "")
                  if n else "no trades yet in this window"),
     ))
 

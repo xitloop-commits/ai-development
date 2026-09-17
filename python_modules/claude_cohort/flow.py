@@ -244,6 +244,10 @@ class FlowState:
             return {"n": 0}
         buy = sum(p.qty for p in w if p.side == BUY)
         sell = sum(p.qty for p in w if p.side == SELL)
+        # Counts as well as quantity. Many small trades one way while the size
+        # goes the other is a real tell, and invisible if you only sum volume.
+        buy_n = sum(1 for p in w if p.side == BUY)
+        sell_n = sum(1 for p in w if p.side == SELL)
         total = buy + sell
         px_move = w[-1].price - w[0].price
         yard = self._qty_yardstick()
@@ -251,6 +255,8 @@ class FlowState:
             "n": len(w),
             "buy_qty": buy,
             "sell_qty": sell,
+            "buy_n": buy_n,
+            "sell_n": sell_n,
             "delta": buy - sell,                                   # rule 8
             "delta_ratio": (buy - sell) / total if total else 0.0,
             "price_move": px_move,                                 # rule 4

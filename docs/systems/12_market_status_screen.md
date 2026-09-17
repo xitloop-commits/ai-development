@@ -519,3 +519,55 @@ side dominates:
 
 Buying decaying from 70% at 1m to 51% at 30m is exactly the kind of thing the
 grid is for, and it was invisible when one row was a dot.
+
+
+---
+
+## 16 — Trade side by COUNT, and the clip-size tell (2026-09-17)
+
+Partha: *you show "buy" for trade side in the now column, why not for the other
+timeframes?*
+
+The obvious fix — print the dominant side — would have duplicated rules 2 and 3,
+which already split the window by volume. So rule 1 shows the **count** split
+instead, which is different information:
+
+```
+ 1 Trade side         sell     7/5   10/21   16/25   35/33   44/44 127/117
+ 2 Aggr buying           ·     21%     22%     26%     43%     46%     48%
+ 3 Aggr selling          ▼     79%     78%     74%     57%     54%     52%
+```
+
+Rule 1 = how many trades went each way. Rules 2/3 = how much volume did.
+
+### 16.1 Why that pairing matters
+
+When count and volume disagree, one side is working in bigger clips — and that
+is the closest thing we have to an institutional footprint. Straight off today's
+tape:
+
+| | trades that are buys | volume that is buys | reading |
+|---|---|---|---|
+| **nifty50** 5m | 40% | 21% | sells are the bigger clips |
+| **banknifty** 5m | 40% | **69%** | buys are the bigger clips |
+
+BankNifty is the striking one: fewer buy *trades* than sell trades, but nearly
+70% of the *volume*. Somebody is accumulating in size while more numerous
+smaller sellers hit the bid. Summing volume alone hides it; counting trades
+alone hides it; only the pair shows it.
+
+The explanation column states it outright — "sells are the bigger clips" —
+whenever the two diverge by more than 8 points.
+
+This is a partial answer to the print-size gap noted when reviewing what was
+missing from the 15 rules. It is not full large-print detection (that needs the
+distribution of `ltq`, not just the mean), but it costs nothing and surfaces the
+same asymmetry.
+
+### 16.2 Also fixed
+
+The meaning line now accounts for trades **inside the spread**, which are
+neither aggressive buys nor sells. Previously it read "69 trades - 16 hit the
+ask, 25 hit the bid", which does not add up and looked like a bug. It now reads
+"16 at the ask, 25 at the bid, 28 inside the spread", and the count percentage
+is computed over buys+sells so it compares like-for-like with the volume share.
