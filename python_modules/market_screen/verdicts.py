@@ -712,104 +712,126 @@ def read_now(fs) -> list[Read]:
     return out
 
 
-# Short phrase per rule per verdict, used to describe a rule across ALL the
-# timeframes in one sentence. Kept terse on purpose: the combined line has to
-# name several windows and still fit.
+# Two or three words per rule per verdict. The combined line has to say what is
+# happening across six timeframes and still fit on ONE line, so every word here
+# is doing work.
 RULE_PHRASE = {
-    1: {POSITIVE: "buys lead", NEGATIVE: "sells lead", NEUTRAL: "even"},
-    4: {POSITIVE: "price up on real volume", NEGATIVE: "price down on real volume",
-        WATCH: "volume but price stuck", NEUTRAL: "nothing"},
-    5: {POSITIVE: "buyers soaking up the selling", NEUTRAL: "not happening"},
-    6: {NEGATIVE: "sellers soaking up the buying", NEUTRAL: "not happening"},
-    7: {POSITIVE: "buyers pushing and price following",
-        NEGATIVE: "sellers pushing and price following",
-        WATCH: "someone pushing but price stuck", NEUTRAL: "no push"},
-    9: {POSITIVE: "buying and price agree", NEGATIVE: "selling and price agree",
-        WATCH: "buying and price disagree", NEUTRAL: "nothing yet"},
-    10: {POSITIVE: "selling running out", NEGATIVE: "buying running out",
+    1: {POSITIVE: "buyers", NEGATIVE: "sellers", NEUTRAL: "even"},
+    4: {POSITIVE: "price rising", NEGATIVE: "price falling",
+        WATCH: "price stuck", NEUTRAL: "quiet"},
+    5: {POSITIVE: "buyers absorbing the selling", NEUTRAL: "not happening"},
+    6: {NEGATIVE: "sellers absorbing the buying", NEUTRAL: "not happening"},
+    7: {POSITIVE: "buyers pushing", NEGATIVE: "sellers pushing",
+        WATCH: "push not working", NEUTRAL: "no push"},
+    9: {POSITIVE: "buying confirmed by price", NEGATIVE: "selling confirmed by price",
+        WATCH: "flow and price disagree", NEUTRAL: "nothing yet"},
+    10: {POSITIVE: "selling tiring", NEGATIVE: "buying tiring",
          NEUTRAL: "nobody tiring"},
-    14: {POSITIVE: "rejected the low", NEGATIVE: "rejected the high",
-         WATCH: "poked a level, not confirmed", NEUTRAL: "no level tested"},
-    15: {POSITIVE: "leaning up", NEGATIVE: "leaning down", NEUTRAL: "split"},
+    14: {POSITIVE: "low rejected", NEGATIVE: "high rejected",
+         WATCH: "poked a level, unconfirmed", NEUTRAL: "no level being tested"},
+    15: {POSITIVE: "up", NEGATIVE: "down", NEUTRAL: "split"},
 }
 
-# Rows whose cells are numbers or words rather than arrows; these get described
-# as a trajectory across the windows instead of grouped by verdict.
+# Rows whose cells are numbers; described as a trend rather than grouped.
 TRAJECTORY_ROWS = {2, 3, 8}
 
+# 1m/2m/5m versus 10m/15m/30m. Saying "short-term" and "longer" is how a person
+# actually thinks about this, and it fits where naming six windows does not.
+SHORT_WINDOWS = 3
 
-def _join(labels: list) -> str:
-    if len(labels) == 1:
-        return labels[0]
-    if len(labels) == 2:
-        return f"{labels[0]} and {labels[1]}"
-    return ", ".join(labels[:-1]) + f" and {labels[-1]}"
+
+def _book_line(rule: int, grid: dict) -> str:
+    """One short line for the book rows, which have no timeframe dimension."""
+    ref = grid[WINDOWS[0]][rule - 1]
+    if rule == 11:
+        return ref.detail.replace("bid ", "").replace("ask ", "").replace(" / ", " waiting to buy, ") + " to sell"
+    if rule == 12:
+        if "-" in ref.detail:
+            return "more orders waiting to sell"
+        if "+" in ref.detail:
+            return "more orders waiting to buy"
+        return "buy and sell orders evenly matched"
+    if rule == 13:
+        import re
+        m = re.findall(r"-([\d,]+)", ref.detail)
+        if len(m) == 2:
+            b = int(m[0].replace(",", ""))
+            a = int(m[1].replace(",", ""))
+            if b > a * 1.3:
+                return "orders pulled mostly from the buy side"
+            if a > b * 1.3:
+                return "orders pulled mostly from the sell side"
+            return "orders pulled evenly from both sides"
+        return "waiting orders are staying put"
+    return ref.meaning
 
 
 def combined_meaning(grid: dict, r: int) -> str:
-    """One plain-English line describing this rule across EVERY timeframe.
+    """ONE SHORT LINE describing this rule across every timeframe.
 
-    A single window's explanation answers "what is happening at 5 minutes". This
-    answers the more useful question: is it the same story everywhere, or does it
-    change as you zoom out? A reading present on one window only is a different
-    animal from one present on all six.
+    A single window answers "what is happening at 5 minutes". This answers the
+    more useful question - is it the same story everywhere, or does it change as
+    you zoom out - and it has to do it in a few words, on one line, without
+    wrapping.
     """
     warm = [(lab, grid[sec][r]) for lab, sec in zip(WINDOW_LABELS, WINDOWS)
             if grid[sec][r].warm]
     if not warm:
-        return "still filling up - not enough history on any timeframe yet"
+        return "still filling up"
 
     rule = warm[0][1].rule
 
-    # Rows that carry a number: describe how it moves as the window lengthens.
+    # Numbers: say which way the number is going, not every value.
     if rule in TRAJECTORY_ROWS:
-        first_lab, first = warm[0]
-        last_lab, last = warm[-1]
-        vals = [rd.value for _, rd in warm if rd.value]
-        if not vals:
-            return warm[0][1].meaning
-        body = " ".join(f"{lab} {rd.value}" for lab, rd in warm if rd.value)
+        first, last = warm[0][1], warm[-1][1]
         if rule in (2, 3):
             side = "buying" if rule == 2 else "selling"
             try:
                 a = float(first.value.rstrip("%"))
                 b = float(last.value.rstrip("%"))
             except (ValueError, AttributeError):
-                return body
-            trend = ("steady across every timeframe" if abs(b - a) < 8
-                     else (f"building as you zoom out, {a:.0f}% at {first_lab} up to "
-                           f"{b:.0f}% at {last_lab}" if b > a
-                           else f"fading as you zoom out, {a:.0f}% at {first_lab} down "
-                                f"to {b:.0f}% at {last_lab}"))
-            return f"{side} share {trend}   ({body})"
-        return f"running total by timeframe: {body}"
+                return ""
+            if abs(b - a) < 8:
+                return f"{side} steady near {b:.0f}% on every view"
+            word = "grows" if b > a else "fades"
+            return f"{side} {word} as you zoom out, {a:.0f}% to {b:.0f}%"
+        return f"running total {first.value} on 1m to {last.value} on 30m"
 
-    # Rows with no per-window story to tell: the book is only ever "now", and
-    # liquidity removal has no direction to group by. Use their own sentence.
+    # No per-window story (the book is only ever "now"). Keep these short too -
+    # the full sentence lives in the tooltip.
     if rule not in RULE_PHRASE:
-        return warm[-1][1].meaning
+        return _book_line(rule, grid)
 
-    # Arrow rows: group the windows that say the same thing.
-    phrases = RULE_PHRASE.get(rule, {})
-    groups: dict = {}
-    for lab, rd in warm:
-        groups.setdefault(rd.verdict, []).append(lab)
+    phrases = RULE_PHRASE[rule]
 
-    if len(groups) == 1:
-        verdict = next(iter(groups))
-        phrase = phrases.get(verdict, verdict.lower())
-        return f"{phrase} - the same on every timeframe"
+    def phrase(rd) -> str:
+        return phrases.get(rd.verdict, rd.verdict.lower())
 
-    # Lead with what is HAPPENING, not with the absence of it. "not happening on
-    # four windows; buyers soaking up the selling on 1m and 2m" buries the only
-    # newsworthy half of the sentence, so neutral groups go last.
-    ordered = sorted(groups.items(),
-                     key=lambda kv: (kv[0] == NEUTRAL, -len(kv[1])))
-    parts = []
-    for verdict, labs in ordered:
-        phrase = phrases.get(verdict, verdict.lower())
-        parts.append(f"{phrase} on {_join(labs)}")
-    return "; ".join(parts)
+    verdicts = [rd.verdict for _, rd in warm]
+    if len(set(verdicts)) == 1:
+        only = warm[0][1]
+        # "not happening on every view" is clumsy; the absence needs no venue.
+        if only.verdict == NEUTRAL:
+            return phrase(only)
+        return f"{phrase(only)} on every view"
+
+    short = [rd for lab, rd in warm[:SHORT_WINDOWS]]
+    longer = [rd for lab, rd in warm[SHORT_WINDOWS:]]
+    s_set = {rd.verdict for rd in short}
+    l_set = {rd.verdict for rd in longer}
+
+    # The most useful split a person can act on: short-term versus longer.
+    if longer and len(s_set) == 1 and len(l_set) == 1 and s_set != l_set:
+        return f"{phrase(short[0])} short-term, {phrase(longer[0])} longer"
+
+    # Otherwise name the dominant reading, preferring one that is actually
+    # happening over the absence of it.
+    counts: dict = {}
+    for v in verdicts:
+        counts[v] = counts.get(v, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: (kv[0] == NEUTRAL, -kv[1]))[0][0]
+    example = next(rd for _, rd in warm if rd.verdict == top)
+    return f"mixed, mostly {phrase(example)}"
 
 
 def agreement(grid: dict, r: int, sel: int) -> str:

@@ -233,7 +233,7 @@ class Quadrant:
         self.rows = []
         for r in range(N_RULES):
             name = tk.Label(body, text="", bg=PANEL, fg=DIM, font=("Segoe UI", 8),
-                            anchor="nw", padx=3, cursor="question_arrow")
+                            anchor="w", padx=3, cursor="question_arrow")
             name.grid(row=1 + r, column=0, sticky="ew")
             tip.attach(name, RULE_HELP.get(r + 1, ""))
             cells = []
@@ -246,28 +246,18 @@ class Quadrant:
                             font=("Consolas", 7), anchor="e", padx=3)
             edge.grid(row=1 + r, column=EDGE_COL, sticky="ew")
             detail = tk.Label(body, text="", bg=PANEL, fg=DIM,
-                              font=("Consolas", 8), anchor="nw", padx=4,
-                              justify="left", wraplength=400)
+                              font=("Consolas", 8), anchor="w", padx=4)
             self.rows.append((name, cells, edge, detail))
 
         self.footer = tk.Label(self.frame, text="", bg=PANEL, fg=DIM,
-                               font=("Consolas", 8), anchor="w",
-                               justify="left", wraplength=700)
+                               font=("Consolas", 8), anchor="w")
         self.footer.pack(fill="x", padx=8, pady=(0, 5))
-        body.bind("<Configure>", self._on_resize)
         self.apply_view()
 
-    def _on_resize(self, event) -> None:
-        """Wrap the explanations to whatever width the column actually has.
-
-        Tkinter wraps on a pixel count, not on the cell, so without this the
-        text either overflows a narrow quadrant or stops short in a wide one.
-        """
-        used = sum(self.body.grid_bbox(column=c, row=0)[2] for c in range(0, EDGE_COL + 1))             if self.body.grid_bbox(column=0, row=0) else 0
-        avail = max(220, event.width - used - 16)
-        for _, _, _, detail in self.rows:
-            detail.config(wraplength=avail)
-        self.footer.config(wraplength=max(300, event.width - 16))
+    # NOTE: no wrapping, and deliberately no <Configure> handler. Recomputing
+    # wraplength inside a Configure callback changes the widget, which fires
+    # Configure again — the window visibly flickered. The explanations are
+    # written short enough to fit one line instead.
 
     # ── layout ───────────────────────────────────────────────────────────
 

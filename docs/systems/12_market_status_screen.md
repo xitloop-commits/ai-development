@@ -648,11 +648,52 @@ Two deliberate choices:
   their own single sentence. The book is only ever "now", so grouping it by
   timeframe would be meaningless.
 
-### 18.2 Wrapping
+### 18.2 One line, no wrapping
 
-Explanations wrap to as many lines as they need. Tkinter wraps on a pixel count
-rather than on the cell, so a `<Configure>` handler recomputes the wrap width
-from the space actually left after the rule name, the seven columns and the edge
-column — otherwise the text overflows a narrow quadrant and stops short in a
-wide one. Rule names and explanations both anchor to the top of their row so a
-two-line explanation stays aligned with its label.
+Wrapping was tried and removed: recomputing `wraplength` inside a `<Configure>`
+callback changes the widget, which fires `Configure` again, and the window
+visibly flickered. There is no resize handler now.
+
+The explanations are written short enough to fit one line instead, which is the
+better fix anyway — a dense 15-row grid across four quadrants is not improved by
+rows that change height as the market moves.
+
+
+---
+
+## 19 — Short layman one-liners (2026-09-17)
+
+The combined explanations were correct but too long — naming six windows takes
+more room than a quarter-screen quadrant has. They now say the same thing in a
+few words, using the split a person actually thinks in: **short-term versus
+longer**, rather than listing every window.
+
+Live, nifty50:
+
+```
+ 1 Trade side       sell ...   mixed, mostly sellers
+ 2 Aggr buying       17%-44%   buying grows as you zoom out, 17% to 44%
+ 4 Price + qty        ▼  ...   mixed, mostly price falling
+ 5 Buyer absorb       ·  ...   not happening
+ 7 Pressure           ▼  ...   mixed, mostly sellers pushing
+ 9 Cum delta          ▼  ...   mixed, mostly selling confirmed by price
+11 Depth   (now)             1,300 waiting to buy, 650 to sell
+12 Imbalance (now)           more orders waiting to buy
+13 Liq removed               orders pulled mostly from the sell side
+14 Rejection                 no level being tested
+15 COMBINED          ▼  ...   mixed, mostly down
+```
+
+Three shapes the line can take:
+
+- **"X on every view"** — the same story on all six timeframes
+- **"X short-term, Y longer"** — 1m/2m/5m agree, 10m/15m/30m agree, and they
+  differ. The most actionable split there is
+- **"mixed, mostly X"** — no clean split; names the dominant reading
+
+Numbers get a direction rather than a list: *"buying grows as you zoom out, 17%
+to 44%"* beats printing six percentages.
+
+Details worth keeping: a NEUTRAL reading on every view drops the venue entirely
+("not happening", not "not happening on every view"), and the book rows get
+purpose-written short lines since they have no timeframe dimension at all.
