@@ -412,3 +412,45 @@ to diff cumulative volume against, so no trade has been observed yet.
 This is the same class of silent failure as the security-id bug (§11.3) and the
 empty relay (§2): the screen showing something plausible when it actually has
 nothing. Marking it is not cosmetic.
+
+
+---
+
+## 14 — Tooltips, and why "now" is 30 seconds (2026-09-17)
+
+### 14.1 Hover help on every rule
+
+Hovering a rule name gives a plain-English explanation: what it watches, and —
+just as important — what it does NOT mean. Rule 7's, for instance, ends with
+"measured over 77 days this was the WORST of all fifteen rules, about 4 points
+below a coin", because a user hovering for help deserves to be told that.
+
+The column headers have them too: `now`, `edge` and the window columns each
+explain themselves, including that blank means "no data yet" while a dot means
+"nothing happening".
+
+Shared popup, 450 ms delay (an instant tooltip flashes constantly across a
+dense grid), auto-flips near the screen edges.
+
+### 14.2 "now" moved from 10 s to 30 s
+
+Partha asked why the `now` column was showing dots. The answer was not "the
+market is quiet" — it was that 10 seconds is too short for most of these rules
+to say anything at all.
+
+Measured 2026-09-17, sampling every 5 s once the tape was warm. Rules firing out
+of 11, and how often the window held no trades at all:
+
+| | nifty50 | banknifty | crudeoil |
+|---|---|---|---|
+| 10s | 3.2/11, empty 11% | 2.1/11, empty 23% | 1.4/11, empty **57%** |
+| 15s | 3.9/11, empty 5% | 2.7/11, empty 13% | 1.8/11, empty 45% |
+| **30s** | **4.8/11, empty 0%** | **3.9/11, empty 1%** | **2.8/11, empty 25%** |
+| 60s | 5.4/11, empty 0% | 5.1/11, empty 0% | 3.8/11, empty 5% |
+
+A 10-second window holds a **median of two trades** on nifty50. Absorption,
+exhaustion and rejection cannot fire on two trades — they need size and a
+before/after comparison — so the column sat on dots **by construction**.
+
+30 s still reads as "now" while letting most rules speak. Crude stays sparse at
+25% empty because it simply trades less; that is the instrument, not the screen.

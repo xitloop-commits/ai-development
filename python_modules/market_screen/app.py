@@ -54,6 +54,8 @@ from .verdicts import (
     NEUTRAL,
     POSITIVE,
     WATCH,
+    COLUMN_HELP,
+    RULE_HELP,
     WINDOW_LABELS,
     WINDOWS,
     agreement,
@@ -103,6 +105,69 @@ DETAIL_COL = len(WINDOWS) + 2      # 0 = name, 1..6 = windows, 7 = edge, 8 = det
 EDGE_COL = len(WINDOWS) + 1
 
 
+class Tooltip:
+    """Hover help. One shared popup, reused by every widget that registers.
+
+    Deliberately delayed: the rule names sit in a dense grid and an instant
+    tooltip would flash constantly as the cursor crosses the table.
+    """
+
+    DELAY_MS = 450
+    WRAP_PX = 460
+
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.win: Optional[tk.Toplevel] = None
+        self.after_id = None
+
+    def attach(self, widget: tk.Widget, text: str) -> None:
+        if not text:
+            return
+        widget.bind("<Enter>", lambda e, t=text: self._schedule(e, t), add="+")
+        widget.bind("<Leave>", lambda e: self.hide(), add="+")
+        widget.bind("<Button-1>", lambda e: self.hide(), add="+")
+
+    def _schedule(self, event, text: str) -> None:
+        self.hide()
+        self.after_id = self.root.after(
+            self.DELAY_MS, lambda: self._show(event.x_root, event.y_root, text))
+
+    def _show(self, x: int, y: int, text: str) -> None:
+        self.hide()
+        win = tk.Toplevel(self.root)
+        win.wm_overrideredirect(True)
+        win.attributes("-topmost", True)
+        frame = tk.Frame(win, bg="#30363d", padx=1, pady=1)
+        frame.pack()
+        tk.Label(frame, text=text, bg="#1c2128", fg="#d6dae0",
+                 font=("Segoe UI", 9), justify="left", anchor="w",
+                 wraplength=self.WRAP_PX, padx=10, pady=8).pack()
+        win.update_idletasks()
+        # Keep it on screen when hovering near the right or bottom edge.
+        w, h = win.winfo_width(), win.winfo_height()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        px = min(x + 16, sw - w - 8)
+        py = y + 20
+        if py + h > sh - 8:
+            py = y - h - 12
+        win.wm_geometry(f"+{max(8, px)}+{max(8, py)}")
+        self.win = win
+
+    def hide(self) -> None:
+        if self.after_id is not None:
+            try:
+                self.root.after_cancel(self.after_id)
+            except Exception:
+                pass
+            self.after_id = None
+        if self.win is not None:
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            self.win = None
+
+
 class Quadrant:
     def __init__(self, parent: tk.Widget, instrument: str, app: "App"):
         self.instrument = instrument
@@ -137,13 +202,20 @@ class Quadrant:
         body.columnconfigure(DETAIL_COL, weight=1)
 
         # header row
-        tk.Label(body, text="rule", bg=HEAD, fg=DIM, font=("Segoe UI", 8),
-                 anchor="w", padx=3).grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        tip = app.tooltip
+        hdr_rule = tk.Label(body, text="rule", bg=HEAD, fg=DIM, font=("Segoe UI", 8),
+                            anchor="w", padx=3)
+        hdr_rule.grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        tip.attach(hdr_rule, COLUMN_HELP["rule"])
         for i, lab in enumerate(WINDOW_LABELS):
-            tk.Label(body, text=lab, bg=HEAD, fg=DIM, font=("Consolas", 8),
-                     anchor="center").grid(row=0, column=1 + i, sticky="ew", pady=(0, 2))
-        tk.Label(body, text="edge", bg=HEAD, fg=DIM, font=("Consolas", 8),
-                 anchor="e", padx=3).grid(row=0, column=EDGE_COL, sticky="ew", pady=(0, 2))
+            h = tk.Label(body, text=lab, bg=HEAD, fg=DIM, font=("Consolas", 8),
+                         anchor="center")
+            h.grid(row=0, column=1 + i, sticky="ew", pady=(0, 2))
+            tip.attach(h, COLUMN_HELP["now"] if lab == "now" else COLUMN_HELP["window"])
+        hdr_edge = tk.Label(body, text="edge", bg=HEAD, fg=DIM, font=("Consolas", 8),
+                            anchor="e", padx=3)
+        hdr_edge.grid(row=0, column=EDGE_COL, sticky="ew", pady=(0, 2))
+        tip.attach(hdr_edge, COLUMN_HELP["edge"])
         self.hdr_detail = tk.Label(body, text="detail", bg=HEAD, fg=DIM,
                                    font=("Segoe UI", 8), anchor="w", padx=4)
 
@@ -151,8 +223,9 @@ class Quadrant:
         self.rows = []
         for r in range(N_RULES):
             name = tk.Label(body, text="", bg=PANEL, fg=DIM, font=("Segoe UI", 8),
-                            anchor="w", padx=3)
+                            anchor="w", padx=3, cursor="question_arrow")
             name.grid(row=1 + r, column=0, sticky="ew")
+            tip.attach(name, RULE_HELP.get(r + 1, ""))
             cells = []
             for i in range(len(WINDOWS)):
                 c = tk.Label(body, text="", bg=PANEL, fg=FAINT,
@@ -267,6 +340,7 @@ class App:
         self.window = DEFAULT_WINDOW
         root.title("Market Status Screen")
         root.configure(bg=BG)
+        self.tooltip = Tooltip(root)
 
         grid = tk.Frame(root, bg=BG)
         grid.pack(fill="both", expand=True)
@@ -325,7 +399,7 @@ class App:
                   f"view {self.view} ({view_label})   |   "
                   f"▲ positive  ▼ negative  ◆ watch  · nothing   |   "
                   f"edge = measured vs base rate, 77 nifty days; inside ±3pp is noise   |   "
-                  f"blank = window still filling   |   "
+                  f"blank = window still filling   |   hover a rule name for help   |   "
                   f"V view, 1-7 window, F11 fullscreen, Esc quit")
         )
         self.root.after(REFRESH_MS, self.tick)

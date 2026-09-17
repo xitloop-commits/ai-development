@@ -41,10 +41,23 @@ NEGATIVE = "NEGATIVE"
 NEUTRAL = "NEUTRAL"
 WATCH = "WATCH"          # something is happening but it does not imply a side
 
-# "now" plus Partha's confirmation windows, in seconds. `now` is a 10-second
-# look-back rather than a single tick: one tick is 65% likely to carry no volume
-# at all, so a literal instant would blink empty most of the time.
-NOW_SEC = 10
+# "now" plus Partha's confirmation windows, in seconds.
+#
+# `now` is a 30-SECOND look-back — not a tick, and not 10 seconds. Measured
+# 2026-09-17, sampling every 5s once the tape was warm (rules firing out of 11,
+# and how often the window held no trades at all):
+#
+#            nifty50            banknifty          crudeoil
+#   10s   3.2/11, empty 11%   2.1/11, empty 23%   1.4/11, empty 57%
+#   15s   3.9/11, empty  5%   2.7/11, empty 13%   1.8/11, empty 45%
+#   30s   4.8/11, empty  0%   3.9/11, empty  1%   2.8/11, empty 25%
+#
+# A 10-second window holds a MEDIAN OF TWO TRADES on nifty50. Absorption,
+# exhaustion and rejection cannot fire on two trades — they need size and a
+# before/after comparison — so the column sat mostly on dots by construction,
+# not because the market was quiet. 30s still reads as "now" while letting most
+# rules actually have something to say.
+NOW_SEC = 30
 WINDOWS = (NOW_SEC, 60, 120, 300, 600, 900, 1800)
 WINDOW_LABELS = ("now", "1m", "2m", "5m", "10m", "15m", "30m")
 DEFAULT_WINDOW = 300
@@ -112,6 +125,118 @@ class Read:
         if abs(self.edge) < 3.0:
             return f"{self.edge:+.1f} noise"
         return f"{self.edge:+.1f}"
+
+
+# Plain-English explanation of each rule, for the tooltips. Written for someone
+# who does not read code: what the rule watches, and what it does NOT mean.
+RULE_HELP = {
+    1: ("TRADE SIDE\n\n"
+        "Every trade happens either at the price a seller is asking, or at the "
+        "price a buyer is bidding. We record which one, on every trade.\n\n"
+        "This is the raw material for everything below it. On its own it says "
+        "nothing."),
+    2: ("AGGRESSIVE BUYING\n\n"
+        "Somebody wanted in badly enough to pay the seller's asking price rather "
+        "than wait for a better one.\n\n"
+        "More of it means buyers are getting impatient. It does NOT mean price "
+        "will go up - measured over 77 days, it was slightly worse than a coin."),
+    3: ("AGGRESSIVE SELLING\n\n"
+        "Somebody wanted out badly enough to accept the buyer's lower price "
+        "rather than hold out for more.\n\n"
+        "More of it means sellers are getting impatient. Same caveat: measured, "
+        "it did not predict price falling."),
+    4: ("PRICE AND QUANTITY TOGETHER\n\n"
+        "Heavy volume should move price. When a lot trades and price barely "
+        "budges, somebody large is quietly taking the other side.\n\n"
+        "That stalling is the interesting part, not the volume itself."),
+    5: ("BUYER ABSORPTION\n\n"
+        "Heavy selling is hitting the market, but price refuses to fall. Buyers "
+        "are quietly soaking up everything being sold.\n\n"
+        "Of all fifteen rules this was the only one measurably positive at every "
+        "horizon - though by about one percentage point, which is too small to "
+        "trade on by itself."),
+    6: ("SELLER ABSORPTION\n\n"
+        "Heavy buying is hitting the market, but price refuses to rise. Sellers "
+        "are quietly soaking up everything being bought.\n\n"
+        "Often a sign a push is about to fail."),
+    7: ("PRESSURE\n\n"
+        "One side is pushing harder than the other. The question this asks is "
+        "whether price is actually RESPONDING to that push, or just sitting "
+        "there while it happens.\n\n"
+        "Careful: measured over 77 days this was the WORST of all fifteen rules, "
+        "about 4 points below a coin. Pressure that has already moved price "
+        "means you are looking at the second half of a move."),
+    8: ("DELTA\n\n"
+        "Aggressive buying minus aggressive selling. Positive means more "
+        "impatient buyers, negative more impatient sellers.\n\n"
+        "This is a fact about what just happened, not advice about what to do. "
+        "It is shown as a number, never an arrow, for that reason."),
+    9: ("CUMULATIVE DELTA\n\n"
+        "The running total of delta since the market opened, compared against "
+        "where price actually went.\n\n"
+        "When the two agree, pressure is producing movement. When they pull "
+        "apart - lots of buying but price flat or falling - somebody is "
+        "absorbing it, or the push is running out."),
+    10: ("EXHAUSTION\n\n"
+         "The side that was pushing hard is running out of steam, and price has "
+         "stopped moving in their favour.\n\n"
+         "Sellers exhausting is potentially the end of a fall; buyers "
+         "exhausting, the end of a rise. Fires on roughly one minute in five, "
+         "which is too often to be a trigger - treat it as context."),
+    11: ("MARKET DEPTH\n\n"
+         "Orders sitting and waiting to trade on each side, right now.\n\n"
+         "These are intentions, not trades. They can be cancelled in an instant "
+         "and frequently are. This is the book as it stands, not history - so it "
+         "has no 1-minute or 30-minute version."),
+    12: ("ORDER IMBALANCE\n\n"
+         "One side of the book is showing more waiting size than the other.\n\n"
+         "Do NOT read this as direction. Displayed size is the easiest thing in "
+         "the market to fake, and large resting orders are often there to be "
+         "seen rather than filled."),
+    13: ("LIQUIDITY REMOVAL\n\n"
+         "Waiting orders that were on the book a moment ago have gone.\n\n"
+         "They were either filled by trades, or pulled by whoever placed them. "
+         "The book alone cannot tell us which, so this never claims a direction. "
+         "Cross-check it against the trades above."),
+    14: ("REJECTION\n\n"
+         "Price broke through a level - the day's high, the opening range - "
+         "could not hold there, and came back.\n\n"
+         "It only counts as confirmed when the actual trades on the way back are "
+         "on the other side. A poke that drifts back with no trades behind it is "
+         "not a rejection, it is just noise."),
+    15: ("COMBINED\n\n"
+         "How many rules currently point the same way, at this window.\n\n"
+         "This describes what IS HAPPENING on the tape. It is not a forecast and "
+         "not a trade signal. Measured over 26,671 decision points, no rule here "
+         "predicted direction better than a coin.\n\n"
+         "The honest use of this screen is deciding when to STAY OUT."),
+}
+
+# Tooltips for the column headers.
+COLUMN_HELP = {
+    "now": ("The last 30 seconds.\n\nNot a single tick: about two thirds of "
+            "market updates carry no trade at all, so a literal instant would "
+            "sit empty most of the time.\n\nA DOT here means this rule is not "
+            "firing in the last 30 seconds, which is normal and common. "
+            "Absorption and exhaustion need real size behind them, so over half "
+            "a minute they usually have nothing to say.\n\nBlank is different "
+            "from a dot: blank means no data yet."),
+    "edge": ("MEASURED TRACK RECORD\n\n"
+             "How often this rule was right about direction, compared with the "
+             "market's own base rate. Measured over 77 days and 26,671 decision "
+             "points.\n\n"
+             "Percentage points. Anything inside plus or minus 3 is labelled "
+             "noise, meaning the rule found nothing.\n\n"
+             "It is on screen so a green light can never look more confident "
+             "than the evidence behind it."),
+    "window": ("A confirmation window.\n\nRule 15 says never judge from one "
+               "tick. Every reading here is measured over this much time.\n\n"
+               "Blank means the window does not have that much history yet - it "
+               "will fill in as the session runs. Blank is 'no data', a dot is "
+               "'nothing happening'."),
+    "rule": ("Partha's 15 order-flow rules.\n\nHover any rule name for what it "
+             "watches and what it does not mean."),
+}
 
 
 def _dir(v: float) -> str:
