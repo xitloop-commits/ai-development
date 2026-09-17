@@ -1,4 +1,4 @@
-"""Market Status Screen — 2x2, four instruments, order flow read live.
+"""Market Status Screen — 2x2, four instruments, order flow across six windows.
 
 Spec: docs/systems/12_market_status_screen.md
 
@@ -8,13 +8,20 @@ Spec: docs/systems/12_market_status_screen.md
     |      CRUDE OIL      |     NATURAL GAS     |
     +---------------------+---------------------+
 
-Each quadrant shows Partha's 15 order-flow rules, each with a POSITIVE /
-NEGATIVE / WATCH light and its MEASURED track record.
+Each quadrant is a table: Partha's 15 order-flow rules down the side, his six
+confirmation windows across the top (1m 2m 5m 10m 15m 30m), and each rule's
+MEASURED edge in the last column.
+
+Two views, toggled with V:
+  A  table only       — scan consistency across timeframes
+  B  table + detail   — the same grid plus the numbers for the selected window
+
+Keys: V toggle view, 1-6 select window, F11 fullscreen, Esc quit.
 
 Run:
   python -m market_screen.app                      # live (tails TFA's recordings)
   python -m market_screen.app --source ws          # live via the server relay
-  python -m market_screen.app --replay 2026-09-11  # a recorded day
+  python -m market_screen.app --replay 2026-09-04  # a recorded day
   python -m market_screen.app --replay latest --speed 120
 
 Live reads TFA's recordings rather than the server's tick relay. The relay only
@@ -34,7 +41,17 @@ from typing import Optional
 from claude_cohort.flow import FlowState
 
 from .source import INSTRUMENTS, LiveSource, ReplaySource, TailSource, latest_recorded_date
-from .verdicts import NEGATIVE, NEUTRAL, POSITIVE, WATCH, read_all
+from .verdicts import (
+    DEFAULT_WINDOW,
+    INSTANTANEOUS,
+    NEGATIVE,
+    NEUTRAL,
+    POSITIVE,
+    WATCH,
+    WINDOW_LABELS,
+    WINDOWS,
+    read_grid,
+)
 
 TITLES = {
     "nifty50": "NIFTY 50",
@@ -48,60 +65,113 @@ GRID = {"nifty50": (0, 0), "banknifty": (0, 1), "crudeoil": (1, 0), "naturalgas"
 BG = "#0d1117"
 PANEL = "#161b22"
 BORDER = "#30363d"
+HEAD = "#21262d"
 FG = "#c9d1d9"
 DIM = "#6e7681"
+FAINT = "#484f58"
 COLOURS = {
     POSITIVE: "#3fb950",
     NEGATIVE: "#f85149",
     WATCH: "#d29922",
-    NEUTRAL: "#6e7681",
+    NEUTRAL: "#484f58",
 }
 
-REFRESH_MS = 500        # redraw twice a second; the tape is read continuously
-WINDOW_SEC = 300        # rule 15 confirmation window shown on screen
+# The table spans 1-30 minutes; refreshing faster than once a second only burns
+# CPU re-deriving windows that cannot have meaningfully changed.
+REFRESH_MS = 1000
+N_RULES = 15
+
+VIEW_TABLE = "A"
+VIEW_DETAIL = "B"
+
+DETAIL_COL = len(WINDOWS) + 2      # 0 = name, 1..6 = windows, 7 = edge, 8 = detail
+EDGE_COL = len(WINDOWS) + 1
 
 
 class Quadrant:
-    def __init__(self, parent: tk.Widget, instrument: str):
+    def __init__(self, parent: tk.Widget, instrument: str, app: "App"):
         self.instrument = instrument
+        self.app = app
         self.flow = FlowState()
         self.last_tick_ts: Optional[float] = None
         self.tick_count = 0
 
         self.frame = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER,
                               highlightthickness=1)
+
         head = tk.Frame(self.frame, bg=PANEL)
-        head.pack(fill="x", padx=10, pady=(8, 2))
+        head.pack(fill="x", padx=8, pady=(6, 0))
         self.title = tk.Label(head, text=TITLES[instrument], bg=PANEL, fg=FG,
-                              font=("Segoe UI", 13, "bold"), anchor="w")
+                              font=("Segoe UI", 12, "bold"), anchor="w")
         self.title.pack(side="left")
         self.price = tk.Label(head, text="-", bg=PANEL, fg=FG,
-                              font=("Consolas", 13, "bold"), anchor="e")
+                              font=("Consolas", 12, "bold"), anchor="e")
         self.price.pack(side="right")
 
         self.summary = tk.Label(self.frame, text="waiting for ticks", bg=PANEL,
-                                fg=DIM, font=("Segoe UI", 10, "bold"), anchor="w")
-        self.summary.pack(fill="x", padx=10, pady=(0, 4))
+                                fg=DIM, font=("Segoe UI", 9, "bold"), anchor="w")
+        self.summary.pack(fill="x", padx=8, pady=(0, 3))
 
         body = tk.Frame(self.frame, bg=PANEL)
-        body.pack(fill="both", expand=True, padx=10, pady=(0, 8))
-        body.columnconfigure(1, weight=1)
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        self.body = body
+        body.columnconfigure(0, minsize=100)
+        for c in range(1, 1 + len(WINDOWS)):
+            body.columnconfigure(c, minsize=40)
+        body.columnconfigure(EDGE_COL, minsize=60)
+        body.columnconfigure(DETAIL_COL, weight=1)
 
+        # header row
+        tk.Label(body, text="rule", bg=HEAD, fg=DIM, font=("Segoe UI", 8),
+                 anchor="w", padx=3).grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        for i, lab in enumerate(WINDOW_LABELS):
+            tk.Label(body, text=lab, bg=HEAD, fg=DIM, font=("Consolas", 8),
+                     anchor="center").grid(row=0, column=1 + i, sticky="ew", pady=(0, 2))
+        tk.Label(body, text="edge", bg=HEAD, fg=DIM, font=("Consolas", 8),
+                 anchor="e", padx=3).grid(row=0, column=EDGE_COL, sticky="ew", pady=(0, 2))
+        self.hdr_detail = tk.Label(body, text="detail", bg=HEAD, fg=DIM,
+                                   font=("Segoe UI", 8), anchor="w", padx=4)
+
+        # rule rows
         self.rows = []
-        for i in range(15):
-            name = tk.Label(body, text="", bg=PANEL, fg=DIM,
-                            font=("Segoe UI", 9), anchor="w")
-            detail = tk.Label(body, text="", bg=PANEL, fg=FG,
-                              font=("Consolas", 9), anchor="w")
-            light = tk.Label(body, text="", bg=PANEL, fg=DIM,
-                             font=("Segoe UI", 9, "bold"), anchor="e", width=9)
-            edge = tk.Label(body, text="", bg=PANEL, fg=DIM,
-                            font=("Consolas", 8), anchor="e", width=14)
-            name.grid(row=i, column=0, sticky="w", padx=(0, 6))
-            detail.grid(row=i, column=1, sticky="ew")
-            light.grid(row=i, column=2, sticky="e", padx=(6, 4))
-            edge.grid(row=i, column=3, sticky="e")
-            self.rows.append((name, detail, light, edge))
+        for r in range(N_RULES):
+            name = tk.Label(body, text="", bg=PANEL, fg=DIM, font=("Segoe UI", 8),
+                            anchor="w", padx=3)
+            name.grid(row=1 + r, column=0, sticky="ew")
+            cells = []
+            for i in range(len(WINDOWS)):
+                c = tk.Label(body, text="", bg=PANEL, fg=FAINT,
+                             font=("Consolas", 9), anchor="center")
+                c.grid(row=1 + r, column=1 + i, sticky="ew")
+                cells.append(c)
+            edge = tk.Label(body, text="", bg=PANEL, fg=FAINT,
+                            font=("Consolas", 7), anchor="e", padx=3)
+            edge.grid(row=1 + r, column=EDGE_COL, sticky="ew")
+            detail = tk.Label(body, text="", bg=PANEL, fg=DIM,
+                              font=("Consolas", 8), anchor="w", padx=4)
+            self.rows.append((name, cells, edge, detail))
+
+        self.footer = tk.Label(self.frame, text="", bg=PANEL, fg=DIM,
+                               font=("Consolas", 8), anchor="w")
+        self.footer.pack(fill="x", padx=8, pady=(0, 5))
+        self.apply_view()
+
+    # ── layout ───────────────────────────────────────────────────────────
+
+    def apply_view(self) -> None:
+        """Show or hide the detail column without rebuilding the table."""
+        if self.app.view == VIEW_DETAIL:
+            self.hdr_detail.grid(row=0, column=DETAIL_COL, sticky="ew", pady=(0, 2))
+            for r, (_, _, _, detail) in enumerate(self.rows):
+                detail.grid(row=1 + r, column=DETAIL_COL, sticky="ew")
+            self.footer.pack_forget()
+        else:
+            self.hdr_detail.grid_forget()
+            for _, _, _, detail in self.rows:
+                detail.grid_forget()
+            self.footer.pack(fill="x", padx=8, pady=(0, 5))
+
+    # ── data ─────────────────────────────────────────────────────────────
 
     def on_tick(self, tick: dict) -> None:
         self.flow.on_tick(tick)
@@ -114,40 +184,64 @@ class Quadrant:
         px = self.flow._last_price
         self.price.config(text=f"{px:,.2f}" if px else "-")
 
-        snap = self.flow.snapshot(now=self.last_tick_ts)
-        reads = read_all(snap, WINDOW_SEC)
+        grid = read_grid(self.flow, now=self.last_tick_ts)
+        sel = self.app.window
+        sel_label = WINDOW_LABELS[WINDOWS.index(sel)]
+        sel_reads = grid[sel]
 
-        overall = reads[-1] if reads and reads[-1].rule == 15 else None
-        if overall:
-            self.summary.config(
-                text=f"{overall.verdict}  -  {overall.detail}   |   {self.tick_count:,} ticks",
-                fg=COLOURS.get(overall.verdict, DIM),
+        overall = sel_reads[-1]
+        self.summary.config(
+            text=f"{overall.verdict}  {overall.detail}   |   "
+                 f"{self.tick_count:,} ticks   |   detail {sel_label}",
+            fg=COLOURS.get(overall.verdict, DIM),
+        )
+
+        for r in range(N_RULES):
+            name_w, cells, edge_w, detail_w = self.rows[r]
+            ref = sel_reads[r]
+            is_last = ref.rule == 15
+            name_w.config(
+                text=f"{ref.rule:>2} {ref.name}",
+                fg=COLOURS.get(ref.verdict, DIM) if is_last else DIM,
+                font=("Segoe UI", 8, "bold") if is_last else ("Segoe UI", 8),
             )
 
-        for i, (name_w, detail_w, light_w, edge_w) in enumerate(self.rows):
-            if i >= len(reads):
-                name_w.config(text=""); detail_w.config(text="")
-                light_w.config(text=""); edge_w.config(text="")
-                continue
-            r = reads[i]
-            colour = COLOURS.get(r.verdict, DIM)
-            name_w.config(text=f"{r.rule:>2}. {r.name}")
-            detail_w.config(text=r.detail, fg=FG if r.verdict != NEUTRAL else DIM)
-            light_w.config(
-                text="" if r.verdict == NEUTRAL else r.verdict,
-                fg=colour,
-            )
-            edge_w.config(text=r.edge_label if r.edge is not None else "",
-                          fg="#8b949e" if r.edge is not None and abs(r.edge) < 3 else DIM)
-            if r.rule == 15:
-                name_w.config(fg=colour, font=("Segoe UI", 9, "bold"))
-                detail_w.config(fg=colour)
+            if ref.rule in INSTANTANEOUS:
+                # The book right now — one value spanning every window column,
+                # because a 30-minute depth reading does not exist.
+                cells[0].config(text=ref.detail, fg=FG, anchor="w",
+                                font=("Consolas", 8))
+                cells[0].grid(row=1 + r, column=1, columnspan=len(WINDOWS), sticky="ew")
+                for c in cells[1:]:
+                    c.grid_forget()
+            else:
+                for i, sec in enumerate(WINDOWS):
+                    rd = grid[sec][r]
+                    cells[i].grid(row=1 + r, column=1 + i, columnspan=1, sticky="ew")
+                    cells[i].config(
+                        text=rd.symbol,
+                        fg=COLOURS.get(rd.verdict, FAINT),
+                        anchor="center",
+                        font=("Consolas", 9, "bold") if is_last else ("Consolas", 9),
+                    )
+
+            edge_w.config(text=ref.edge_label,
+                          fg=DIM if ref.edge is not None and abs(ref.edge) >= 3 else FAINT)
+            if self.app.view == VIEW_DETAIL:
+                detail_w.config(text=ref.detail[:52],
+                                fg=FG if ref.verdict != NEUTRAL else DIM)
+
+        if self.app.view == VIEW_TABLE:
+            self.footer.config(text=f"{sel_label}: {sel_reads[1].detail}", fg=DIM)
 
 
 class App:
-    def __init__(self, root: tk.Tk, src, instruments=INSTRUMENTS):
+    def __init__(self, root: tk.Tk, src, instruments=INSTRUMENTS,
+                 view: str = VIEW_TABLE):
         self.root = root
         self.src = src
+        self.view = view
+        self.window = DEFAULT_WINDOW
         root.title("Market Status Screen")
         root.configure(bg=BG)
 
@@ -159,24 +253,37 @@ class App:
 
         self.quads = {}
         for inst in instruments:
-            q = Quadrant(grid, inst)
+            q = Quadrant(grid, inst, self)
             r, c = GRID[inst]
             q.frame.grid(row=r, column=c, sticky="nsew", padx=3, pady=3)
             self.quads[inst] = q
 
         self.status = tk.Label(root, text="", bg=BG, fg=DIM,
-                               font=("Consolas", 9), anchor="w")
+                               font=("Consolas", 8), anchor="w")
         self.status.pack(fill="x", padx=6, pady=(0, 4))
 
         root.bind("<Escape>", lambda e: self.quit())
         root.bind("<F11>", lambda e: root.attributes(
             "-fullscreen", not root.attributes("-fullscreen")))
+        for key in ("v", "V"):
+            root.bind(f"<KeyPress-{key}>", lambda e: self.toggle_view())
+        for i in range(len(WINDOWS)):
+            root.bind(f"<KeyPress-{i + 1}>",
+                      lambda e, idx=i: self.set_window(WINDOWS[idx]))
         root.protocol("WM_DELETE_WINDOW", self.quit)
         self.tick()
 
+    def toggle_view(self) -> None:
+        self.view = VIEW_DETAIL if self.view == VIEW_TABLE else VIEW_TABLE
+        for q in self.quads.values():
+            q.apply_view()
+
+    def set_window(self, sec: int) -> None:
+        self.window = sec
+
     def tick(self) -> None:
         drained = 0
-        while drained < 8000:
+        while drained < 20000:
             try:
                 inst, t = self.src.q.get_nowait()
             except queue.Empty:
@@ -189,11 +296,13 @@ class App:
         for q in self.quads.values():
             q.redraw()
 
+        view_label = "table" if self.view == VIEW_TABLE else "table + detail"
         self.status.config(
-            text=(f"{getattr(self.src, 'status', '?')}   |   "
-                  f"{datetime.now():%H:%M:%S}   |   window {WINDOW_SEC // 60}m   |   "
-                  f"edge = measured vs base rate, 77 nifty days; inside +/-3pp is noise   |   "
-                  f"F11 fullscreen, Esc quit")
+            text=(f"{getattr(self.src, 'status', '?')}   |   {datetime.now():%H:%M:%S}   |   "
+                  f"view {self.view} ({view_label})   |   "
+                  f"▲ positive  ▼ negative  ◆ watch  · nothing   |   "
+                  f"edge = measured vs base rate, 77 nifty days; inside ±3pp is noise   |   "
+                  f"V view, 1-6 window, F11 fullscreen, Esc quit")
         )
         self.root.after(REFRESH_MS, self.tick)
 
@@ -215,6 +324,8 @@ def main(argv: Optional[list] = None) -> int:
                     help="live source: tfa = tail TFA's recordings (default, always "
                          "flowing); ws = the server relay (only carries data when a "
                          "desk is subscribed)")
+    ap.add_argument("--view", default=VIEW_TABLE, choices=[VIEW_TABLE, VIEW_DETAIL],
+                    help="A = table only, B = table + detail column (toggle with V)")
     ap.add_argument("--fullscreen", action="store_true")
     args = ap.parse_args(argv)
 
@@ -249,10 +360,10 @@ def main(argv: Optional[list] = None) -> int:
 
     src.start()
     root = tk.Tk()
-    root.geometry("1600x1000")
+    root.geometry("1750x1050")
     if args.fullscreen:
         root.attributes("-fullscreen", True)
-    App(root, src)
+    App(root, src, view=args.view)
     root.mainloop()
     return 0
 

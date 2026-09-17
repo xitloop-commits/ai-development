@@ -281,3 +281,62 @@ enter.
 - Per-instrument flow thresholds (currently the shared scale-free defaults)
 - Option-leg flow — the book cache stores bid/ask/ltp but not per-contract
   volume, which rules 2-3 need on the premium tape
+
+
+---
+
+## 12 — Multi-window table (2026-09-17)
+
+Each quadrant is now a table: the 15 rules down the side, Partha's six
+confirmation windows across the top, the measured edge in the last column.
+
+| | 1m | 2m | 5m | 10m | 15m | 30m |
+|---|---|---|---|---|---|---|
+| windows (sec) | 60 | 120 | 300 | 600 | 900 | 1800 |
+
+### 12.1 Why a grid rather than one window
+
+Rule 15 says never one tick and names 1 / 2 / 5 minutes. Putting every window
+side by side answers the question a single window hides: **is this read
+consistent, or does it exist in one timeframe only?**
+
+Live sample, nifty50 2026-09-17 10:12, 1,484 ticks:
+
+```
+rule                   1m     2m     5m    10m    15m    30m   edge
+ 2 Aggr buying          ▲      ▲      ▲      ▲      ▲      ▲   -3.2
+ 4 Price + qty          ▼      ▲      ◆      ▲      ▲      ▲
+ 7 Pressure             ◆      ▲      ◆      ▲      ▲      ▲   -4.4
+ 8 Delta (obs)       +260 +11.5k +12.4k +19.0k +28.2k +25.5k
+14 Rejection            ▼      ▼      ▼      ▼      ▼      ▼   -3.8
+15 COMBINED             ▼      ▲      ▼      ▲      ▲      ▲
+```
+
+Rule 14 is negative on **every** window — consistent. Rule 15 flips on the
+short windows and holds positive on the long ones. Neither is visible from a
+single 5-minute read, and the 5-minute column alone would have shown rule 4 as
+merely "watch".
+
+### 12.2 Two views, toggled with V
+
+- **A — table only.** The default. Scanning consistency across timeframes.
+- **B — table + detail.** The same grid plus the raw numbers for the selected
+  window, in a column on the right.
+
+Keys `1`-`6` pick the detail window (default 5m); `V` toggles; `F11` fullscreen;
+`Esc` quits. `--view A|B` sets the starting view.
+
+### 12.3 Rows that deliberately break the grid
+
+- **11 Depth and 12 Imbalance** span all six columns with a single value. They
+  are the book *right now*; a 30-minute depth reading does not exist, and
+  inventing one would be fabricating data.
+- **1 Trade side and 8 Delta** show numbers, not arrows. Rule 8 is Partha's own
+  "observation, not an entry signal by itself" — giving it an arrow would make
+  it look like a call.
+
+### 12.4 Cost
+
+Six windows x four instruments recomputed once a second. Redraw is 1 Hz rather
+than 2: the table spans 1-30 minutes, so a faster refresh would only burn CPU
+re-deriving windows that cannot have meaningfully changed.
