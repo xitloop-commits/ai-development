@@ -251,6 +251,31 @@ def _compact(n: float) -> str:
     return f"{n:+.0f}"
 
 
+def _side_meaning(buy_n: int, sell_n: int, buy_vol_pct: float) -> str:
+    """Rule 1 in plain words, including the clip-size tell.
+
+    Count and volume disagreeing is the closest thing we have to an
+    institutional footprint, so it gets said outright rather than left for the
+    reader to spot by comparing two rows.
+    """
+    total = buy_n + sell_n
+    if not total:
+        return "nobody has traded yet"
+    buy_trade_pct = 100.0 * buy_n / total
+    if buy_n > sell_n:
+        head = f"more buys than sells - {buy_n} against {sell_n}"
+    elif sell_n > buy_n:
+        head = f"more sells than buys - {sell_n} against {buy_n}"
+    else:
+        head = f"evenly split - {buy_n} each way"
+    gap = buy_trade_pct - buy_vol_pct
+    if gap > 8:
+        return head + ", but the sellers are trading in bigger lots"
+    if gap < -8:
+        return head + ", but the buyers are trading in bigger lots"
+    return head + ", and both sides are trading in similar sizes"
+
+
 def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
     """All 15 rules at one confirmation window, straight off the FlowState.
 
@@ -293,19 +318,15 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
     # somebody substantial is unloading into them. Summing volume alone hides it.
     buy_n = pr.get("buy_n", 0)
     sell_n = pr.get("sell_n", 0)
+    sided = buy_n + sell_n
+    side_word = "buy" if buy_n > sell_n else ("sell" if sell_n > buy_n else "even")
     out.append(Read(
         1, "Trade side",
         POSITIVE if buy_n > sell_n else (NEGATIVE if sell_n > buy_n else NEUTRAL),
         f"{n} prints: {buy_n} buy / {sell_n} sell" if n else "no prints yet",
-        value=f"{buy_n}/{sell_n}" if n else "",
-        meaning=(f"{buy_n} trades at the ask, {sell_n} at the bid"
-                 + (f", {n - buy_n - sell_n} inside the spread" if n - buy_n - sell_n else "")
-                 + (f" - {100 * buy_n / (buy_n + sell_n):.0f}% of TRADES are buys "
-                    f"vs {buy_pct:.0f}% of VOLUME"
-                    f"{'; sells are the bigger clips' if 100 * buy_n / (buy_n + sell_n) - buy_pct > 8 else ''}"
-                    f"{'; buys are the bigger clips' if buy_pct - 100 * buy_n / (buy_n + sell_n) > 8 else ''}"
-                    if (buy_n + sell_n) else "")
-                 if n else "no trades yet in this window"),
+        value=side_word if sided else "",
+        meaning=(_side_meaning(buy_n, sell_n, buy_pct)
+                 if sided else "nobody has traded yet"),
     ))
 
     # 2 — aggressive buying
@@ -320,9 +341,11 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         f"{buy:,.0f} at ask ({buy_pct:.0f}%)" if total else "-",
         value=f"{buy_pct:.0f}%" if total else "",
         edge=MEASURED_EDGE_60M[2],
-        meaning=(f"{buy_pct:.0f}% of volume lifted the ask - buyers paying up"
+        meaning=(f"buyers paid the asking price for {buy_pct:.0f}% of everything "
+                 f"traded - they were the impatient ones"
                  if total and buy > sell
-                 else (f"only {buy_pct:.0f}% lifted the ask" if total else "nothing traded")),
+                 else (f"buyers paid up for only {buy_pct:.0f}% of the volume"
+                       if total else "nothing has traded")),
     ))
 
     # 3 — aggressive selling
@@ -333,27 +356,30 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         f"{sell:,.0f} at bid ({sell_pct:.0f}%)" if total else "-",
         value=f"{sell_pct:.0f}%" if total else "",
         edge=MEASURED_EDGE_60M[3],
-        meaning=(f"{sell_pct:.0f}% of volume hit the bid - sellers accepting less"
+        meaning=(f"sellers accepted the lower price for {sell_pct:.0f}% of everything "
+                 f"traded - they were the impatient ones"
                  if total and sell > buy
-                 else (f"only {sell_pct:.0f}% hit the bid" if total else "nothing traded")),
+                 else (f"sellers took the lower price for only {sell_pct:.0f}% of the "
+                       f"volume" if total else "nothing has traded")),
     ))
 
     # 4 — price and quantity together
     if not total:
-        out.append(Read(4, "Price + qty", NEUTRAL, "-", meaning="no volume to judge"))
+        out.append(Read(4, "Price + qty", NEUTRAL, "-",
+                        meaning="nothing has traded, so there is nothing to judge"))
     elif absorb:
         out.append(Read(
             4, "Price + qty", WATCH,
             f"qty {total:,.0f}, price {move:+.1f} - absorbing",
-            meaning=f"{total:,.0f} traded but price moved only {move:+.1f} - "
-                    f"someone is absorbing it",
+            meaning=f"{total:,.0f} changed hands and the price barely moved "
+                    f"({move:+.1f}) - somebody large is quietly taking the other side",
         ))
     else:
         out.append(Read(
             4, "Price + qty", _dir(move),
             f"qty {total:,.0f}, price {move:+.1f}",
-            meaning=f"price {move:+.1f} on {total:,.0f} traded - the move is "
-                    f"backed by volume",
+            meaning=f"the price moved {move:+.1f} on {total:,.0f} traded - there is "
+                    f"real volume behind it",
         ))
 
     # 5 / 6 — absorption
@@ -363,37 +389,41 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         5, "Buyer absorb", POSITIVE if ba else NEUTRAL,
         f"{absorb['qty']:,.0f} sold, price {absorb['price_move']:+.1f}" if ba else "-",
         edge=MEASURED_EDGE_60M[5],
-        meaning=(f"{absorb['qty']:,.0f} sold into the bid and price only moved "
-                 f"{absorb['price_move']:+.1f} - buyers soaking it up"
-                 if ba else "no heavy selling being absorbed"),
+        meaning=(f"heavy selling - {absorb['qty']:,.0f} - and the price still will "
+                 f"not drop ({absorb['price_move']:+.1f}). Buyers are quietly taking "
+                 f"all of it"
+                 if ba else "nobody is soaking up heavy selling right now"),
     ))
     out.append(Read(
         6, "Seller absorb", NEGATIVE if sa else NEUTRAL,
         f"{absorb['qty']:,.0f} bought, price {absorb['price_move']:+.1f}" if sa else "-",
         edge=MEASURED_EDGE_60M[6],
-        meaning=(f"{absorb['qty']:,.0f} bought at the ask and price only moved "
-                 f"{absorb['price_move']:+.1f} - sellers soaking it up"
-                 if sa else "no heavy buying being absorbed"),
+        meaning=(f"heavy buying - {absorb['qty']:,.0f} - and the price still will "
+                 f"not rise ({absorb['price_move']:+.1f}). Sellers are quietly taking "
+                 f"all of it"
+                 if sa else "nobody is soaking up heavy buying right now"),
     ))
 
     # 7 — pressure, and whether price is responding to it
     side = "buying" if delta > 0 else "selling"
     if not total:
         out.append(Read(7, "Pressure", NEUTRAL, "-", edge=MEASURED_EDGE_60M[7],
-                        meaning="no pressure either way"))
+                        meaning="neither side is pushing"))
     elif pr.get("price_responded"):
         out.append(Read(
             7, "Pressure", _dir(delta),
             f"delta {delta:+,.0f}, price following",
             edge=MEASURED_EDGE_60M[7],
-            meaning=f"net {side} of {delta:+,.0f} and price is following it",
+            meaning=f"{'buyers' if delta > 0 else 'sellers'} are pushing harder, "
+                    f"and the price is moving with them",
         ))
     else:
         out.append(Read(
             7, "Pressure", WATCH,
             f"delta {delta:+,.0f}, price NOT following",
             edge=MEASURED_EDGE_60M[7],
-            meaning=f"net {side} of {delta:+,.0f} but price is NOT following - watch",
+            meaning=f"{'buyers' if delta > 0 else 'sellers'} are pushing harder but "
+                    f"the price is not moving - something is holding it",
         ))
 
     # 8 — delta. Rule 8: an observation, never a signal. Number, not an arrow.
@@ -401,29 +431,31 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         8, "Delta (obs)", NEUTRAL,
         f"{delta:+,.0f} = {buy:,.0f} buy - {sell:,.0f} sell" if total else "-",
         value=_compact(delta) if total else "-",
-        meaning=(f"{buy:,.0f} bought minus {sell:,.0f} sold = {delta:+,.0f} - an "
-                 f"observation, not a signal" if total else "nothing traded"),
+        meaning=(f"buying minus selling comes to {delta:+,.0f}. This is just a fact "
+                 f"about what happened, not advice" if total else "nothing has traded"),
     ))
 
     # 9 — cumulative delta vs price
     if not cd.get("n"):
         out.append(Read(9, "Cum delta", NEUTRAL, "-", edge=MEASURED_EDGE_60M[9],
-                        meaning="not enough history yet"))
+                        meaning="not enough has happened yet to total up"))
     elif cd.get("divergence"):
         out.append(Read(
             9, "Cum delta", WATCH,
             f"delta {cd['delta_change']:+,.0f} vs price {cd['price_change']:+.1f} - DIVERGING",
             edge=MEASURED_EDGE_60M[9],
-            meaning=f"delta {cd['delta_change']:+,.0f} but price {cd['price_change']:+.1f} - "
-                    f"they disagree, possible absorption or exhaustion",
+            meaning=f"the buying and the price disagree - buying is "
+                    f"{cd['delta_change']:+,.0f} while the price went "
+                    f"{cd['price_change']:+.1f}. Someone is absorbing it, or the push "
+                    f"is running out",
         ))
     else:
         out.append(Read(
             9, "Cum delta", _dir(cd.get("delta_change", 0.0)),
             f"session {cd.get('cum_delta', 0):+,.0f}, confirming",
             edge=MEASURED_EDGE_60M[9],
-            meaning=f"delta {cd['delta_change']:+,.0f} and price {cd['price_change']:+.1f} "
-                    f"agree - pressure is producing movement",
+            meaning=f"the buying and the price agree - {cd['delta_change']:+,.0f} of "
+                    f"pressure moved the price {cd['price_change']:+.1f}",
         ))
 
     # 10 — exhaustion. Sellers running out is bullish, buyers running out bearish.
@@ -434,20 +466,22 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
             10, "Exhaustion", POSITIVE if bullish else NEGATIVE,
             f"{exh['type'].replace('_', ' ')}: {exh['early']:,.0f} -> {exh['late']:,.0f}",
             edge=MEASURED_EDGE_60M[10],
-            meaning=f"aggressive {fading} fading from {exh['early']:,.0f} to "
-                    f"{exh['late']:,.0f} while price stalled",
+            meaning=f"the {fading} that was driving this is running out of steam - "
+                    f"{exh['early']:,.0f} earlier, only {exh['late']:,.0f} now - and the "
+                    f"price has stopped moving",
         ))
     else:
         out.append(Read(10, "Exhaustion", NEUTRAL, "-", edge=MEASURED_EDGE_60M[10],
-                        meaning="aggression steady, nobody running out"))
+                        meaning="both sides are keeping up the pace, nobody is tiring"))
 
     # 11 — depth. The book NOW; no window applies.
     bq, aq = dep.get("bid_qty", 0.0), dep.get("ask_qty", 0.0)
     out.append(Read(
         11, "Depth   (now)", NEUTRAL,
         f"bid {bq:,.0f} / ask {aq:,.0f}" if dep.get("n") else "-",
-        meaning=(f"{bq:,.0f} resting to buy vs {aq:,.0f} to sell right now - "
-                 f"orders on the book, not trades" if dep.get("n") else "no book"),
+        meaning=(f"{bq:,.0f} waiting to buy and {aq:,.0f} waiting to sell, right now. "
+                 f"These are orders sitting there, not trades that happened"
+                 if dep.get("n") else "no order book yet"),
     ))
 
     # 12 — imbalance. Rule 12: never directional on its own.
@@ -458,12 +492,13 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
             12, "Imbalance (now)", NEUTRAL,
             f"{imb:+.2f} ({'bid' if imb > 0 else 'ask'} heavier)",
             edge=MEASURED_EDGE_60M[12],
-            meaning=f"{heavier} side shows {abs(imb) * 100:.0f}% more resting size - "
-                    f"NOT a direction signal on its own",
+            meaning=f"more people waiting to {heavier} than the other way "
+                    f"({abs(imb) * 100:.0f}% more). Easy to fake, so do not read "
+                    f"direction into it",
         ))
     else:
         out.append(Read(12, "Imbalance (now)", NEUTRAL, "-",
-                        edge=MEASURED_EDGE_60M[12], meaning="no book"))
+                        edge=MEASURED_EDGE_60M[12], meaning="no order book yet"))
 
     # 13 — liquidity removal. Cannot tell cancel from execution, so no direction.
     if lq.get("n"):
@@ -473,12 +508,13 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
             13, "Liq removed", NEUTRAL,
             f"bid -{b:,.0f} / ask -{a:,.0f} ({lq['n']} events)",
             edge=MEASURED_EDGE_60M[13],
-            meaning=f"size left the {heavier} side ({b:,.0f} bid / {a:,.0f} ask) - "
-                    f"cancelled or filled, the book cannot tell which",
+            meaning=f"waiting orders vanished from the {heavier} side "
+                    f"({b:,.0f} buy / {a:,.0f} sell). Either they were filled or someone "
+                    f"pulled them - we cannot tell which",
         ))
     else:
         out.append(Read(13, "Liq removed", NEUTRAL, "-", edge=MEASURED_EDGE_60M[13],
-                        meaning="book steady, no size pulled"))
+                        meaning="the waiting orders are staying put"))
 
     # 14 — rejection, confirmed by the prints on the way back
     confirmed = [(k, r) for k, r in rejections.items() if r.get("confirmed")]
@@ -490,20 +526,20 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
             14, "Rejection", POSITIVE if up else NEGATIVE,
             f"{k} rejected, back {r['back_by']:.1f} pts, confirmed",
             edge=MEASURED_EDGE_60M[14],
-            meaning=f"price broke the {where}, came back {r['back_by']:.1f} pts, and "
-                    f"the trades on the way back confirm it",
+            meaning=f"the price broke past the {where}, could not stay there, and "
+                    f"came back {r['back_by']:.1f} points. The trades since agree",
         ))
     elif rejections:
         k, r = next(iter(rejections.items()))
         out.append(Read(
             14, "Rejection", WATCH, f"{k} poked, NOT confirmed",
             edge=MEASURED_EDGE_60M[14],
-            meaning=f"price poked the {k.replace('_', ' ')} and came back, but the "
-                    f"trades do NOT confirm it yet",
+            meaning=f"the price touched the {k.replace('_', ' ')} and slipped back, "
+                    f"but the trades do not back it up yet",
         ))
     else:
         out.append(Read(14, "Rejection", NEUTRAL, "-", edge=MEASURED_EDGE_60M[14],
-                        meaning="no level being tested and rejected"))
+                        meaning="no important level is being tested"))
 
     out.append(combined(out))
 
@@ -523,8 +559,8 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         if not warm:
             rd.warm = False
             have = int(span // 60)
-            rd.meaning = (f"waiting - {have}m of tape so far, this window needs {mins}m"
-                          if span else "waiting for the first trades")
+            rd.meaning = (f"still filling up - {have} minutes so far, this one needs "
+                          f"{mins}" if span else "waiting for the first trades")
     return out
 
 
@@ -543,21 +579,21 @@ def combined(reads: list[Read]) -> Read:
     if pos == 0 and neg == 0:
         verdict = NEUTRAL
         detail = f"nothing firing ({watch} watching)"
-        meaning = "the tape is quiet - no rule is saying anything"
+        meaning = "quiet - none of the rules has anything to say"
     elif pos > neg:
         verdict = POSITIVE
         detail = f"{pos} up vs {neg} down, {watch} watching"
-        meaning = (f"{pos} rules point up, {neg} down - buying is what is HAPPENING, "
-                   f"not a forecast that price will rise")
+        meaning = (f"{pos} rules say up, {neg} say down. This is what IS happening, "
+                   f"not what will happen")
     elif neg > pos:
         verdict = NEGATIVE
         detail = f"{neg} down vs {pos} up, {watch} watching"
-        meaning = (f"{neg} rules point down, {pos} up - selling is what is HAPPENING, "
-                   f"not a forecast that price will fall")
+        meaning = (f"{neg} rules say down, {pos} say up. This is what IS happening, "
+                   f"not what will happen")
     else:
         verdict = NEUTRAL
         detail = f"split {pos}-{neg}, {watch} watching"
-        meaning = f"rules disagree {pos}-{neg} - no agreement on the tape"
+        meaning = f"the rules disagree, {pos} against {neg} - no clear picture"
     return Read(15, "COMBINED", verdict, detail, meaning=meaning)
 
 

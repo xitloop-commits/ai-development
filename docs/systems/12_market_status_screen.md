@@ -571,3 +571,40 @@ neither aggressive buys nor sells. Previously it read "69 trades - 16 hit the
 ask, 25 hit the bid", which does not add up and looked like a bug. It now reads
 "16 at the ask, 25 at the bid, 28 inside the spread", and the count percentage
 is computed over buys+sells so it compares like-for-like with the volume share.
+
+
+---
+
+## 17 — Plain English throughout (2026-09-17)
+
+Partha: *instead of saying x/y - which side most of them traded. And details
+should be in layman english.*
+
+### 17.1 Rule 1 names the side
+
+`16/25` became `buy` / `sell` / `even` — the side that most trades went to. The
+count detail moved into the explanation, where there is room for it to mean
+something.
+
+### 17.2 Every explanation rewritten
+
+32 of them. Before and after:
+
+| rule | was | now |
+|---|---|---|
+| 1 | "16 at the ask, 25 at the bid - 40% of TRADES vs 21% of VOLUME" | "more buys than sells - 31 against 21, but the buyers are trading in bigger lots" |
+| 4 | "12,400 traded but price moved only +0.4 - someone is absorbing it" | "12,400 changed hands and the price barely moved (+0.4) - somebody large is quietly taking the other side" |
+| 7 | "net buying of +5,525 and price is following it" | "buyers are pushing harder, and the price is moving with them" |
+| 9 | "delta +5,720 vs price +12.0 - they disagree, possible absorption" | "the buying and the price disagree - buying is +5,720 while the price went -3.2. Someone is absorbing it, or the push is running out" |
+| 12 | "buy side shows 65% more resting size - NOT a direction signal" | "more people waiting to buy than the other way (65% more). Easy to fake, so do not read direction into it" |
+| 13 | "size left the bid side - cancelled or filled, the book cannot tell which" | "waiting orders vanished from the bid side (24,895 buy / 4,875 sell). Either they were filled or someone pulled them - we cannot tell which" |
+| 15 | "3 rules point up, 0 down - buying is what is HAPPENING" | "3 rules say up, 0 say down. This is what IS happening, not what will happen" |
+
+The clip-size tell survives the rewrite and is now stated in words rather than
+left to be inferred from two rows: *"but the buyers are trading in bigger lots"*
+appears whenever the trade count and the volume share disagree by more than 8
+points.
+
+No jargon left in the detail column: no "delta", no "resting size", no "ask" or
+"bid" without saying what they mean. The tooltips still carry the technical
+detail for anyone who wants it.
