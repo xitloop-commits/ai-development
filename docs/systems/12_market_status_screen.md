@@ -432,25 +432,42 @@ explain themselves, including that blank means "no data yet" while a dot means
 Shared popup, 450 ms delay (an instant tooltip flashes constantly across a
 dense grid), auto-flips near the screen edges.
 
-### 14.2 "now" moved from 10 s to 30 s
+### 14.2 "now" is the CURRENT TICK, not a timeframe
 
-Partha asked why the `now` column was showing dots. The answer was not "the
-market is quiet" — it was that 10 seconds is too short for most of these rules
-to say anything at all.
+Partha asked why the `now` column was showing dots, then corrected the premise:
+**now does not mean a timeframe, it means the current tick.** The first build
+had it as a short look-back, which was wrong.
 
-Measured 2026-09-17, sampling every 5 s once the tape was warm. Rules firing out
-of 11, and how often the window held no trades at all:
+`read_now()` now reports what just happened:
 
-| | nifty50 | banknifty | crudeoil |
-|---|---|---|---|
-| 10s | 3.2/11, empty 11% | 2.1/11, empty 23% | 1.4/11, empty **57%** |
-| 15s | 3.9/11, empty 5% | 2.7/11, empty 13% | 1.8/11, empty 45% |
-| **30s** | **4.8/11, empty 0%** | **3.9/11, empty 1%** | **2.8/11, empty 25%** |
-| 60s | 5.4/11, empty 0% | 5.1/11, empty 0% | 3.8/11, empty 5% |
+| rule | now shows |
+|---|---|
+| 1 Trade side | which side the last trade hit, and its size |
+| 2, 3 | whether that trade lifted the ask or hit the bid |
+| 4 | the price move on that tick against its size |
+| 8 | that single trade's contribution to delta |
+| 9 | the running cumulative delta right now |
+| 11, 12, 13 | the book as it stands, and what left it on the latest update |
+| 5, 6, 7, 10, 14, 15 | **em-dash** — one trade cannot answer these |
 
-A 10-second window holds a **median of two trades** on nifty50. Absorption,
-exhaustion and rejection cannot fire on two trades — they need size and a
-before/after comparison — so the column sat on dots **by construction**.
+Live example: *"the last trade was 195 at the ask @ 23,308.00"*, *"195 traded and
+price moved +3.90 on this tick"*, *"+16,575 net since the open"*.
 
-30 s still reads as "now" while letting most rules speak. Crude stays sparse at
-25% empty because it simply trades less; that is the instrument, not the screen.
+Three distinct glyphs, three distinct facts:
+
+| | means |
+|---|---|
+| blank | no data yet — the window has not filled |
+| `·` | nothing is happening — the rule is not firing |
+| `—` | not answerable by one trade — use a timeframe column |
+
+Absorption, exhaustion, pressure and rejection all need size over time and a
+before-and-after comparison. A single trade supplies neither, so they say so
+rather than pretending.
+
+One caveat recorded in the tooltip: about two thirds of market updates carry no
+trade at all, so "the current tick" means the most recent tick that actually
+traded. The book, by contrast, is genuinely current.
+
+Keys shift accordingly: `2`-`7` select the detail timeframe (`now` is always the
+first column and needs no selection).

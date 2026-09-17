@@ -12,6 +12,11 @@ Each quadrant is a table: Partha's 15 order-flow rules down the side, "now" plus
 his confirmation windows across the top (now 1m 2m 5m 10m 15m 30m), the MEASURED
 edge, and what the reading MEANS in plain English.
 
+"now" is the CURRENT TICK, not a short timeframe: which side the last trade hit,
+its size, the price move on that tick, the running delta, and the book as it
+stands. Rules needing size over time show an em-dash there - one trade cannot
+answer them.
+
 A window with less history than it needs is left BLANK - blank means "no data
 yet", a dot means "nothing is happening", and those are different facts. "now"
 is live from the first print, and the rest fill in left to right as the tape
@@ -22,7 +27,7 @@ Two views, toggled with V:
   B  table + meaning  — the default; every row explained in words
   A  table only       — compact, for scanning consistency across timeframes
 
-Keys: V toggle view, 1-7 select window, F11 fullscreen, Esc quit.
+Keys: V toggle view, 2-7 select detail window, F11 fullscreen, Esc quit.
 
 Run:
   python -m market_screen.app                      # live (tails TFA's recordings)
@@ -54,12 +59,14 @@ from .verdicts import (
     NEUTRAL,
     POSITIVE,
     WATCH,
+    ALL_COLUMNS,
     COLUMN_HELP,
     RULE_HELP,
     WINDOW_LABELS,
     WINDOWS,
     agreement,
     read_grid,
+    read_now,
 )
 
 TITLES = {
@@ -101,8 +108,9 @@ N_RULES = 15
 VIEW_TABLE = "A"
 VIEW_DETAIL = "B"
 
-DETAIL_COL = len(WINDOWS) + 2      # 0 = name, 1..6 = windows, 7 = edge, 8 = detail
-EDGE_COL = len(WINDOWS) + 1
+N_COLS = len(ALL_COLUMNS)          # now + six windows
+DETAIL_COL = N_COLS + 2            # 0 = name, 1 = now, 2..7 = windows, 8 = edge
+EDGE_COL = N_COLS + 1
 
 
 class Tooltip:
@@ -196,7 +204,7 @@ class Quadrant:
         body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
         self.body = body
         body.columnconfigure(0, minsize=112)
-        for c in range(1, 1 + len(WINDOWS)):
+        for c in range(1, 1 + N_COLS):
             body.columnconfigure(c, minsize=38)
         body.columnconfigure(EDGE_COL, minsize=60)
         body.columnconfigure(DETAIL_COL, weight=1)
@@ -207,8 +215,9 @@ class Quadrant:
                             anchor="w", padx=3)
         hdr_rule.grid(row=0, column=0, sticky="ew", pady=(0, 2))
         tip.attach(hdr_rule, COLUMN_HELP["rule"])
-        for i, lab in enumerate(WINDOW_LABELS):
-            h = tk.Label(body, text=lab, bg=HEAD, fg=DIM, font=("Consolas", 8),
+        for i, lab in enumerate(ALL_COLUMNS):
+            h = tk.Label(body, text=lab, bg=HEAD, fg=DIM,
+                         font=("Consolas", 8, "bold") if lab == "now" else ("Consolas", 8),
                          anchor="center")
             h.grid(row=0, column=1 + i, sticky="ew", pady=(0, 2))
             tip.attach(h, COLUMN_HELP["now"] if lab == "now" else COLUMN_HELP["window"])
@@ -227,7 +236,7 @@ class Quadrant:
             name.grid(row=1 + r, column=0, sticky="ew")
             tip.attach(name, RULE_HELP.get(r + 1, ""))
             cells = []
-            for i in range(len(WINDOWS)):
+            for i in range(N_COLS):
                 c = tk.Label(body, text="", bg=PANEL, fg=FAINT,
                              font=("Consolas", 9), anchor="center")
                 c.grid(row=1 + r, column=1 + i, sticky="ew")
@@ -273,6 +282,7 @@ class Quadrant:
         self.price.config(text=f"{px:,.2f}" if px else "-")
 
         grid = read_grid(self.flow, now=self.last_tick_ts)
+        now_reads = read_now(self.flow)
         sel = self.app.window
         sel_label = WINDOW_LABELS[WINDOWS.index(sel)]
         sel_reads = grid[sel]
@@ -300,12 +310,11 @@ class Quadrant:
                 # inventing one would be fabricating data.
                 cells[0].config(text=ref.detail, fg=FG, anchor="w",
                                 font=("Consolas", 8))
-                cells[0].grid(row=1 + r, column=1, columnspan=len(WINDOWS), sticky="ew")
+                cells[0].grid(row=1 + r, column=1, columnspan=N_COLS, sticky="ew")
                 for c in cells[1:]:
                     c.grid_forget()
             else:
-                for i, sec in enumerate(WINDOWS):
-                    rd = grid[sec][r]
+                for i, rd in enumerate([now_reads[r]] + [grid[sec][r] for sec in WINDOWS]):
                     cells[i].grid(row=1 + r, column=1 + i, columnspan=1, sticky="ew")
                     cells[i].config(
                         text=rd.symbol,
@@ -365,7 +374,7 @@ class App:
         for key in ("v", "V"):
             root.bind(f"<KeyPress-{key}>", lambda e: self.toggle_view())
         for i in range(len(WINDOWS)):
-            root.bind(f"<KeyPress-{i + 1}>",
+            root.bind(f"<KeyPress-{i + 2}>",
                       lambda e, idx=i: self.set_window(WINDOWS[idx]))
         root.protocol("WM_DELETE_WINDOW", self.quit)
         self.tick()
@@ -400,7 +409,7 @@ class App:
                   f"▲ positive  ▼ negative  ◆ watch  · nothing   |   "
                   f"edge = measured vs base rate, 77 nifty days; inside ±3pp is noise   |   "
                   f"blank = window still filling   |   hover a rule name for help   |   "
-                  f"V view, 1-7 window, F11 fullscreen, Esc quit")
+                  f"V view, 2-7 window, F11 fullscreen, Esc quit")
         )
         self.root.after(REFRESH_MS, self.tick)
 

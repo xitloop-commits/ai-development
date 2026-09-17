@@ -41,26 +41,18 @@ NEGATIVE = "NEGATIVE"
 NEUTRAL = "NEUTRAL"
 WATCH = "WATCH"          # something is happening but it does not imply a side
 
-# "now" plus Partha's confirmation windows, in seconds.
-#
-# `now` is a 30-SECOND look-back — not a tick, and not 10 seconds. Measured
-# 2026-09-17, sampling every 5s once the tape was warm (rules firing out of 11,
-# and how often the window held no trades at all):
-#
-#            nifty50            banknifty          crudeoil
-#   10s   3.2/11, empty 11%   2.1/11, empty 23%   1.4/11, empty 57%
-#   15s   3.9/11, empty  5%   2.7/11, empty 13%   1.8/11, empty 45%
-#   30s   4.8/11, empty  0%   3.9/11, empty  1%   2.8/11, empty 25%
-#
-# A 10-second window holds a MEDIAN OF TWO TRADES on nifty50. Absorption,
-# exhaustion and rejection cannot fire on two trades — they need size and a
-# before/after comparison — so the column sat mostly on dots by construction,
-# not because the market was quiet. 30s still reads as "now" while letting most
-# rules actually have something to say.
-NOW_SEC = 30
-WINDOWS = (NOW_SEC, 60, 120, 300, 600, 900, 1800)
-WINDOW_LABELS = ("now", "1m", "2m", "5m", "10m", "15m", "30m")
+# Partha's confirmation windows, in seconds. "now" is NOT one of these — it is
+# the current tick, handled separately by read_now().
+WINDOWS = (60, 120, 300, 600, 900, 1800)
+WINDOW_LABELS = ("1m", "2m", "5m", "10m", "15m", "30m")
+ALL_COLUMNS = ("now",) + WINDOW_LABELS
 DEFAULT_WINDOW = 300
+
+# Shown in the "now" column for rules that cannot be answered by one tick.
+# Absorption, exhaustion, pressure and rejection all need size over time and a
+# before/after comparison; a single trade cannot supply either. Distinct from
+# blank ("no data yet") and from a dot ("nothing is happening").
+NOT_APPLICABLE = "—"
 
 SYMBOL = {POSITIVE: "▲", NEGATIVE: "▼", WATCH: "◆", NEUTRAL: "·"}
 
@@ -214,13 +206,16 @@ RULE_HELP = {
 
 # Tooltips for the column headers.
 COLUMN_HELP = {
-    "now": ("The last 30 seconds.\n\nNot a single tick: about two thirds of "
-            "market updates carry no trade at all, so a literal instant would "
-            "sit empty most of the time.\n\nA DOT here means this rule is not "
-            "firing in the last 30 seconds, which is normal and common. "
-            "Absorption and exhaustion need real size behind them, so over half "
-            "a minute they usually have nothing to say.\n\nBlank is different "
-            "from a dot: blank means no data yet."),
+    "now": ("THE CURRENT TICK - not a timeframe.\n\nWhat just happened: which "
+            "side the latest trade hit, its size, the price move on that tick, "
+            "the running delta since the open, and the book as it stands.\n\n"
+            "An em-dash means the rule cannot be answered by one trade. "
+            "Absorption, exhaustion, pressure and rejection all need size over "
+            "time and a before-and-after comparison, and a single trade supplies "
+            "neither. Use the timeframe columns for those.\n\nAbout two thirds "
+            "of market updates carry no trade at all, so 'the current tick' here "
+            "means the most recent tick that actually traded. The book is "
+            "genuinely current."),
     "edge": ("MEASURED TRACK RECORD\n\n"
              "How often this rule was right about direction, compared with the "
              "market's own base rate. Measured over 77 days and 26,671 decision "
@@ -491,10 +486,10 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
     # the open, or if TFA is not recording, a 30m window has nothing in it — and
     # a cold window must say so rather than print "nothing happening".
     span = fs.data_span()
-    # "now" is live from the very first print — it is a 10-second look-back, so
-    # waiting for a full 10 seconds of span before showing anything would leave
-    # the column blank at exactly the moment you most want to see the tape move.
-    warm = len(fs.prints) >= 1 if sec <= NOW_SEC else span >= sec
+    # Every column here is a real timeframe, so it needs that much tape before it
+    # can say anything. "now" is not one of these — it is the current tick, and
+    # read_now() is live from the first trade.
+    warm = span >= sec
 
     for rd in out:
         if rd.rule in INSTANTANEOUS:
@@ -538,6 +533,121 @@ def combined(reads: list[Read]) -> Read:
         detail = f"split {pos}-{neg}, {watch} watching"
         meaning = f"rules disagree {pos}-{neg} - no agreement on the tape"
     return Read(15, "COMBINED", verdict, detail, meaning=meaning)
+
+
+def read_now(fs) -> list[Read]:
+    """The CURRENT TICK — not a short window.
+
+    "now" answers "what just happened", so it reports the most recent trade and
+    the book as it stands. Rules that need size over time (absorption,
+    exhaustion, pressure, rejection, and the combined read) cannot be answered
+    by one trade and say so with an em-dash rather than pretending.
+
+    One caveat worth knowing: about two thirds of market updates carry no trade
+    at all, so "the current tick" here means the most recent tick that actually
+    traded. The book, by contrast, is genuinely current.
+    """
+    dep = fs.depth_imbalance() or {}
+    last = fs.prints[-1] if getattr(fs, "prints", None) else None
+    prev = fs.prints[-2] if fs and len(getattr(fs, "prints", [])) >= 2 else None
+
+    def na(rule: int, name: str, edge=None) -> Read:
+        return Read(rule, name, NEUTRAL, "-", value=NOT_APPLICABLE, edge=edge,
+                    meaning="needs time - one trade cannot answer this")
+
+    out: list[Read] = []
+
+    if last is None:
+        blank = [Read(r, "", NEUTRAL, "-", value="", meaning="waiting for the first trade")
+                 for r in range(1, 16)]
+        return blank
+
+    side_txt = "buy" if last.side > 0 else ("sell" if last.side < 0 else "mid")
+    side_verdict = (POSITIVE if last.side > 0 else
+                    (NEGATIVE if last.side < 0 else NEUTRAL))
+    tick_move = (last.price - prev.price) if prev else 0.0
+
+    # 1 — which side the latest trade happened on
+    out.append(Read(1, "Trade side", side_verdict, f"{side_txt} {last.qty:,.0f}",
+                    value=side_txt,
+                    meaning=f"the last trade was {last.qty:,.0f} at the "
+                            f"{'ask' if last.side > 0 else 'bid' if last.side < 0 else 'mid'} "
+                            f"@ {last.price:,.2f}"))
+
+    # 2 / 3 — was that latest trade an aggressive buy or sell
+    out.append(Read(2, "Aggr buying", POSITIVE if last.side > 0 else NEUTRAL,
+                    f"{last.qty:,.0f} at ask" if last.side > 0 else "-",
+                    edge=MEASURED_EDGE_60M[2],
+                    meaning=("the last trade lifted the ask" if last.side > 0
+                             else "the last trade was not a buy")))
+    out.append(Read(3, "Aggr selling", NEGATIVE if last.side < 0 else NEUTRAL,
+                    f"{last.qty:,.0f} at bid" if last.side < 0 else "-",
+                    edge=MEASURED_EDGE_60M[3],
+                    meaning=("the last trade hit the bid" if last.side < 0
+                             else "the last trade was not a sell")))
+
+    # 4 — this tick's price move against its size
+    out.append(Read(4, "Price + qty", _dir(tick_move),
+                    f"{last.qty:,.0f} @ {tick_move:+.2f}",
+                    meaning=f"{last.qty:,.0f} traded and price moved {tick_move:+.2f} "
+                            f"on this tick"))
+
+    # 5, 6 — absorption needs sustained size against a stalling price
+    out.append(na(5, "Buyer absorb", MEASURED_EDGE_60M[5]))
+    out.append(na(6, "Seller absorb", MEASURED_EDGE_60M[6]))
+
+    # 7 — pressure is a balance over time, not one trade
+    out.append(na(7, "Pressure", MEASURED_EDGE_60M[7]))
+
+    # 8 — this tick's own delta is just its signed size
+    out.append(Read(8, "Delta (obs)", NEUTRAL,
+                    f"{last.side * last.qty:+,.0f}",
+                    value=_compact(last.side * last.qty),
+                    meaning=f"this single trade contributed "
+                            f"{last.side * last.qty:+,.0f} to delta"))
+
+    # 9 — the session running total IS a now value
+    out.append(Read(9, "Cum delta", _dir(fs.cum_delta), f"{fs.cum_delta:+,.0f}",
+                    value=_compact(fs.cum_delta), edge=MEASURED_EDGE_60M[9],
+                    meaning=f"{fs.cum_delta:+,.0f} net since the open - the running "
+                            f"total right now"))
+
+    # 10 — exhaustion is a fade over time
+    out.append(na(10, "Exhaustion", MEASURED_EDGE_60M[10]))
+
+    # 11, 12 — the book, which is genuinely current
+    bq, aq = dep.get("bid_qty", 0.0), dep.get("ask_qty", 0.0)
+    out.append(Read(11, "Depth   (now)", NEUTRAL,
+                    f"bid {bq:,.0f} / ask {aq:,.0f}" if dep.get("n") else "-",
+                    meaning=(f"{bq:,.0f} resting to buy vs {aq:,.0f} to sell right now"
+                             if dep.get("n") else "no book")))
+    imb = dep.get("imbalance")
+    out.append(Read(12, "Imbalance (now)", NEUTRAL,
+                    f"{imb:+.2f}" if imb is not None and dep.get("n") else "-",
+                    edge=MEASURED_EDGE_60M[12],
+                    meaning=(f"{'buy' if imb > 0 else 'sell'} side has "
+                             f"{abs(imb) * 100:.0f}% more resting size - not a "
+                             f"direction signal on its own"
+                             if imb is not None and dep.get("n") else "no book")))
+
+    # 13 — what left the book on the latest update
+    recent = [r for r in getattr(fs, "liq_removals", [])
+              if fs.depth_hist and r[0] >= fs.depth_hist[-1].ts]
+    if recent:
+        b = sum(r[3] for r in recent if r[1] == "bid")
+        a = sum(r[3] for r in recent if r[1] == "ask")
+        out.append(Read(13, "Liq removed", NEUTRAL, f"bid -{b:,.0f} / ask -{a:,.0f}",
+                        edge=MEASURED_EDGE_60M[13],
+                        meaning=f"on the latest book update, {b:,.0f} left the bid and "
+                                f"{a:,.0f} left the ask"))
+    else:
+        out.append(Read(13, "Liq removed", NEUTRAL, "-", edge=MEASURED_EDGE_60M[13],
+                        meaning="nothing left the book on the latest update"))
+
+    # 14, 15 — a level test and a combined read both need history
+    out.append(na(14, "Rejection", MEASURED_EDGE_60M[14]))
+    out.append(na(15, "COMBINED"))
+    return out
 
 
 def agreement(grid: dict, r: int, sel: int) -> str:
