@@ -608,3 +608,51 @@ points.
 No jargon left in the detail column: no "delta", no "resting size", no "ask" or
 "bid" without saying what they mean. The tooltips still carry the technical
 detail for anyone who wants it.
+
+
+---
+
+## 18 — Explanations cover every timeframe, and wrap (2026-09-17)
+
+Partha: *details should not be for 5min - combine all the timeframes. Text
+should wrap to the next line when there is no real estate.*
+
+### 18.1 One statement across all six windows
+
+The detail column described the selected window only, which wasted the grid it
+was sitting next to. It now synthesises every timeframe:
+
+```
+ 1. buys lead on 1m, 2m and 5m; sells lead on 10m, 15m and 30m
+ 4. price down on real volume on 5m, 15m and 30m; price up on 2m and 10m; nothing on 1m
+ 7. someone pushing but price stuck on 1m, 2m and 10m; sellers pushing and price
+    following on 5m, 15m and 30m
+15. leaning down on 5m, 15m and 30m; leaning up on 2m and 10m; split on 1m
+```
+
+Rows carrying numbers get a trajectory instead of a grouping, because "how it
+moves as you zoom out" is the useful shape:
+
+```
+ 2. buying share fading as you zoom out, 100% at 1m down to 49% at 30m
+    (1m 100%  2m 40%  5m 35%  10m 39%  15m 45%  30m 49%)
+ 8. running total by timeframe: 1m +845  2m -585  5m -1.3k  10m -2.2k  15m -1.8k  30m -715
+```
+
+Two deliberate choices:
+
+- **Neutral groups go last.** Leading with "not happening on four windows;
+  buyers soaking up the selling on 1m and 2m" buries the only newsworthy half of
+  the sentence.
+- **Rows with no per-window story** — depth, imbalance, liquidity removal — keep
+  their own single sentence. The book is only ever "now", so grouping it by
+  timeframe would be meaningless.
+
+### 18.2 Wrapping
+
+Explanations wrap to as many lines as they need. Tkinter wraps on a pixel count
+rather than on the cell, so a `<Configure>` handler recomputes the wrap width
+from the space actually left after the rule name, the seven columns and the edge
+column — otherwise the text overflows a narrow quadrant and stops short in a
+wide one. Rule names and explanations both anchor to the top of their row so a
+two-line explanation stays aligned with its label.
