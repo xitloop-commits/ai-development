@@ -88,7 +88,7 @@ INSTANTANEOUS = {11, 12}
 
 # Rule 8 is an observation by Partha's own spec, so it never gets a direction —
 # it shows its number instead of an arrow. Rule 1 is the raw print count.
-NUMERIC_ONLY = {1, 8}
+NUMERIC_ONLY = {1, 2, 3, 8}
 
 
 @dataclass
@@ -290,10 +290,15 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
 
     # 2 — aggressive buying
     buy_pct = 100 * buy / total if total else 0.0
+    # Rules 2 and 3 are mirror images - only one can dominate - so showing an
+    # arrow on one and a bare dot on the other wasted half the information and
+    # read as "nothing here". Both now show their SHARE at every window, and
+    # colour only when that side is the dominant one.
     out.append(Read(
         2, "Aggr buying",
         POSITIVE if total and buy > sell else NEUTRAL,
         f"{buy:,.0f} at ask ({buy_pct:.0f}%)" if total else "-",
+        value=f"{buy_pct:.0f}%" if total else "",
         edge=MEASURED_EDGE_60M[2],
         meaning=(f"{buy_pct:.0f}% of volume lifted the ask - buyers paying up"
                  if total and buy > sell
@@ -306,6 +311,7 @@ def read_window(fs, sec: int, now: Optional[float] = None) -> list[Read]:
         3, "Aggr selling",
         NEGATIVE if total and sell > buy else NEUTRAL,
         f"{sell:,.0f} at bid ({sell_pct:.0f}%)" if total else "-",
+        value=f"{sell_pct:.0f}%" if total else "",
         edge=MEASURED_EDGE_60M[3],
         meaning=(f"{sell_pct:.0f}% of volume hit the bid - sellers accepting less"
                  if total and sell > buy

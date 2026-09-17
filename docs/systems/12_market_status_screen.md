@@ -471,3 +471,51 @@ traded. The book, by contrast, is genuinely current.
 
 Keys shift accordingly: `2`-`7` select the detail timeframe (`now` is always the
 first column and needs no selection).
+
+
+---
+
+## 15 — Why a row shows a dot (2026-09-17)
+
+Partha: *the other timeframes are aggregated, so why does it say dot?*
+
+They are aggregated — every trade in the window. A dot means the aggregate does
+not meet that rule's condition. Measured at the 5m window on nifty50 today, how
+often each row sat dark:
+
+| row | dark | why |
+|---|---|---|
+| 4 Price + qty | 2% | almost always has something to say |
+| 7 Pressure | 0% | always has a reading |
+| 9 Cum delta | 2% | always has a reading |
+| 15 COMBINED | 13% | |
+| 10 Exhaustion | 59% | a real event, fires ~40% of the time |
+| 14 Rejection | 58% | only when a level is being tested |
+| **5, 6 Absorption** | **100%** | genuinely did not happen today — ~3% of minutes historically |
+| 1, 8, 11, 12, 13 | n/a | these show numbers or text, never arrows |
+
+Three separate causes, only one of which was a real problem:
+
+**1. Rows that show values, not arrows.** Trade side, delta, depth, imbalance and
+liquidity removal always print numbers. They register as "neutral" internally but
+never look like a dot on screen.
+
+**2. Rules that are simply rare.** Absorption fires on about 3% of minutes by
+design — it needs size well above the session's own normal *and* a price that
+refuses to move. A dark absorption row means it is not happening, which is the
+correct and usual answer.
+
+**3. The real problem: rules 2 and 3 are mirror images.** Only one side can
+dominate, so one of the two rows was always a bare dot — throwing away the
+information and reading as "nothing here".
+
+**Fixed:** both now show their *share* at every window, coloured only when that
+side dominates:
+
+```
+ 2 Aggr buying          ·    70%    71%    66%    61%    53%    51%
+ 3 Aggr selling         ▼    30%    29%    34%    39%    47%    49%
+```
+
+Buying decaying from 70% at 1m to 51% at 30m is exactly the kind of thing the
+grid is for, and it was invisible when one row was a dot.
