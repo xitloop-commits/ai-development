@@ -1883,6 +1883,75 @@ def act_watch() -> None:
         _pause_briefly()
 
 
+def _screen_replay_days(limit: int = 8) -> list[str]:
+    """Recent recorded days that have ALL FOUR instruments, newest first.
+
+    A day missing an instrument would replay with an empty quadrant, which reads
+    as "no flow" rather than "no data" — so only complete days are offered.
+    """
+    import collections
+
+    have = collections.defaultdict(set)
+    for p in (ROOT / "data" / "raw").glob("*/*_underlying_ticks.ndjson.gz"):
+        try:
+            if p.stat().st_size < 50_000:
+                continue
+        except OSError:
+            continue
+        have[p.parent.name].add(p.name.split("_underlying")[0])
+    full = [d for d, s in have.items() if len(s) >= len(_INSTRUMENTS)]
+    return sorted(full, reverse=True)[:limit]
+
+
+def act_market_screen() -> None:
+    """System 12 — the 2x2 order-flow screen. Live, or replay a recorded day."""
+    while True:
+        rows = [InstrumentRow(
+            instrument="live        (needs the API server running)",
+            checked=False, enabled=True, status_line="",
+        )]
+        days = _screen_replay_days()
+        for d in days:
+            rows.append(InstrumentRow(
+                instrument=f"replay {d}",
+                checked=False, enabled=True, status_line="all 4 instruments",
+            ))
+        if not days:
+            rows.append(InstrumentRow(
+                instrument="(no complete recorded days found)",
+                checked=False, enabled=False, status_line="",
+            ))
+
+        res = submenu(
+            title="Market Status Screen  —  pick live, or a day to replay",
+            rows=rows,
+            show_date_mode_toggle=False,
+            bottom_actions=["Open"],
+        )
+        if res.cancelled:
+            return
+        if not res.selected:
+            print()
+            print(f"  {YELLOW('!')} Nothing selected.")
+            _pause_briefly()
+            continue
+
+        choice = res.selected[0]
+        print()
+        if choice.startswith("live"):
+            _launch_new_window("Market Status Screen (live)", "market-screen.bat")
+        elif choice.startswith("replay "):
+            date = choice.split()[1]
+            _launch_new_window(
+                f"Market Status Screen (replay {date})",
+                "market-screen.bat", "--replay", date, "--speed", "120",
+            )
+        else:
+            print(f"  {YELLOW('!')} Nothing to open.")
+            _pause_briefly()
+        return
+
+
 def _read_server_port() -> int:
     """Resolve the API server port from .env (PORT=...) with a 3000 default.
 
@@ -3219,6 +3288,7 @@ def main() -> None:
         RootItem("SMA-Model    (learned SMA5 rider → paper only)", "M", act_sma_model),
         RootItem("Live Sim     (SEA for replay: auto-trade + no stale guard)", "S", act_live_sim),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
+        RootItem("Screen       (market status — 2x2 order flow)", "D", act_market_screen),
         RootItem("yow-partha   (Telegram control bot)",    "Y", act_yow_partha),
         RootItem("Tools        (token / creds / status)",  ".", act_tools),
         RootItem("Restart      (reload launcher code)",    "L", act_restart_launcher),

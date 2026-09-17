@@ -189,8 +189,19 @@ The full list this screen is designed to answer, grouped: direction, trend quali
 `python_modules/market_screen/` — `app.py` (2x2 Tkinter), `verdicts.py` (rules ->
 POSITIVE / NEGATIVE / WATCH), `source.py` (live + replay).
 
-    python -m market_screen.app                        # live
-    python -m market_screen.app --replay 2026-09-04    # a recorded day
+**From the launcher (normal route):** root menu -> **`D`  Screen  (market status
+— 2x2 order flow)**. It offers `live`, or any of the last 8 recorded days that
+have **all four** instruments — a day missing one would replay with an empty
+quadrant, which reads as "no flow" rather than "no data", so incomplete days are
+not offered. Replay launches at 120x.
+
+Directly:
+
+    startup\market-screen.bat                          # live
+    startup\market-screen.bat --replay 2026-09-04
+    startup\market-screen.bat --replay latest --speed 120
+
+    # or, from python_modules/
     python -m market_screen.app --replay latest --speed 120 --fullscreen
 
 ### 11.1 What it shows

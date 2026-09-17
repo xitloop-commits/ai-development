@@ -3505,3 +3505,25 @@ tunes only on prior days, the protocol we committed to before seeing results);
 question; (c) stop rules-based entry and keep the flow layer for the Market
 Status Screen (T180) where a human reads it as context.
 Pending: banknifty option-book cache ~28/72 built (resumes free, skips existing).
+
+### T180 UPDATE 2026-09-17 — Market Status Screen v1 BUILT + in the launcher ✅ (v1)
+`python_modules/market_screen/` — 2x2 Tkinter grid (nifty TL, banknifty TR,
+crude BL, gas BR) showing all 15 of Partha's order-flow rules per quadrant, each
+with a POSITIVE/NEGATIVE/WATCH light, the live numbers, and **its measured edge**
+from the 26,671-decision-point study (anything inside +/-3pp labelled "noise" in
+the UI itself).
+Launcher: root menu **`D` — Screen**, offering live or the last 8 recorded days
+that have all four instruments. `startup/market-screen.bat`.
+Live ticks come from `ws://localhost:3000/ws/ticks` (the server's raw Dhan binary
+relay) decoded with the platform's own `binary_parser` — no second broker
+connection, nothing touching TFA's feed. Replay works with the market shut.
+Bug found: neither the instrument profile nor `metadata.json` can map security
+id -> instrument; both say 13 for NIFTY, which is the SPOT index that Dhan sends
+in ticker mode only (no volume, no book). The wire carries the near-month FUTURES
+contract (nifty 68407, banknifty 68390, crude 565899, gas 568245). Mapping by
+metadata would have connected, shown a price, and reported no order flow at all —
+a silent failure. Map now derived from the recordings.
+STILL SPEC-ONLY: option-chain panels (§3.6-3.7), who-controls-the-strikes (§3.8),
+expiry lifecycle view (§4) + its Dhan historical-OI backfill, and option-leg flow
+(the book cache stores bid/ask/ltp but not per-contract volume, which rules 2-3
+need on the premium tape).
