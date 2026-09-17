@@ -212,11 +212,29 @@ read at the bottom of each quadrant.
 
 ### 11.2 Where the ticks come from
 
-**Live:** `ws://localhost:3000/ws/ticks`, which relays the RAW Dhan binary
-frames (`server/broker/tickWs.ts:92`), decoded with the platform's own
-`binary_parser`. Deliberately no second broker connection and nothing touching
-TFA's feed — it reuses what the server already sends the browser, so full FULL
-packets with 5-level depth.
+**Live:** tails TFA's own recordings under `data/raw/<date>/`.
+
+This is not the obvious choice, and the obvious choice is wrong. The server
+relays raw Dhan frames at `ws://localhost:3000/ws/ticks`, but **only for what
+the SERVER has subscribed to**, which is driven by an open trading desk.
+Measured live 2026-09-17 10:05, market open, TFA recording normally:
+
+```json
+{"wsConnected": true, "totalSubscriptions": 0, "instruments": []}
+```
+
+The relay carried nothing and the screen sat empty **with no error** — it
+connected fine and simply had no data. TFA holds its own direct Dhan connection
+and records continuously through the session, so its files always have it.
+
+The recorder appends independent gzip members and flushes, so re-reading yields
+everything written so far; the trailing partial member raises `EOFError`, which
+is caught and what was read is kept. Measured: 31 ms for 945 ticks, so the 1 s
+poll is comfortable. Verified live — nifty50 819 ticks and banknifty 1,086
+ticks, both reading correctly at 10:07.
+
+The relay is still available with `--source ws`, useful when a desk IS
+subscribed and as a cross-check.
 
 **Replay:** any recorded day from `data/raw/`, all instruments merged in
 timestamp order so the quadrants advance together. 71 days have all four.

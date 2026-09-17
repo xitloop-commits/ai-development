@@ -2,11 +2,27 @@
 
 Two sources, same output shape, so the screen cannot tell them apart:
 
-LIVE     ws://localhost:3000/ws/ticks forwards the RAW Dhan binary frames
-         (server/broker/tickWs.ts:92), which we decode with the platform's own
-         parser. This deliberately does NOT open a second broker connection and
-         does NOT touch TFA's feed — it reuses what the server already
-         distributes to the browser.
+LIVE     tails TFA's own recordings for today, under data/raw/<date>/.
+
+         This is NOT the obvious choice and the obvious choice is WRONG. The
+         server relays raw Dhan frames at ws://localhost:3000/ws/ticks, but it
+         only relays what the SERVER has subscribed to — and that is driven by
+         an open trading desk. Measured live on 2026-09-17 at 10:05 with the
+         market open and TFA recording normally:
+
+             {"wsConnected": true, "totalSubscriptions": 0, "instruments": []}
+
+         So the relay carried nothing and the screen sat empty with no error.
+         TFA owns its own direct Dhan connection and records continuously
+         through the session, so its files are the reliable live source.
+
+         The writer appends independent gzip members and flushes, so re-reading
+         the file yields everything written so far; the trailing partial member
+         raises EOFError, which we swallow and keep what we got. Measured cost:
+         31 ms for 945 ticks, so a 1 s poll is comfortable.
+
+WS       the relay above, still available with --source ws. Useful when a desk
+         IS subscribed, and as a cross-check.
 
 REPLAY   a recorded day from data/raw/<date>/, played back at a chosen speed.
          Needed because the screen has to be buildable and testable while the
@@ -153,6 +169,68 @@ class LiveSource:
             self.q.put_nowait((inst, tick))
         except queue.Full:
             pass  # drop rather than stall the feed
+
+
+class TailSource:
+    """Live ticks by tailing TFA's recordings for today.
+
+    One thread per instrument. Each re-reads its file on a poll interval and
+    emits whatever is new, so a restart of either side re-syncs on its own.
+    """
+
+    POLL_SEC = 1.0
+
+    def __init__(self, date: Optional[str] = None, instruments=INSTRUMENTS):
+        self.date = date or datetime.now().strftime("%Y-%m-%d")
+        self.instruments = list(instruments)
+        self.q: queue.Queue = queue.Queue(maxsize=20000)
+        self.status = "starting"
+        self._stop = threading.Event()
+        self._threads: list = []
+        self._seen: dict = {inst: 0 for inst in self.instruments}
+
+    def _path(self, inst: str) -> str:
+        return os.path.join(RAW_DIR, self.date, f"{inst}_underlying_ticks.ndjson.gz")
+
+    def start(self) -> None:
+        for inst in self.instruments:
+            t = threading.Thread(target=self._tail, args=(inst,), daemon=True)
+            t.start()
+            self._threads.append(t)
+        self.status = f"live (tailing TFA, {self.date})"
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _tail(self, inst: str) -> None:
+        while not self._stop.is_set():
+            path = self._path(inst)
+            if os.path.exists(path):
+                try:
+                    rows = []
+                    with gzip.open(path, "rt") as fh:
+                        for line in fh:
+                            rows.append(line)
+                except (EOFError, zlib.error, OSError):
+                    pass  # trailing partial member — expected while it is being written
+                except Exception:
+                    rows = []
+                start = self._seen.get(inst, 0)
+                if len(rows) > start:
+                    for line in rows[start:]:
+                        try:
+                            tick = json.loads(line)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                        try:
+                            self.q.put_nowait((inst, tick))
+                        except queue.Full:
+                            break
+                    self._seen[inst] = len(rows)
+            self._stop.wait(self.POLL_SEC)
+
+    def live_instruments(self) -> list:
+        return [i for i in self.instruments if os.path.exists(self._path(i))]
 
 
 # ── replay ───────────────────────────────────────────────────────────────

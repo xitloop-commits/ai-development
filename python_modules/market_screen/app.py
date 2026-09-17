@@ -12,9 +12,16 @@ Each quadrant shows Partha's 15 order-flow rules, each with a POSITIVE /
 NEGATIVE / WATCH light and its MEASURED track record.
 
 Run:
-  python -m market_screen.app                      # live (needs the server up)
+  python -m market_screen.app                      # live (tails TFA's recordings)
+  python -m market_screen.app --source ws          # live via the server relay
   python -m market_screen.app --replay 2026-09-11  # a recorded day
   python -m market_screen.app --replay latest --speed 120
+
+Live reads TFA's recordings rather than the server's tick relay. The relay only
+carries what the SERVER subscribed to, which needs an open trading desk — with
+the market open and TFA recording normally it reported totalSubscriptions: 0,
+so the screen sat empty with no error. TFA has its own Dhan connection and
+records continuously, so its files always have the data. See source.py.
 """
 from __future__ import annotations
 
@@ -26,7 +33,7 @@ from typing import Optional
 
 from claude_cohort.flow import FlowState
 
-from .source import INSTRUMENTS, LiveSource, ReplaySource, latest_recorded_date
+from .source import INSTRUMENTS, LiveSource, ReplaySource, TailSource, latest_recorded_date
 from .verdicts import NEGATIVE, NEUTRAL, POSITIVE, WATCH, read_all
 
 TITLES = {
@@ -204,6 +211,10 @@ def main(argv: Optional[list] = None) -> int:
                     help="replay a recorded day (YYYY-MM-DD, or 'latest')")
     ap.add_argument("--speed", type=float, default=60.0,
                     help="replay speed multiplier (0 = as fast as possible)")
+    ap.add_argument("--source", default="tfa", choices=["tfa", "ws"],
+                    help="live source: tfa = tail TFA's recordings (default, always "
+                         "flowing); ws = the server relay (only carries data when a "
+                         "desk is subscribed)")
     ap.add_argument("--fullscreen", action="store_true")
     args = ap.parse_args(argv)
 
@@ -217,13 +228,24 @@ def main(argv: Optional[list] = None) -> int:
             print(f"No underlying tick recordings for {date}")
             return 1
         print(f"Replaying {date} at {args.speed:g}x: {', '.join(src.instruments)}")
-    else:
+    elif args.source == "ws":
         src = LiveSource()
         if not src.security_map:
-            print("Could not resolve security ids. Is there a data/raw/<date>/metadata.json?")
+            print("Could not resolve security ids from the recordings.")
             return 1
-        print(f"Live. Watching: {', '.join(sorted(set(src.security_map.values())))}")
-        print("Needs the Lubas server running (ws://localhost:3000/ws/ticks).")
+        print(f"Live via the server relay. Watching: "
+              f"{', '.join(sorted(set(src.security_map.values())))}")
+        print("NOTE: the relay only carries instruments the SERVER has subscribed to, "
+              "which needs an open trading desk. If the screen stays empty, use the "
+              "default --source tfa.")
+    else:
+        src = TailSource()
+        have = src.live_instruments()
+        if not have:
+            print(f"No recordings for {src.date} yet under data/raw/ — is TFA running?")
+            print("To look at a past day instead:  --replay latest")
+            return 1
+        print(f"Live, tailing TFA: {', '.join(have)}")
 
     src.start()
     root = tk.Tk()
