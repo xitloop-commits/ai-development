@@ -1,6 +1,6 @@
 # 12 — Market Status Screen
 
-**STATUS: SPEC — 2026-09-16. No code yet. Design agreed with Partha in session 2026-09-16.**
+**STATUS: v1 BUILT 2026-09-17 — `python_modules/market_screen/`. 2x2 live order-flow screen over all four instruments, with each rule's MEASURED track record on screen. Live + replay. The option-chain / expiry-lifecycle panels (§3.6-3.8, §4) are still spec only.**
 
 A Python screen showing session and market condition across four instruments, so entry and exit decisions are made against the full picture rather than a single chart.
 
@@ -180,3 +180,75 @@ The full list this screen is designed to answer, grouped: direction, trend quali
 - [13 — Claude cohort](13_claude_cohort.md) — the automated strategy over the same data
 - [02 — Feature Engineering](02_feature_engineering.md) — TFA, the source of every field here
 - [01 — Data Ingestion](01_data_ingestion.md) — recordings behind the lifecycle view
+
+
+---
+
+## 11 — v1 build (2026-09-17)
+
+`python_modules/market_screen/` — `app.py` (2x2 Tkinter), `verdicts.py` (rules ->
+POSITIVE / NEGATIVE / WATCH), `source.py` (live + replay).
+
+    python -m market_screen.app                        # live
+    python -m market_screen.app --replay 2026-09-04    # a recorded day
+    python -m market_screen.app --replay latest --speed 120 --fullscreen
+
+### 11.1 What it shows
+
+All 15 of Partha's order-flow rules per quadrant, each with a light, the live
+numbers behind it, and **its measured track record**. Rule 15 is the combined
+read at the bottom of each quadrant.
+
+### 11.2 Where the ticks come from
+
+**Live:** `ws://localhost:3000/ws/ticks`, which relays the RAW Dhan binary
+frames (`server/broker/tickWs.ts:92`), decoded with the platform's own
+`binary_parser`. Deliberately no second broker connection and nothing touching
+TFA's feed — it reuses what the server already sends the browser, so full FULL
+packets with 5-level depth.
+
+**Replay:** any recorded day from `data/raw/`, all instruments merged in
+timestamp order so the quadrants advance together. 71 days have all four.
+Needed because the screen must be testable while the market is shut.
+
+### 11.3 Bug found while building: the security-id map
+
+Neither the instrument profile nor `metadata.json` can be used to map
+security id -> instrument. Both record `underlying_security_id` = **13** for
+NIFTY, which is the SPOT index. Dhan sends the spot index in **ticker mode
+only** — price and nothing else, no volume, no book. The ticks actually carry
+the resolved near-month FUTURES contract (**68407**).
+
+Mapping by metadata would have produced a screen that connected successfully,
+showed a price, and reported no order flow at all — a silent failure with no
+error. The map is now derived from the recordings themselves:
+
+| instrument | contract id |
+|---|---|
+| nifty50 | 68407 |
+| banknifty | 68390 |
+| crudeoil | 565899 |
+| naturalgas | 568245 |
+
+### 11.4 The measured track record is on screen, deliberately
+
+Each rule displays its edge from §16 of the cohort spec — 77 nifty days, 26,671
+decision points. Anything inside +/-3pp is labelled "noise" in the UI itself.
+
+This is the §6 principle made literal. A green light means *aggressive buying is
+happening*, not *price will rise*. Rule 7 shows POSITIVE and carries "-4.4pp"
+next to it, because that is what it measured. The screen is not allowed to look
+more confident than the evidence.
+
+**How to read it:** the one thing order flow demonstrably does is stop you
+taking bad trades — it moved a setup from a 25% win rate (far worse than a coin)
+to 46% (near random). So this screen is a reason to STAY OUT, not a reason to
+enter.
+
+### 11.5 Not yet built
+
+- Option-chain panels (§3.6, §3.7) and the who-controls-the-strikes panel (§3.8)
+- The expiry lifecycle view (§4) and its Dhan historical-OI backfill
+- Per-instrument flow thresholds (currently the shared scale-free defaults)
+- Option-leg flow — the book cache stores bid/ask/ltp but not per-contract
+  volume, which rules 2-3 need on the premium tape
