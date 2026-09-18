@@ -3586,3 +3586,29 @@ The watchdog guards the FEED, not the RECORDER - a recorder that stops while
 the feed runs is invisible to it. Worth a recorder-side heartbeat.
 Pattern: MCX files dominate T185's list, so a mid-session recorder stop has
 likely happened before, unnoticed, on 12 prior days.
+
+### T187 [SCREEN] — Market Status Screen: 6 logic problems found — PARKED until tick collection is settled 📋
+Partha 2026-09-19: decide the best source and the calculations LATER; priority now
+is collecting ticks (ticksv2). Found while reading the code behind rows 1-15
+(all computed on FUTURES ticks today):
+1. **BUG - rejection at session high/low can never fire.** `session_high` updates
+   on every tick, so price can never be above it. Measured on 2026-09-17:
+   opening range 35 rejections, session high/low 0. Only OR levels work.
+   Fix: compare against the high/low as it stood BEFORE the poke.
+2. **Combined double-counts.** Rows 4, 7, 9 all ask "did price move with the
+   flow" - one move lights three rows and Combined counts it three times.
+3. **Fixed 5-point thresholds** in absorption (5, 6) and exhaustion (10):
+   0.02% of nifty, 0.009% of banknifty, 1.8% of naturalgas. Must be relative
+   to the instrument, as the code's own docstring claims it already is.
+4. **No minimum move** in rows 4, 7, 9 - a 0.05-point wiggle counts.
+5. **Row 4 ignores quantity** - the "Quantity up" half of Partha's rule is missing.
+6. **Rows 2/3 turn colour at 51%** - no real threshold.
+Also pending: `claude_cohort/option_study.py` is running a futures-vs-options
+comparison of the rules over 80 nifty days (delta-weighted option flow, ATM +/-3,
+each source judged against its own top-20% threshold). Results will land in
+`data/claude_cohort/option_study.txt`. Note it runs on the CURRENT logic, so
+items 1-6 affect it - re-run after fixing before drawing conclusions.
+Theory going in (recorded before results): futures should win on direction and
+timing (index price discovery); options should add positioning (writers, OI)
+rather than a faster version of the same signal. India twist - retail
+dominates option BUYING, so aggressive option buying may be the less-informed side.

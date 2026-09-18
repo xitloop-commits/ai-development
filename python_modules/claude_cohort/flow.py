@@ -142,6 +142,28 @@ class FlowState:
         self._ingest_depth(tick, float(ts))
         self._last_price = float(ltp)
 
+    def on_print(self, ts: float, side: int, qty: float, price: float) -> None:
+        """Feed an already-classified print.
+
+        Used for DERIVED flows that do not come from a single instrument's own
+        tick stream - e.g. delta-weighted option flow, where each option trade
+        has been converted to its equivalent underlying exposure and signed
+        bullish (+1) or bearish (-1). `price` is the underlying price at that
+        moment, so the price-response rules compare the flow against the
+        underlying exactly as they do for futures.
+
+        No depth is fed, so rules 11-13 stay silent for such a flow - they are
+        properties of one instrument's order book and have no meaning here.
+        """
+        if qty <= 0 or not price:
+            return
+        self.prints.append(Print(float(ts), int(side), float(qty), float(price)))
+        self._session_qty.append(float(qty))
+        self.cum_delta += side * qty
+        self.cum_delta_hist.append((float(ts), self.cum_delta, float(price)))
+        self._track_levels(float(ts), float(price))
+        self._last_price = float(price)
+
     def _track_levels(self, ts: float, px: float) -> None:
         if self.first_ts is None:
             self.first_ts = ts
