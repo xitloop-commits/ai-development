@@ -3527,3 +3527,62 @@ STILL SPEC-ONLY: option-chain panels (§3.6-3.7), who-controls-the-strikes (§3.
 expiry lifecycle view (§4) + its Dhan historical-OI backfill, and option-leg flow
 (the book cache stores bid/ask/ltp but not per-contract volume, which rules 2-3
 need on the premium tape).
+
+### T185 [DATA] — corrupt gzip member silently truncates every plain reader — DATA IS RECOVERABLE 🚨
+Found 2026-09-18 while fixing the Market Status Screen. When a recorder stops
+badly it leaves a CORRUPT gzip member; a restarted recorder appends a clean
+member after it. `gzip.open` hits "invalid block type" at the corruption and
+stops, so everything after it is invisible. Nothing crashes - readers that catch
+the error just keep the fragment.
+**Scan of all 326 underlying recordings: 16 corrupt**, all MCX except today:
+
+| day | instrument | gzip.open sees | actually on disk | missed |
+|---|---|---|---|---|
+| 2026-05-19 | crudeoil | 13,137 | 326,958 | 96% |
+| 2026-05-19 | naturalgas | 14,867 | 311,460 | 95% |
+| 2026-07-31 | crudeoil | 39,240 | 361,880 | 89% |
+| 2026-07-31 | naturalgas | 25,009 | 240,600 | 90% |
+| 2026-08-05 | naturalgas | 29,247 | 233,936 | 87% |
+| 2026-08-06 | crudeoil | 373,965 | 393,276 | 5% |
+| 2026-08-13 | crudeoil | 61,362 | 111,008 | 45% |
+| 2026-08-13 | naturalgas | 25,782 | 57,094 | 55% |
+| 2026-08-19 | crudeoil | 28,951 | 246,358 | 88% |
+| 2026-08-19 | naturalgas | 30,994 | 227,592 | 86% |
+| 2026-08-21 | crudeoil | 225 | 297,959 | 99.9% |
+| 2026-08-21 | naturalgas | 530 | 208,262 | 99.7% |
+| 2026-09-18 | all four | | | today's restart |
+
+**Confirmed impact — blast crude dataset** (`data/blast_model/crudeoil/`) contains
+these days nearly empty: 05-19 48 rows (3% of a normal day), 07-31 228 (14%),
+08-13 308 (18%), 08-19 302 (18%), 08-21 **2 rows (0%)**, 08-06 1,572 (93%).
+`blast_model/raw_reader.py:47` catches the error and "keeps what parsed". The
+crude blast verdict that put crude on the live paper gate (2026-09-16) was
+computed with ~5 crude days effectively missing. Direction of the effect unknown.
+Gas dataset likely the same - not yet checked.
+**Not affected:** nifty50/banknifty history is clean (T179 claude-cohort backtest
+and the 26,671-point flow study use only those, so their verdicts stand).
+**Fix available:** `python_modules/_shared/gz_reader.py` (`iter_lines`,
+`GzTail`) decodes member by member, recovers 100% of data on both sides of a
+fault (verified on all four instruments today). Market screen already uses it.
+**Still on plain gzip.open:** blast_model/raw_reader.py, sma_model/pipeline.py,
+signal_engine_agent/outcome_backfiller.py, claude_cohort/book.py + flow.py,
+tick_feature_agent/replay/{replay_runner,stream_merger,max_pain_cache}.py.
+Plan (needs Partha's OK - blast is live on paper, TFA is sensitive):
+1. switch raw readers to _shared/gz_reader
+2. rebuild blast crude+gas days for the 12 affected dates
+3. re-run the crude blast verdict and compare with the one that went live
+4. decide on TFA replay separately
+
+### T186 [DATA] — recorder silently stopped at 10:00 on 2026-09-18 — ROOT CAUSE OPEN 🚨
+nifty50, banknifty and naturalgas recorders stopped writing at 10:00:00-10:00:07,
+every file type at once (underlying, option ticks, vix, chain), NO error logged.
+crudeoil unaffected. TFA itself stayed healthy - its live feature output kept
+updating, so SEA/blast were unaffected and the stall watchdog correctly did not
+fire (ticks arrived, they just were not saved). Coincides with the API server
+going down ~09:59 and restarting 10:00:54. Partha restarted all four TFA
+instances ~12:37; recording resumed. 10:00-12:37 of raw data is lost for three
+instruments (TFA processed it but never wrote it).
+The watchdog guards the FEED, not the RECORDER - a recorder that stops while
+the feed runs is invisible to it. Worth a recorder-side heartbeat.
+Pattern: MCX files dominate T185's list, so a mid-session recorder stop has
+likely happened before, unnoticed, on 12 prior days.
