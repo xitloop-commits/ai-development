@@ -104,6 +104,44 @@ TEXT_COLOURS = {
 # The table spans 1-30 minutes; refreshing faster than once a second only burns
 # CPU re-deriving windows that cannot have meaningfully changed.
 REFRESH_MS = 1000
+
+# A quadrant whose latest tick is older than this, during its own trading
+# session, is STALE and says so in red.
+#
+# Added 2026-09-18 after the recorder for three instruments silently stopped
+# at 10:00 while TFA itself stayed healthy. The screen kept showing 10:00 data
+# for two and a half hours with nothing to indicate it - the fifth silent
+# failure of this kind (security ids, empty relay, cold windows, dead rows).
+STALE_AFTER_SEC = 60
+
+# Trading sessions, local time, from config/instrument_profiles. Outside these
+# hours an idle feed is normal and must NOT be flagged.
+SESSIONS = {
+    "nifty50": ((9, 15), (15, 30)),
+    "banknifty": ((9, 15), (15, 30)),
+    "crudeoil": ((9, 0), (23, 30)),
+    "naturalgas": ((9, 0), (23, 30)),
+}
+
+
+def _in_session(instrument: str, now: datetime) -> bool:
+    (h1, m1), (h2, m2) = SESSIONS.get(instrument, ((0, 0), (23, 59)))
+    if now.weekday() >= 5:
+        return False
+    minutes = now.hour * 60 + now.minute
+    return h1 * 60 + m1 <= minutes <= h2 * 60 + m2
+
+
+def _age_text(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 90:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 90:
+        return f"{minutes}m"
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
 N_RULES = 15
 
 VIEW_TABLE = "A"
@@ -184,6 +222,7 @@ class Quadrant:
         self.flow = FlowState()
         self.last_tick_ts: Optional[float] = None
         self.tick_count = 0
+        self._was_stale = False
 
         self.frame = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER,
                               highlightthickness=1)
@@ -196,6 +235,11 @@ class Quadrant:
         self.price = tk.Label(head, text="-", bg=PANEL, fg=FG,
                               font=("Consolas", 12, "bold"), anchor="e")
         self.price.pack(side="right")
+        # When the last tick actually arrived. The 2026-09-18 freeze went
+        # unnoticed for 2.5 hours partly because nothing on screen showed time.
+        self.updated = tk.Label(head, text="", bg=PANEL, fg=DIM,
+                                font=("Consolas", 9), anchor="e")
+        self.updated.pack(side="right", padx=(0, 14))
 
         self.summary = tk.Label(self.frame, text="waiting for ticks", bg=PANEL,
                                 fg=DIM, font=("Segoe UI", 9, "bold"), anchor="w")
@@ -283,9 +327,55 @@ class Quadrant:
         if ts:
             self.last_tick_ts = ts
 
+    def staleness(self) -> Optional[str]:
+        """A warning string if this feed has gone quiet during its own session.
+
+        Compares the last tick's receive time against the wall clock, so it
+        catches a recorder that stopped writing while the process stayed up -
+        which is exactly what happened on 2026-09-18.
+        """
+        import time as _time
+
+        if not self.last_tick_ts:
+            return None
+        age = _time.time() - self.last_tick_ts
+        if age < STALE_AFTER_SEC:
+            return None
+        now = datetime.now()
+        if not _in_session(self.instrument, now):
+            return None
+        last = datetime.fromtimestamp(self.last_tick_ts).strftime("%H:%M:%S")
+        return f"STALE - no new ticks for {_age_text(age)} (last {last}). Check TFA / the recorder."
+
     def redraw(self) -> None:
+        import time as _time
+
         px = self.flow._last_price
         self.price.config(text=f"{px:,.2f}" if px else "-")
+
+        if self.last_tick_ts:
+            last = datetime.fromtimestamp(self.last_tick_ts).strftime("%H:%M:%S")
+            age = _time.time() - self.last_tick_ts
+            self.updated.config(
+                text=f"updated {last}  ({_age_text(age)} ago)",
+                fg=DIM if age < STALE_AFTER_SEC else "#ff5555",
+            )
+        else:
+            self.updated.config(text="no ticks yet", fg=DIM)
+
+        stale = self.staleness()
+        if stale:
+            # Loud, and it replaces the summary rather than sitting beside it:
+            # every other number on this quadrant is out of date.
+            self.summary.config(text=stale, fg="#ff5555")
+        # Only touch the border when the state CHANGES. Reconfiguring a widget's
+        # geometry every second is how the wrapping version flickered.
+        if bool(stale) != self._was_stale:
+            self._was_stale = bool(stale)
+            self.frame.config(
+                highlightbackground="#ff5555" if stale else BORDER,
+                highlightthickness=2 if stale else 1,
+            )
 
         grid = read_grid(self.flow, now=self.last_tick_ts)
         now_reads = read_now(self.flow)
@@ -294,11 +384,12 @@ class Quadrant:
         sel_reads = grid[sel]
 
         overall = sel_reads[-1]
-        self.summary.config(
-            text=f"{overall.verdict}  {overall.detail}   |   "
-                 f"{self.tick_count:,} ticks   |   detail {sel_label}",
-            fg=COLOURS.get(overall.verdict, DIM),
-        )
+        if not stale:
+            self.summary.config(
+                text=f"{overall.verdict}  {overall.detail}   |   "
+                     f"{self.tick_count:,} ticks   |   detail {sel_label}",
+                fg=COLOURS.get(overall.verdict, DIM),
+            )
 
         for r in range(N_RULES):
             name_w, cells, edge_w, detail_w = self.rows[r]

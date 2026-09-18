@@ -203,30 +203,43 @@ class TailSource:
         self._stop.set()
 
     def _tail(self, inst: str) -> None:
+        """Follow one instrument's recording.
+
+        Uses GzTail rather than gzip.open. On 2026-09-18 a recorder stopped at
+        10:00 leaving a CORRUPT gzip member; after the restart, fresh ticks were
+        appended as a second member - and gzip.open stops at the first corrupt
+        member, so the screen stayed frozen at 10:00 with the new data sitting
+        on disk unread. GzTail keeps everything before the fault and resumes at
+        the next member. It is also incremental, so a poll costs what is new
+        rather than re-reading the whole day every second.
+        """
+        from _shared.gz_reader import GzTail
+
+        tail = None
         while not self._stop.is_set():
             path = self._path(inst)
             if os.path.exists(path):
+                if tail is None:
+                    tail = GzTail(path)
                 try:
-                    rows = []
-                    with gzip.open(path, "rt") as fh:
-                        for line in fh:
-                            rows.append(line)
-                except (EOFError, zlib.error, OSError):
-                    pass  # trailing partial member — expected while it is being written
+                    lines = tail.read_new()
                 except Exception:
-                    rows = []
-                start = self._seen.get(inst, 0)
-                if len(rows) > start:
-                    for line in rows[start:]:
+                    lines = []
+                for line in lines:
+                    try:
+                        tick = json.loads(line)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    # Block briefly rather than drop: the first read of a busy
+                    # day can be tens of thousands of ticks, and silently losing
+                    # them would corrupt every window on the screen.
+                    while not self._stop.is_set():
                         try:
-                            tick = json.loads(line)
-                        except (json.JSONDecodeError, ValueError):
-                            continue
-                        try:
-                            self.q.put_nowait((inst, tick))
-                        except queue.Full:
+                            self.q.put((inst, tick), timeout=0.5)
                             break
-                    self._seen[inst] = len(rows)
+                        except queue.Full:
+                            continue
+                    self._seen[inst] = self._seen.get(inst, 0) + 1
             self._stop.wait(self.POLL_SEC)
 
     def live_instruments(self) -> list:
@@ -297,18 +310,17 @@ class ReplaySource:
         self.status = f"replay {self.date} finished"
 
     def _iter(self, inst: str) -> Iterator[dict]:
-        path = self._path(inst)
-        try:
-            with gzip.open(path, "rt") as fh:
-                for line in fh:
-                    if self._stop.is_set():
-                        return
-                    try:
-                        yield json.loads(line)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-        except (EOFError, zlib.error, OSError):
-            return
+        # iter_lines, not gzip.open: a day with a recorder restart has a corrupt
+        # member mid-file, and gzip.open silently stops there (2026-09-18).
+        from _shared.gz_reader import iter_lines
+
+        for line in iter_lines(self._path(inst)):
+            if self._stop.is_set():
+                return
+            try:
+                yield json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
 
 
 def latest_recorded_date(instrument: str = "nifty50") -> Optional[str]:
