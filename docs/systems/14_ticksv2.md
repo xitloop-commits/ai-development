@@ -1,0 +1,64 @@
+# 14 — ticksv2 (tick collection service)
+
+**STATUS: DRAFT — design in discussion 2026-09-19/20. No code. Points only.**
+
+## Purpose
+- One system that listens to Dhan ticks and serves them to whatever needs them.
+
+## Decisions locked
+- **D1** — ticksv2 and TFA are **mutually exclusive**. ticksv2 uses TFA's four
+  `dhan-secondary-ac` connections when it runs. TFA's own code/WS path untouched.
+- **D2** — ticksv2 is **not** a TFA replacement. Its own jobs. On a ticksv2 day,
+  TFA's outputs (live features for SEA/blast) simply are not produced.
+- **D3** — listens to **option, index, futures and India VIX** ticks.
+  - options = primary for the 15 rules
+  - index = price, strikes, settlement (arrives as price only — no volume/book)
+  - futures = supporting; **and the only underlying for crude/gas (no MCX index)**
+  - VIX = volatility regime
+
+## Jobs (proposed, not yet confirmed)
+1. Listen — options, index, futures, VIX
+2. Record safely — no silent stops, no corrupt files
+3. Share live ticks with other programs over one connection
+4. Find strikes from Dhan's scrip master (not via the API server)
+5. Cover more expiries — near, next, Nifty monthly
+6. Watch its own health — tick rate, stalls, alerts
+7. *(later)* Replay a recorded day
+
+## Storage (Q4/Q5 — open)
+- Partha: **do not store raw ticks**; screen shows live data and signals.
+- Live only + rolling last hour (so restarts refill windows instantly).
+- **But some data must survive to the next day** — proposed, not confirmed:
+  - **Until contract expiry** (chain snapshot EOD + every 15 min): OI per strike,
+    OI change, premium, IV, max pain, PCR, top walls, ATM straddle price
+  - **Rolling ~20 days**: prev day high/low/close/VWAP, day range, realised vol,
+    VIX close, futures premium, **normal volume by time of day**
+  - **Rolling ~60 days**: what the screen said each minute (to check its signals later)
+- Size: megabytes/day vs **2.2 GB/day** raw.
+
+## Constraints
+- Dhan: **5 WS connections per account**. Secondary is 5/5 (4 TFA + 1 AI Live).
+  → ticksv2 can only run when TFA does not.
+- API server dependency is what broke on 2026-09-18 — job 4 removes it for strikes.
+- Disk: 191 GB used by raw ticks (~85 days), 330 GB free → **~7 months at today's rate**.
+
+## Facts measured (2026-09-17/18)
+- TFA subscribes the **whole chain**, both sides: nifty 472 legs, banknifty 728,
+  crude 414, gas 184. Not a window.
+- Option ticks by distance from spot: ±3 = 9%, ±10 = 31%, ±20 = 61%, ±40 = 93%.
+- Futures run **+20 to +33 pts** over spot near expiry (+88 earlier in the cycle);
+  **weekly options price around spot, not futures**.
+- Index (spot, id 13) is ticker-mode only: no volume, no OI, no book.
+- Option ticks DO carry full order flow — bid/ask, size, depth, OI.
+
+## Open questions
+- Q3 — confirm the job list (1–6)?
+- Q4/Q5 — confirm the keep-until-next-day list?
+- Which strikes to listen to — whole chain, or a band?
+- Where the kept data lives (Mongo per T182, or files)?
+- What happens to SEA/blast on ticksv2 days?
+
+## Related
+- [12 — Market Status Screen](12_market_status_screen.md) — first consumer
+- T185 (corrupt gzip), T186 (recorder stopped), T187 (screen logic parked)
+- Memory: TFA + its Dhan WS on the spouse account are off-limits
