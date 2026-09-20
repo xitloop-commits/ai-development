@@ -3589,7 +3589,7 @@ likely happened before, unnoticed, on 12 prior days.
 
 ### T187 [SCREEN] — Market Status Screen: 6 logic problems found — PARKED until tick collection is settled 📋
 Partha 2026-09-19: decide the best source and the calculations LATER; priority now
-is collecting ticks (ticksv2). Found while reading the code behind rows 1-15
+is collecting ticks (TCS2). Found while reading the code behind rows 1-15
 (all computed on FUTURES ticks today):
 1. **BUG - rejection at session high/low can never fire.** `session_high` updates
    on every tick, so price can never be above it. Measured on 2026-09-17:

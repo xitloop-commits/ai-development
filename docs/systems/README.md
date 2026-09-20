@@ -25,7 +25,7 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 | 11 | [SMA-Model](11_sma_model.md) | Learned SMA5 leg-riding entry/exit model (SPEC DRAFT — no code yet) |
 | 12 | [Market Status Screen](12_market_status_screen.md) | Python 2x2 screen — session + market condition across all 4 instruments, expiry lifecycle view (SPEC — no code yet) |
 | 13 | [Claude cohort](13_claude_cohort.md) | Context-first option buying — index/flow/OI decides, strike follows (SPEC — backtest first, no code yet) |
-| 14 | [ticksv2](14_ticksv2.md) | Tick collection service — listens options/index/futures/VIX, serves consumers (DRAFT — design in discussion) |
+| 14 | [TCS2](14_tcs2.md) | Tick collection service — listens options/index/futures/VIX, serves consumers (DRAFT — design in discussion) |
 
 ## End-to-end data flow
 
