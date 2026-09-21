@@ -3612,3 +3612,25 @@ Theory going in (recorded before results): futures should win on direction and
 timing (index price discovery); options should add positioning (writers, OI)
 rather than a faster version of the same signal. India twist - retail
 dominates option BUYING, so aggressive option buying may be the less-informed side.
+
+### T183 [DATA] — 2026-09-21 crudeoil + naturalgas labels are PARTIAL — NEEDS RE-REPLAY 🚨
+Shutdown on 2026-09-22 00:05 killed both label replays mid-run (crudeoil ~12 of
+~20 chunks, naturalgas ~20 of ~21). Partha: "we don't need anything" — killed
+deliberately, not a crash.
+
+**The trap:** the half-written `data/features/2026-09-21/{crudeoil,naturalgas}_features_part*.parquet`
+files are still on disk, and `startup/start-tfa.bat` skips the replay whenever
+`<instrument>_features_part001.parquet` exists ("labels already present (parts)").
+So nothing will ever notice these two days are incomplete — they will silently
+feed short/truncated data into any backtest that uses 2026-09-21.
+
+**Fix (do before the next backtest that includes 09-21):**
+1. Delete `data/features/2026-09-21/crudeoil_features_part*.parquet` +
+   `crudeoil_features_progress.json` (same for naturalgas).
+2. Re-run: `startup\start-tfa.bat crudeoil --mode replay --date 2026-09-21`
+   and the same for naturalgas. Raw `.ndjson.gz` is intact, so this is lossless.
+
+**Underlying weakness worth fixing separately:** the "already present (parts)"
+check should validate against `*_progress.json` (percent_est / chunks_written vs
+chunks_total_est) instead of trusting the mere existence of part001. Any
+interrupted replay currently masquerades as a finished one.
