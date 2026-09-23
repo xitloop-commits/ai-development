@@ -3716,6 +3716,11 @@ ticking at 23:29:59:
   crudeoil   futures recorded  id 565899   9,662.0
              chain underlying  id 581885   9,772.0   (expiry 2026-10-15)
              -> 110 points apart, 1.14%
+  Re-measured time-aligned on 2026-09-22 (after the Sept futures rolled):
+  recorded 569900 at 8,941.0 vs chain underlying 581885 at 9,176.0
+             -> **235 points apart, 2.63% - about FIVE strikes**. Got worse.
+  NSE for comparison on the same timestamp: nifty -0.04%, banknifty -0.25%,
+  gas -0.33% - all normal index-vs-futures basis. Only crude is broken.
 
   naturalgas futures recorded  id 568245     279.8
              chain underlying  id 581853     278.2   (expiry 2026-09-23)
@@ -3732,4 +3737,7 @@ problems.
 Fix direction: follow the chain's own `underlying` id rather than resolving the
 nearest futures expiry independently. NIFTY is unaffected - the index is always
 the index.
-Out of scope for TCS2 (nifty-only, D4) but affects TFA and anything MCX.
+**Now in scope for TCS2** - D4 was revised 2026-09-23 to cover all four
+instruments, and spec 14 D11 records the rule: take the futures id from the
+chain's own `underlying` field, never resolve the nearest futures expiry
+separately.

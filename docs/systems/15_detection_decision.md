@@ -3,9 +3,19 @@
 **STATUS: SPEC — Partha 2026-09-23. No code. Supersedes the 15-rule order-flow
 list as the target design; the 15 rules become a subset (see §Mapping).**
 
-Scope: **NIFTY 50 only** — confirmed 2026-09-23. Crude, gas and banknifty are
-not in this spec and not in TCS2. On a TCS2 day they receive nothing and blast's
-crude paper runner stops; run TFA on days those matter.
+Scope: the **25 points are written for NIFTY 50**. **TCS2 itself now covers all
+four instruments** (spec 14 D4 revised 2026-09-23), so the other three do not go
+dark — but three of them lack pieces this spec assumes:
+
+| | banknifty | crudeoil | naturalgas |
+|---|---|---|---|
+| S1 spot index | yes | **none — futures is the underlying** | **none** |
+| S3 current-week chain | **none — monthly only** | **none** | **none** |
+| India VIX | borrowed, not its own | **none** | **none** |
+
+So for those three, **point 13 (expiry migration) has two expiries, not three**,
+and for crude/gas every "S1 + S2" point is S2 alone. See spec 14 D11.
+**Open:** whether the 25 points run for all four or stay nifty-only.
 
 ## 1. Objective
 
