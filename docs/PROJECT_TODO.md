@@ -3752,13 +3752,16 @@ by Partha 2026-09-23. Same program, four configs; what differs per instrument is
 config, not code. Full design in
 [docs/systems/14_tcs2.md](systems/14_tcs2.md) D9/D10/D11/D12.
 
-| process | chains | option legs | plus | total | connections |
+Updated 2026-09-23 with measured per-expiry counts from Dhan's detailed scrip
+master, and with D19 (current + next futures, always):
+
+| process | option expiries | option legs | plus | total | connections |
 |---|---|---|---|---|---|
-| nifty50 | 3 (week, month, next) | 1,416 | index + futures + VIX | 1,419 | 1 |
-| banknifty | 2 (month, next) | 1,456 | index + futures + VIX | 1,459 | 1 |
-| crudeoil | 2 (month, next) | 828 | futures | 829 | 1 |
-| naturalgas | 2 (month, next) | 368 | futures | 369 | 1 |
-| | | **4,068** | | **4,076** | **4 of 5** |
+| nifty50 | week 460, month 536, next 488 | 1,484 | index, 2 futures, VIX | 1,488 | 1 |
+| banknifty | month 728, next 710 | 1,438 | index, 2 futures, VIX | 1,442 | 1 |
+| crudeoil | month 414, next 370 | 784 | 2 futures | 786 | 1 |
+| naturalgas | month 184, next 170 | 354 | 2 futures | 356 | 1 |
+| | | **4,060** | | **4,072** | **4 of 5** |
 
 - Cap is `DHAN_WS_MAX_INSTRUMENTS_PER_CONN = 5000`
   (`server/broker/adapters/dhan/constants.ts:213`); `subscriptionManager.ts`
@@ -3771,7 +3774,7 @@ config, not code. Full design in
   the five account slots stays spare.
 - Dhan allows 5 WS connections per account, so **TCS2 and TFA cannot both run**
   (D1/D10). On a TCS2 day TFA is simply not started.
-- **Startup check, not a design risk:** on first run, confirm banknifty's 1,459
+- **Startup check, not a design risk:** on first run, confirm nifty50's 1,488
   subscribe on one connection without a 804. Expected to pass with ~3.4x
   headroom; it is there to catch a wrong strike list, since a process asking for
   a second connection would mean a bug, not growth.
