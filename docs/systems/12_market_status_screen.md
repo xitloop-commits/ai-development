@@ -10,6 +10,12 @@ A Python screen showing session and market condition across four instruments, so
 
 2x2 grid, four equal quadrants, full screen width and height.
 
+**SUPERSEDED for TCS2 (spec 14 D15, 2026-09-23):** under TCS2 each instrument
+runs in its own process with **its own screen**, so the 2x2 grid becomes **four
+separate windows, one instrument each, full screen** — the layout spec 15 §5.7
+draws for nifty. The 2x2 described below is the TFA-era v1 and stays accurate
+for as long as TFA is what runs.
+
 ```
 ┌─────────────────────┬─────────────────────┐
 │      NIFTY 50       │      BANKNIFTY      │
