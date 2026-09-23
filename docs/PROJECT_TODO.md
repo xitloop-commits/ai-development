@@ -3634,3 +3634,28 @@ feed short/truncated data into any backtest that uses 2026-09-21.
 check should validate against `*_progress.json` (percent_est / chunks_written vs
 chunks_total_est) instead of trusting the mere existence of part001. Any
 interrupted replay currently masquerades as a finished one.
+
+### T188 [SPEC] — NIFTY Detection & Decision Engine (25 points) — SPEC RECEIVED 2026-09-23 📋
+Partha's full spec: `docs/systems/15_detection_decision.md`. Five sources S1-S5
+(index, current-month futures, current-week / current-month / next-month options)
+feeding 25 analysis points, ending in TRADE / NO TRADE + direction + strike +
+confidence + reason. Windows 1/2/3/5/10/15/30m. NIFTY 50 only.
+Supersedes the 15 order-flow rules as the target design; they become a subset.
+Blockers and gaps recorded in spec 15 section 5:
+- **S1 (index) has no volume** - ticker mode only. Every point listing "S1+S2"
+  for volume/structure must take it from S2 (futures).
+- **S4 and S5 are not recorded** - TFA subscribes only the nearest expiry, so
+  current-month and next-month option ticks do not exist for any of the 81 days.
+  Point 13 (expiry migration) cannot be built OR backtested until TCS2 job 5.
+- **Points 5-8 need an explicit per-leg definition** - price+OI build-up/unwinding
+  is the futures reading; on an option strike the same two rows describe opposite
+  participants. Resolvable with the trade side we already record, but must be
+  written down.
+- **Scores 0-100 must describe, not predict** until measured - none of the
+  existing 15 rules beat the base rate over 26,671 decision points.
+- **Point 25 must clear the standing validation bar** before sizing capital -
+  rules-based directional entry has failed three independent measurements.
+- **T187 applies** - six logic problems (incl. a confirmed bug) in the rule code
+  these points would build on.
+Open: nifty-only or all four instruments; what each 0-100 is measured against;
+which points gate a trade vs inform it.

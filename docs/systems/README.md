@@ -23,9 +23,10 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 | 09 | [Control Bot](09_control_bot.md) | yow-partha — Telegram phone-based control surface |
 | 10 | [Launcher & Ops](10_launcher_ops.md) | Lubas launcher + scheduled tasks + AI canary + RUNBOOK |
 | 11 | [SMA-Model](11_sma_model.md) | Learned SMA5 leg-riding entry/exit model (SPEC DRAFT — no code yet) |
-| 12 | [Market Status Screen](12_market_status_screen.md) | Python 2x2 screen — session + market condition across all 4 instruments, expiry lifecycle view (SPEC — no code yet) |
+| 12 | [Market Status Screen](12_market_status_screen.md) | Python 2x2 screen — 15 order-flow rules x 7 windows, live + replay (BUILT) |
 | 13 | [Claude cohort](13_claude_cohort.md) | Context-first option buying — index/flow/OI decides, strike follows (SPEC — backtest first, no code yet) |
 | 14 | [TCS2](14_tcs2.md) | Tick collection service — listens options/index/futures/VIX, serves consumers (DRAFT — design in discussion) |
+| 15 | [Detection & Decision](15_detection_decision.md) | NIFTY 50 — 25 analysis points from S1-S5 to a TRADE / NO TRADE context (SPEC — no code yet) |
 
 ## End-to-end data flow
 
