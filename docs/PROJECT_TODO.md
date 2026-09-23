@@ -3659,3 +3659,25 @@ Blockers and gaps recorded in spec 15 section 5:
   these points would build on.
 Open: nifty-only or all four instruments; what each 0-100 is measured against;
 which points gate a trade vs inform it.
+
+### T189 [DATA] — validate Dhan historical OI against our own recordings before using it 🚨
+Backfilling each option contract's positioning history "since start" (TCS2 D6)
+depends on Dhan's historical API. Tested 2026-09-23:
+- **Works for live and recently-expired contracts.** 23300 CE (expiry 2026-09-22,
+  tested the day after expiry) returned its whole life, OI 65 on 09-01 rising to
+  3,889,340 on 09-21.
+- **Old expiries return nothing.** A 2026-06-16 contract gave 0 candles. Cutoff
+  not yet found - worth binary-searching, it decides how far back we can rebuild.
+- **Intraday (5-min) candles carry OI**, which is better than daily.
+- **The two endpoints DISAGREE.** 23300 CE on 2026-09-18, vs our own recorded
+  chain snapshot:
+    our recording 09:15 -> close : 6,604,520 -> 8,520,590
+    Dhan intraday history        : 8,061,170
+    Dhan daily history           : 3,889,340  (identical on 09-21 AND 09-22)
+  Intraday is the right order of magnitude; daily is less than half and repeats
+  unchanged across two days - stale or wrong.
+**We can settle this properly:** we hold 81 days of recorded near-expiry chain
+snapshots, so Dhan's historical OI can be checked against ground truth per strike
+per day. Do that before any backfill is trusted. Also resolve whether Dhan's
+intraday timestamps are candle start or end - our 09:15 snapshot and its 09:15
+candle differ by 22%, which timing alone might explain.
