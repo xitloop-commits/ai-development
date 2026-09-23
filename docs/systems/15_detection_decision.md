@@ -3,7 +3,9 @@
 **STATUS: SPEC — Partha 2026-09-23. No code. Supersedes the 15-rule order-flow
 list as the target design; the 15 rules become a subset (see §Mapping).**
 
-Scope: **NIFTY 50 only.** Crude, gas and banknifty are not in this spec.
+Scope: **NIFTY 50 only** — confirmed 2026-09-23. Crude, gas and banknifty are
+not in this spec and not in TCS2. On a TCS2 day they receive nothing and blast's
+crude paper runner stops; run TFA on days those matter.
 
 ## 1. Objective
 
@@ -152,7 +154,6 @@ including one confirmed bug — should be fixed before these points are built on
 top of them.
 
 ## 6. Open questions
-- NIFTY only, or do crude/gas/banknifty follow later? (TCS2 assumes four instruments)
 - Points 5–8 leg definition (§5.3)
 - What "strength 0–100" is measured against for each point
 - Which points gate a trade versus inform it
