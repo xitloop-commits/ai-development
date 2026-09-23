@@ -3746,3 +3746,44 @@ Still live for TFA and anything reading `*_chain_snapshots` today.
 Fix direction: find why the MCX spot is frozen in the snapshot writer, and
 rename the misleading `underlying` field.
 
+### T192 [SPEC] — TCS2 connection & process plan — SETTLED 2026-09-23 📋
+**Four processes, one per instrument, one Dhan WS connection each.** Confirmed
+by Partha 2026-09-23. Same program, four configs; what differs per instrument is
+config, not code. Full design in
+[docs/systems/14_tcs2.md](systems/14_tcs2.md) D9/D10/D11/D12.
+
+| process | chains | option legs | plus | total | connections |
+|---|---|---|---|---|---|
+| nifty50 | 3 (week, month, next) | 1,416 | index + futures + VIX | 1,419 | 1 |
+| banknifty | 2 (month, next) | 1,456 | index + futures + VIX | 1,459 | 1 |
+| crudeoil | 2 (month, next) | 828 | futures | 829 | 1 |
+| naturalgas | 2 (month, next) | 368 | futures | 369 | 1 |
+| | | **4,068** | | **4,076** | **4 of 5** |
+
+- Cap is `DHAN_WS_MAX_INSTRUMENTS_PER_CONN = 5000`
+  (`server/broker/adapters/dhan/constants.ts:213`); `subscriptionManager.ts`
+  already budgets against it. Dhan signals a breach with disconnect code 804,
+  "Instruments exceed limit". **475 is what we have proven live** — 5,000 is
+  Dhan's documented figure, not yet tested by us.
+- Largest process (banknifty) uses under a third of one connection. **One of the
+  five account slots stays spare.**
+- Dhan allows 5 WS connections per account, so **TCS2 and TFA cannot both run**
+  (D1/D10). On a TCS2 day TFA is simply not started.
+- **Risk:** if the real cap is well below 5,000, only that one spare slot is
+  available to absorb a split, and four instruments cannot each take a second
+  connection. Fallback is to drop far strikes — banknifty's 364 strikes span
+  28,500-84,000 around a spot of 56,600 and most never trade.
+- **First thing to test when code starts:** subscribe banknifty's 1,459 in one
+  connection and see whether 804 arrives. That single test decides whether the
+  plan holds or the strike range has to be trimmed.
+
+**Why one process per instrument, beyond matching TFA's shape:**
+- **Different market hours** — NSE 09:15-15:30, MCX 09:00-23:30. Crude and gas
+  keep running after the NSE pair have shut down.
+- **Independent restart** — fixing one instrument does not interrupt the other
+  three. T186 (silent recorder stop) and the 2026-09-18 corruption were both
+  process-wide events.
+- **Contained failure** — a crash or corrupt write affects one instrument's files.
+
+**Still open:** whether spec 15's 25 analysis points run in all four processes or
+only nifty (crude/gas have no index, and only nifty has a weekly chain).
