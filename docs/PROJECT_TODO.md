@@ -3705,3 +3705,31 @@ coherent as that. Seven things are absent, listed worst-first:
    checked against what happened - the item that makes all the others improvable.
 Suggested as a SEPARATE spec: market-reading and trade-management are different
 jobs with different tests.
+
+### T191 [DATA] — MCX: we record a DIFFERENT futures contract than the options are written on 🚨
+Found 2026-09-23 while working out the MCX equivalent of TCS2's listen list.
+MCX options are options ON FUTURES, so each option expiry belongs to a specific
+futures contract. TFA resolves "nearest FUTCOM expiry" independently, and the two
+are not the same contract. Measured on 2026-09-18, both contracts live and
+ticking at 23:29:59:
+
+  crudeoil   futures recorded  id 565899   9,662.0
+             chain underlying  id 581885   9,772.0   (expiry 2026-10-15)
+             -> 110 points apart, 1.14%
+
+  naturalgas futures recorded  id 568245     279.8
+             chain underlying  id 581853     278.2   (expiry 2026-09-23)
+             -> 1.6 apart, 0.57%
+
+Crude strikes are 50 apart, so 110 points is about **two strikes**. Anything
+choosing an ATM strike from the recorded futures, or comparing option data
+against it, is using the wrong contract.
+Worst in the stretch before each futures expiry, when the nearest futures and
+the options' underlying differ; they realign after the roll.
+**Matters because blast trades crude on paper off this data** (live paper gate
+since 2026-09-16), and T185 already showed blast's crude dataset has other
+problems.
+Fix direction: follow the chain's own `underlying` id rather than resolving the
+nearest futures expiry independently. NIFTY is unaffected - the index is always
+the index.
+Out of scope for TCS2 (nifty-only, D4) but affects TFA and anything MCX.
