@@ -122,6 +122,18 @@ It has to be defined per leg before implementation, e.g.:
 We already have the trade side per option tick, so this is resolvable — but it
 must be written down, not assumed.
 
+**Three options, put to Partha 2026-09-23 — DEFERRED, decide later:**
+- **A. The standard convention.** Infer from price direction: call price up +
+  OI up = call buying; call price down + OI up = call writing. Matches every
+  broker screen and website, so the numbers agree with what is seen elsewhere.
+- **B. Use the actual aggressor.** We record, per trade, whether the buyer
+  crossed to the offer or the seller hit the bid. No inference needed.
+- **C. Both.**
+- Claude's recommendation: **B with A alongside** — B is strictly better
+  information, and keeping A means a disagreement with other tools reads as a
+  disagreement rather than a bug. Those disagreements may be the interesting
+  moments: price implying buying while the actual aggressor was the writer.
+
 ### 5.4 Scores 0–100 must describe, not predict — until measured
 Measured on 77 days and 26,671 decision points (`claude_cohort/study.py`): **not
 one** of the existing 15 order-flow rules beat the base rate on both direction
