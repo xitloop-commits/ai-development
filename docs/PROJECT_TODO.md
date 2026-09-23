@@ -3784,5 +3784,8 @@ config, not code. Full design in
   process-wide events.
 - **Contained failure** — a crash or corrupt write affects one instrument's files.
 
-**Still open:** whether spec 15's 25 analysis points run in all four processes or
-only nifty (crude/gas have no index, and only nifty has a weekly chain).
+**Settled 2026-09-23 (D14):** the analyser runs inside each instrument's process
+alone — no ticks, chain state or analyser state shared between processes. So
+spec 15's 25 points run in **all four**, each on its own data; crude/gas report
+less where a source is missing (no index, no weekly chain). Cost accepted: no
+cross-instrument analysis inside TCS2; that belongs in a downstream consumer.

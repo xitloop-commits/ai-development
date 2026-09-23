@@ -15,7 +15,11 @@ dark — but three of them lack pieces this spec assumes:
 
 So for those three, **point 13 (expiry migration) has two expiries, not three**,
 and for crude/gas every "S1 + S2" point is S2 alone. See spec 14 D11.
-**Open:** whether the 25 points run for all four or stay nifty-only.
+**SETTLED 2026-09-23:** the analyser runs inside each instrument's own process
+(spec 14 D14), so **the 25 points run for all four**, each on its own data, with
+no sharing between them. The three above simply report less where a source is
+missing. This also means **no cross-instrument point is possible** inside TCS2 —
+anything comparing instruments is a downstream consumer.
 
 ## 1. Objective
 
