@@ -3681,3 +3681,27 @@ snapshots, so Dhan's historical OI can be checked against ground truth per strik
 per day. Do that before any backfill is trusted. Also resolve whether Dhan's
 intraday timestamps are candle start or end - our 09:15 snapshot and its 09:15
 candle differ by 22%, which timing alone might explain.
+
+### T190 [SPEC] — trade management & risk: the half spec 15 does not cover — DEFERRED 2026-09-23 📋
+Partha: "we do it later". Spec 15's 25 points are a market-READING system and
+coherent as that. Seven things are absent, listed worst-first:
+1. **Managing an open trade.** No stop, target, trailing, time limit or exit
+   signal. All 25 points answer "should I enter", none answers "I am in, now
+   what". This is where the money actually went: in the cohort backtest the
+   entries roughly paid for themselves and **30 stop-outs cost Rs 26,826**.
+2. **Position size.** Point 25 gives direction, strike and confidence but no
+   lots, no daily loss limit, no stop-after-two-losses.
+3. **How the 25 combine.** Point 25 is one line. Weighted? Veto? Vote? The
+   current screen's combined read already double-counts three rules that all
+   say the same thing, so "count the greens" is unsafe.
+4. **Costs.** Spread, brokerage, STT appear nowhere. A perfect-looking setup can
+   be for a move that does not cover the cost of being in it - the cohort
+   backtest paid Rs 7,000 of charges on 108 trades.
+5. **Events.** RBI policy, CPI, results, budget. IV collapses after an event, so
+   direction can be right and the trade still lose.
+6. **Expiry day** is not treated differently despite pinning, premium collapse
+   and violent moves.
+7. **Nothing records what the system decided**, so none of the 25 could ever be
+   checked against what happened - the item that makes all the others improvable.
+Suggested as a SEPARATE spec: market-reading and trade-management are different
+jobs with different tests.

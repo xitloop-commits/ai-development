@@ -153,6 +153,52 @@ explained by market direction.
 including one confirmed bug — should be fixed before these points are built on
 top of them.
 
+## 5.7 How the 25 map onto a screen (worked out 2026-09-23)
+
+**19 points fit the existing table shape** — one row, a reading per window:
+1, 2, 3, 4, 5-8 (as totals), 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24.
+
+**6 points cannot be a row of arrows** — they produce something else:
+
+| point | produces | needs |
+|---|---|---|
+| 9, 10 support / resistance | price levels + strength | a list of levels |
+| 11 OI build-up / unwinding | a number at every strike | a strike ladder |
+| 12 strike migration | "23,300 -> 23,400" | a list of moves |
+| 13 expiry migration | "week -> month" | a small panel |
+| 25 trade decision | TRADE/NO TRADE + direction + strike + confidence + reason | a verdict box |
+
+Points 5-8 are both: a total on a row, plus per-strike detail on the ladder.
+
+**Seven things on today's screen are NOT in the 25 and must be preserved:**
+- **trade side, price+quantity, delta, cumulative delta** — the raw measurements
+  everything else is built from. The spec uses them as inputs to points 3/4 but
+  never displays them, so "buyer activity: 72" would have nothing behind it.
+- **the "now" column** — what the current tick just did
+- **the measured-edge column** — each rule's track record, which is what stops a
+  green light looking more confident than the evidence
+- **the stale warning** — missing on 2026-09-18, when the screen showed 10:00
+  data for 2.5 hours
+
+**Layout.** NIFTY-only (D4) frees three quarters of the 2x2 grid:
+
+```
++-----------------------------+--------------------------+
+|  NIFTY  price . levels      |  DECISION                |
+|  19 rows x 8 windows        |  TRADE / NO TRADE        |
+|  (now 1m 2m 3m 5m 10m 15m   |  direction, strike,      |
+|   30m + edge + meaning)     |  confidence, reason      |
+|                             +--------------------------+
+|                             |  OPTION CHAIN            |
+|                             |  strike ladder: OI,      |
+|                             |  build-up, walls         |
++-----------------------------+--------------------------+
+|  SUPPORT / RESISTANCE       |  MIGRATION               |
+|  levels with strength       |  strike -> strike        |
+|                             |  week -> month           |
++-----------------------------+--------------------------+
+```
+
 ## 6. Open questions
 - Points 5–8 leg definition (§5.3)
 - What "strength 0–100" is measured against for each point
