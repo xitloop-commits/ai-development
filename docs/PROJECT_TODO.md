@@ -3765,17 +3765,16 @@ config, not code. Full design in
   already budgets against it. Dhan signals a breach with disconnect code 804,
   "Instruments exceed limit". **475 is what we have proven live** — 5,000 is
   Dhan's documented figure, not yet tested by us.
-- Largest process (banknifty) uses under a third of one connection. **One of the
-  five account slots stays spare.**
+- **One connection per process, always (D13, Partha 2026-09-23).** A process
+  never opens a second connection — 5,000 securities fit on one and the largest
+  instrument asks for 1,459. A design rule, not a budget to recalculate. One of
+  the five account slots stays spare.
 - Dhan allows 5 WS connections per account, so **TCS2 and TFA cannot both run**
   (D1/D10). On a TCS2 day TFA is simply not started.
-- **Risk:** if the real cap is well below 5,000, only that one spare slot is
-  available to absorb a split, and four instruments cannot each take a second
-  connection. Fallback is to drop far strikes — banknifty's 364 strikes span
-  28,500-84,000 around a spot of 56,600 and most never trade.
-- **First thing to test when code starts:** subscribe banknifty's 1,459 in one
-  connection and see whether 804 arrives. That single test decides whether the
-  plan holds or the strike range has to be trimmed.
+- **Startup check, not a design risk:** on first run, confirm banknifty's 1,459
+  subscribe on one connection without a 804. Expected to pass with ~3.4x
+  headroom; it is there to catch a wrong strike list, since a process asking for
+  a second connection would mean a bug, not growth.
 
 **Why one process per instrument, beyond matching TFA's shape:**
 - **Different market hours** — NSE 09:15-15:30, MCX 09:00-23:30. Crude and gas
