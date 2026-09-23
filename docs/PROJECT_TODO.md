@@ -3706,38 +3706,43 @@ coherent as that. Seven things are absent, listed worst-first:
 Suggested as a SEPARATE spec: market-reading and trade-management are different
 jobs with different tests.
 
-### T191 [DATA] — MCX: we record a DIFFERENT futures contract than the options are written on 🚨
-Found 2026-09-23 while working out the MCX equivalent of TCS2's listen list.
-MCX options are options ON FUTURES, so each option expiry belongs to a specific
-futures contract. TFA resolves "nearest FUTCOM expiry" independently, and the two
-are not the same contract. Measured on 2026-09-18, both contracts live and
-ticking at 23:29:59:
+### T191 [DATA] — MCX chain snapshots carry a FROZEN spot price 🚨
+**Rewritten 2026-09-23 — the first version of this entry was wrong.** It claimed
+TFA records the wrong futures contract on MCX. It does not. Checked against
+Dhan's *detailed* scrip master (`api-scrip-master-detailed.csv`), every
+instrument is paired correctly:
 
-  crudeoil   futures recorded  id 565899   9,662.0
-             chain underlying  id 581885   9,772.0   (expiry 2026-10-15)
-             -> 110 points apart, 1.14%
-  Re-measured time-aligned on 2026-09-22 (after the Sept futures rolled):
-  recorded 569900 at 8,941.0 vs chain underlying 581885 at 9,176.0
-             -> **235 points apart, 2.63% - about FIVE strikes**. Got worse.
-  NSE for comparison on the same timestamp: nifty -0.04%, banknifty -0.25%,
-  gas -0.33% - all normal index-vs-futures basis. Only crude is broken.
+| instrument | recorded futures | option expiry | correct? |
+|---|---|---|---|
+| nifty50 | 68407 NIFTY SEP FUT, exp 09-29 | 09-22 | yes |
+| banknifty | 68390 BANKNIFTY SEP FUT, exp 09-29 | 09-29 | yes |
+| crudeoil | 569900 CRUDEOIL OCT FUT, exp 10-19 | 10-15 | yes |
+| naturalgas | 568245 NATURALGAS SEP FUT, exp 09-25 | 09-23 | yes |
 
-  naturalgas futures recorded  id 568245     279.8
-             chain underlying  id 581853     278.2   (expiry 2026-09-23)
-             -> 1.6 apart, 0.57%
+What misled me: the `underlying` field in our chain-snapshot rows is **not an
+underlying**. It holds the **lowest-strike CALL's security id** — crude 581885 =
+`CRUDEOIL 15 OCT 3200 CALL`, gas 581853 = `NATURALGAS 23 SEP 60 CALL`,
+banknifty 65461 = `BANKNIFTY 29 SEP 28500 CALL`. Comparing it to the futures id
+produced a difference that meant nothing.
 
-Crude strikes are 50 apart, so 110 points is about **two strikes**. Anything
-choosing an ATM strike from the recorded futures, or comparing option data
-against it, is using the wrong contract.
-Worst in the stretch before each futures expiry, when the nearest futures and
-the options' underlying differ; they realign after the roll.
-**Matters because blast trades crude on paper off this data** (live paper gate
-since 2026-09-16), and T185 already showed blast's crude dataset has other
-problems.
-Fix direction: follow the chain's own `underlying` id rather than resolving the
-nearest futures expiry independently. NIFTY is unaffected - the index is always
-the index.
-**Now in scope for TCS2** - D4 was revised 2026-09-23 to cover all four
-instruments, and spec 14 D11 records the rule: take the futures id from the
-chain's own `underlying` field, never resolve the nearest futures expiry
-separately.
+**The real bug, measured on 2026-09-22:**
+
+| instrument | chain snapshots | distinct spotPrice values |
+|---|---|---|
+| nifty50 | 284 | 248 |
+| banknifty | 284 | 275 |
+| **crudeoil** | **324** | **1** (9,176.0 all day) |
+| **naturalgas** | **322** | **1** (271.7 all day) |
+
+On MCX the snapshot's `spotPrice` never moves. Crude's real futures traded at
+8,941 mid-session while the snapshot still said 9,176 — **235 points, about five
+strikes at crude's 50-point spacing**. Anything choosing an ATM strike or
+measuring moneyness from a chain snapshot is using a stuck price on MCX.
+Matters because blast trades crude on paper (live paper gate since 2026-09-16).
+
+Mostly moot for TCS2, which builds its chain from ticks (spec 14 D12) and takes
+spot from the futures tick stream, where all four instruments update normally.
+Still live for TFA and anything reading `*_chain_snapshots` today.
+Fix direction: find why the MCX spot is frozen in the snapshot writer, and
+rename the misleading `underlying` field.
+
