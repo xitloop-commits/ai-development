@@ -3980,10 +3980,10 @@ number. Until then this is a correctness concern of unmeasured size, not a
 demonstrated error.
 
 **TCS2 returns UNKNOWN** and excludes those prints from every share
-(`tcs2/flow.py`). The divergence is asserted in
-`tcs2/tests/test_agrees_with_tfa.py` so it is not reverted by accident, while
-every case where a book DOES exist is proven identical to TFA across eight
-edge cases including zero spread, a 0.05 premium and a 56,000 instrument.
+(`tcs2/flow.py`), and counts them so the first live session gives the size of
+the problem. The comparison test that documented this has since been deleted
+under D43 — TCS2 imports nothing from other packages — so this roster entry is
+now the record of the difference.
 
 Do not change TFA or claude_cohort before the live count exists — that is the
 T194 lesson.
