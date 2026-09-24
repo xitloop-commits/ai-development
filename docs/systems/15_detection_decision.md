@@ -136,7 +136,14 @@ It has to be defined per leg before implementation, e.g.:
 We already have the trade side per option tick, so this is resolvable — but it
 must be written down, not assumed.
 
-**Three options, put to Partha 2026-09-23 — DEFERRED, decide later:**
+**IMPLEMENTED 2026-09-25 as B with A alongside** — the recommendation below,
+built in `tcs2/analysis.py::_build_table`. Both readings are produced for every
+leg and **disagreements are counted rather than resolved**, because price
+implying buying while the aggressor was the writer is the interesting moment, not
+the error. Reversible: if Partha prefers A alone, only which figure is reported
+as the headline changes.
+
+**Three options, put to Partha 2026-09-23:**
 - **A. The standard convention.** Infer from price direction: call price up +
   OI up = call buying; call price down + OI up = call writing. Matches every
   broker screen and website, so the numbers agree with what is seen elsewhere.
@@ -226,9 +233,43 @@ Points 5-8 are both: a total on a row, plus per-strike detail on the ladder.
 ```
 
 ## 6. Open questions
-- Points 5–8 leg definition (§5.3)
-- What "strength 0–100" is measured against for each point
-- Which points gate a trade versus inform it
+- ~~Points 5–8 leg definition~~ — **implemented 2026-09-25 as B with A
+  alongside** (§5.3). Reversible.
+- What "strength 0–100" is measured against for each point. **Partly answered by
+  construction:** each score maps a measured quantity onto 0–100 by where it sits
+  between two bounds, and every bound is either a share (already 0–1) or relative
+  to this session's own median. So the scores are scale-free across instruments —
+  asserted by a test that runs the same tape at BANKNIFTY and NATURALGAS price
+  levels and requires the same momentum score. What remains open is whether each
+  0–100 corresponds to anything useful, which is what kind D exists to answer.
+- Which points gate a trade versus inform it. **Provisionally:** point 25 gates on
+  1 (direction), 19 (timing), 20 (confirmation), 21 (absorption), 22 (exhaustion)
+  and 23 (liquidity); the rest inform. That split is a guess and is recorded as
+  one — it is exactly what 60 days of kind D should overturn.
+
+## 8. Built 2026-09-25 — `python_modules/tcs2/analysis.py`
+
+All 25 points, 36 tests, verified against the live chain.
+
+**What the build honoured, and how it is enforced:**
+
+| §5.4 says | enforced by |
+|---|---|
+| scores describe, never predict | no point returns a probability; point 25 carries `advisory: True` and a note naming the §5.5 bar |
+| a missing reading is not zero | a point that cannot be computed returns `value=None` **with a reason**, asserted for every point by a test |
+| scale-free | a test runs the same tape at nifty and gas price levels and requires equal momentum scores |
+| never claim participant identity (point 24) | the point reports how many footprint signals fired, never who left them, and its note says so |
+
+**Verified live, market closed** — which turned out to be the useful case: 17 of
+25 points reported `None` with "not enough prints", and the four that work from a
+single snapshot (OI map 268 rows, expiry migration, liquidity GOOD, footprint)
+reported normally. A system that fabricates readings would have looked *more*
+impressive here and been worthless.
+
+**Point 25 is recorded, not obeyed.** `tcs2/runtime.py` writes the full 25-point
+row once a minute to `data/tcs2/analyser/<date>/<instrument>.ndjson.gz` (kind D,
+D28), including NO TRADE verdicts and their reasons, so the points can be scored
+after ~60 live days against the §5.5 bar.
 
 ## 7. Related
 - [14 — TCS2](14_tcs2.md) — supplies S1–S5; this spec fixes its expiry scope

@@ -32,6 +32,7 @@ from pathlib import Path
 from . import config as cfg
 from . import feed as feedmod
 from . import scrip
+from .analysis import Analysis
 from .chain import Chain, ChainSummary
 from .flow import FlowState
 from .health import Health
@@ -46,6 +47,11 @@ DEFAULT_REFRESH_SEC = 0.25
 
 # How often health is appended to disk (D17).
 HEALTH_INTERVAL_SEC = 10.0
+
+# How often the 25 points are recorded (kind D, D28). Every minute, per spec 15.
+# Written even when the verdict is NO TRADE - the rejected setups are half the
+# evidence, and without them the points can never be scored.
+ANALYSIS_INTERVAL_SEC = 60.0
 
 # How often the database tiers are flushed (D23: batched, never per change).
 # Nothing live reads the database - the screen reads memory (D16) - so this can
@@ -78,6 +84,7 @@ class Snapshot:
     flow: dict
     health: dict
     analytics_ms: float
+    points: dict
 
 
 class InstrumentRuntime:
@@ -88,7 +95,8 @@ class InstrumentRuntime:
                  resolved: scrip.Resolved | None = None,
                  ticks_dir: Path | None = None,
                  record: bool = True,
-                 store: Store | None = None) -> None:
+                 store: Store | None = None,
+                 analyser_dir: Path | None = None) -> None:
         self.instrument = instrument
         self.cap = cfg.CAPABILITIES[instrument]
         self.refresh_sec = refresh_sec
@@ -116,6 +124,12 @@ class InstrumentRuntime:
         self.store = store
         self._last_store_flush = 0.0
         self._eod_written = False
+        self._last_analysis = 0.0
+        self.analysis_recorder: TickRecorder | None = None
+        if record:
+            day = (analyser_dir or cfg.ANALYSER_DIR) / self.resolved.trade_date
+            self.analysis_recorder = TickRecorder(
+                day / f"{instrument}.ndjson.gz", seal_every_sec=60.0)
         # Whether this process has ever seen the market open. End-of-day rows are
         # written on the session ENDING WHILE WE WATCHED, never merely on being
         # outside session hours - otherwise a process started at 02:30 writes an
@@ -230,6 +244,8 @@ class InstrumentRuntime:
                 d = self._feed.stats.disconnects[-1]
                 h.last_disconnect = f"{d.code}: {d.reason}"
 
+        points = self._maybe_record_analysis(now)
+
         snap = Snapshot(
             ts=now,
             instrument=self.instrument,
@@ -243,6 +259,7 @@ class InstrumentRuntime:
                   if fs.ticks > 0},
             health=h.to_dict(now),
             analytics_ms=ms,
+            points=points,
         )
         with self._snap_lock:
             self._snap = snap
@@ -252,6 +269,42 @@ class InstrumentRuntime:
         """What the GUI calls. Never blocks for longer than a pointer swap."""
         with self._snap_lock:
             return self._snap
+
+    # -- the 25 points ---------------------------------------------------
+
+    def analyse(self, now: float | None = None) -> dict:
+        """The 25 points right now (spec 15). Descriptive, never predictive."""
+        a = Analysis(self.chain, self.flow, tuple(self.chain._futures_ids))
+        return {n: p for n, p in a.all().items()}
+
+    def _maybe_record_analysis(self, now: float) -> dict:
+        """Recompute the points, and write them once a minute (kind D, D28).
+
+        Separated from `publish` so the screen gets fresh points on every repaint
+        while the RECORD stays at one row a minute - the screen wants current, the
+        record wants a comparable series.
+        """
+        try:
+            a = Analysis(self.chain, self.flow, tuple(self.chain._futures_ids))
+            pts = a.all()
+        except Exception as exc:                      # noqa: BLE001
+            # The analysis must never be the thing that stops the feed. It is
+            # the least proven part of the system (spec 15 §5.4) and the most
+            # likely to hit an unexpected shape.
+            self.health.gui.note = f"analysis: {exc}"[:120]
+            return {}
+
+        if (self.analysis_recorder is not None
+                and now - self._last_analysis >= ANALYSIS_INTERVAL_SEC):
+            if not self.analysis_recorder.running:
+                self.analysis_recorder.start()
+            row = a.record()
+            row["ts"] = round(now, 3)
+            row["instrument"] = self.instrument
+            row["spot"] = self.chain.reference
+            self.analysis_recorder.write(row)
+            self._last_analysis = now
+        return pts
 
     # -- the database ----------------------------------------------------
 
@@ -455,6 +508,8 @@ class InstrumentRuntime:
         # would throw away the final seconds that D44 exists to protect.
         if self.recorder is not None and self.recorder.running:
             self.recorder.stop(timeout=30.0)
+        if self.analysis_recorder is not None and self.analysis_recorder.running:
+            self.analysis_recorder.stop(timeout=15.0)
 
     @property
     def running(self) -> bool:

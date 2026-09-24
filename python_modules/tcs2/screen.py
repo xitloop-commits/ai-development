@@ -233,11 +233,30 @@ class Screen(tk.Tk):
                                     justify="left", anchor="w")
         self.expiry_text.pack(fill="x", padx=12, pady=(2, 8))
 
-        tk.Label(self, text="ORDER FLOW - futures", bg=BG, fg=DIM,
-                 font=MONO_SMALL, anchor="w").pack(fill="x", padx=12)
-        self.flow_text = tk.Label(self, text="", bg=BG, fg=FG, font=MONO_SMALL,
+        body = tk.Frame(self, bg=BG)
+        body.pack(fill="both", expand=True, padx=12, pady=(2, 12))
+
+        left = tk.Frame(body, bg=BG)
+        left.pack(side="left", fill="both", expand=True)
+        tk.Label(left, text="THE 25 POINTS   (scores DESCRIBE, they do not predict)",
+                 bg=BG, fg=DIM, font=MONO_SMALL, anchor="w").pack(fill="x")
+        self.points_text = tk.Label(left, text="", bg=BG, fg=FG, font=MONO_SMALL,
+                                    justify="left", anchor="nw")
+        self.points_text.pack(fill="both", expand=True)
+
+        right = tk.Frame(body, bg=BG, width=470)
+        right.pack(side="right", fill="y")
+        right.pack_propagate(False)
+        tk.Label(right, text="VERDICT", bg=BG, fg=DIM, font=MONO_SMALL,
+                 anchor="w").pack(fill="x")
+        self.verdict_text = tk.Label(right, text="", bg=BG, fg=FG, font=MONO,
+                                     justify="left", anchor="nw", wraplength=450)
+        self.verdict_text.pack(fill="x", pady=(2, 10))
+        tk.Label(right, text="ORDER FLOW - futures", bg=BG, fg=DIM,
+                 font=MONO_SMALL, anchor="w").pack(fill="x")
+        self.flow_text = tk.Label(right, text="", bg=BG, fg=FG, font=MONO_SMALL,
                                   justify="left", anchor="nw")
-        self.flow_text.pack(fill="both", expand=True, padx=12, pady=(2, 12))
+        self.flow_text.pack(fill="both", expand=True)
 
         self.bind("<KeyPress-c>", lambda _e: self.open_chain())
         self.protocol("WM_DELETE_WINDOW", self._close)
@@ -307,7 +326,59 @@ class Screen(tk.Tk):
                 f"put wall {s.put_wall_strike:>9,.0f} ({fmt_oi(s.put_wall_oi)})")
         self.expiry_text.config(text="\n".join(lines))
 
+        self.points_text.config(text=self._point_lines(snap))
+        self.verdict_text.config(text=self._verdict_lines(snap))
         self.flow_text.config(text=self._flow_lines(snap))
+
+    def _point_lines(self, snap: Snapshot) -> str:
+        """One line per point. A point with no reading shows its reason, not 0."""
+        if not snap.points:
+            return "  waiting for enough prints ..."
+        out = [f"  {'#':>3} {'point':<20}{'value':>16}{'score':>7}   why not"]
+        for n in range(1, 26):
+            p = snap.points.get(n)
+            if p is None:
+                continue
+            if p.value is None:
+                # Blank, never 0 (D38). A reason, so the gap is explained.
+                out.append(f"  {n:>3} {p.name:<20}{'':>16}{'':>7}   {DIM and ''}{p.note}")
+                continue
+            val = p.value
+            if isinstance(val, list):
+                val = f"{len(val)} rows"
+            elif isinstance(val, dict):
+                val = "..."
+            elif isinstance(val, float):
+                val = f"{val:,.1f}"
+            score = "" if p.score is None else f"{p.score:>6.0f}"
+            out.append(f"  {n:>3} {p.name:<20}{str(val)[:16]:>16}{score:>7}")
+        return "\n".join(out)
+
+    def _verdict_lines(self, snap: Snapshot) -> str:
+        p = snap.points.get(25) if snap.points else None
+        if p is None or p.value is None:
+            return "  no verdict yet"
+        d = p.detail
+        lines = [f"  {p.value}", ""]
+        if d.get("direction"):
+            lines.append(f"  direction   {d['direction']}")
+        if d.get("strike"):
+            sk = d["strike"]
+            lines.append(f"  strike      {sk['strike']:,.0f} {sk['side']} {sk['expiry']}")
+        if p.score is not None:
+            lines.append(f"  confidence  {p.score:.0f} / 100")
+        lines.append("")
+        lines.append("  why:")
+        for r in d.get("reasons", []):
+            lines.append(f"   - {r}")
+        lines.append("")
+        # Never let a green verdict look more confident than the evidence.
+        lines.append("  ADVISORY ONLY. Not one of the 15 flow")
+        lines.append("  rules beat the base rate over 77 days")
+        lines.append("  and 26,671 decision points. These 25")
+        lines.append("  points are recorded so they can be")
+        lines.append("  scored, not acted on.")
+        return "\n".join(lines)
 
     def _flow_lines(self, snap: Snapshot) -> str:
         fut_ids = [int(c.security_id) for c in self.rt.resolved.futures]

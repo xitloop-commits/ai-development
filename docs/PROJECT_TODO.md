@@ -3819,7 +3819,7 @@ and unchangeable from software. It must be turned off in BIOS setup. Boot-time
 evidence: 08:55:23 Fri / 08:55:23 Sat / 08:55:18 Sun, with zero wake-from-sleep
 events logged.
 
-### T193 [TCS2] — build TCS2 — PHASE 0 DONE 2026-09-24 🚧
+### T193 [TCS2] — build TCS2 — ALL 8 PHASES BUILT 2026-09-25 ✅ (unproven, needs a live session)
 Design is settled: [docs/systems/14_tcs2.md](systems/14_tcs2.md) D1-D34.
 Python, not Node — see the note at the end.
 
@@ -3834,7 +3834,7 @@ Python, not Node — see the note at the end.
 | 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed; **plus the OPTION CHAIN button (D38)** | ✅ **DONE 2026-09-25** — ran live, GUI heartbeat confirmed repainting, 252 tests |
 | 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | recorder seals a chunk every 10s (D44); a crash costs ≤10s | ✅ **DONE 2026-09-25** — T185 reproduced and fixed (886 → 2,846 of 3,000 records recovered); 1,496 Now docs + 1,496 EOD rows + daily record verified live; 341 tests |
 | 6 | OI correction — post-session, throttled, feed/official flag | D34 | ✅ **DONE 2026-09-25** — proved against Dhan on 2026-09-23 (999,999 → 66,105 / 170,300 / 780); runs a day behind per D49; 376 tests |
-| 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 **the only phase left** |
+| 7 | The 25 points (spec 15) | deliberately last — its value is unproven | ✅ **BUILT 2026-09-25** — all 25 in `tcs2/analysis.py`, 425 tests; verdict is ADVISORY and recorded, never obeyed; points 5–8 leg definition implemented as B with A alongside |
 | 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | ✅ **DONE 2026-09-25** — 7 tasks (4 starts, 2 graceful stops, 1 OI correction at 07:30), registered DISABLED; launcher hotkey `2` reads TCS2's lock files |
 
 **Phase 0 shipped:** `python_modules/tcs2/` — `config.py` (capability table D11,
