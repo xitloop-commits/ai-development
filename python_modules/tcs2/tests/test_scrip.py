@@ -182,9 +182,9 @@ def test_security_ids_are_unique_and_complete(tmp_path):
     assert len(ids) == r.total_legs
 
 
-# -- the D22 audit trail -------------------------------------------------
+# -- opt-in leg dump (hand-debugging only, nothing depends on it) --------
 
-def test_save_resolved_writes_the_audit_file(tmp_path, monkeypatch):
+def test_save_resolved_dumps_the_leg_list(tmp_path, monkeypatch):
     p = _crude_master(tmp_path)
     r = scrip.resolve("crudeoil", on=dt.date(2026, 10, 1), path=p)
     out = scrip.save_resolved(r, root=tmp_path / "resolved")

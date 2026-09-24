@@ -10,9 +10,11 @@ Deliberate properties:
   * Uses the DETAILED master, for UNDERLYING_SECURITY_ID and EXPIRY_FLAG (D12),
     so weekly-vs-monthly comes from Dhan rather than from our assumption.
   * Resolves at startup only, never mid-session (D26).
-  * Writes what it resolved to disk, because D22 makes our own records
-    provisional: six months from now "which legs did we watch that day?" must be
-    answerable from the record, not reconstructed from a master that has changed.
+  * Does NOT persist the resolved leg list as a matter of course (Partha
+    2026-09-25). The legs are re-derived live from the scrip master at every
+    startup, and the raw ticks already record which legs actually ticked, so a
+    separate audit file would only add legs that were subscribed and stayed
+    silent. `save_resolved()` remains for debugging a specific day by hand.
 """
 from __future__ import annotations
 
@@ -305,7 +307,11 @@ def resolve(instrument: str, on: dt.date | None = None,
 
 
 def save_resolved(r: Resolved, root: Path = cfg.RESOLVED_DIR) -> Path:
-    """Persist the leg list. Required by D22 - the audit trail of what we watched."""
+    """Dump the leg list for hand-debugging one day. NOT part of normal running.
+
+    Legs are re-derived live at every startup, and the raw ticks already show
+    which legs ticked, so nothing depends on this file existing.
+    """
     root.mkdir(parents=True, exist_ok=True)
     out = root / f"{r.trade_date}_{r.instrument}.json"
     mtime = None
