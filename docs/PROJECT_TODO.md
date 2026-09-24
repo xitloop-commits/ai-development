@@ -3792,3 +3792,29 @@ alone — no ticks, chain state or analyser state shared between processes. So
 spec 15's 25 points run in **all four**, each on its own data; crude/gas report
 less where a source is missing (no index, no weekly chain). Cost accepted: no
 cross-instrument analysis inside TCS2; that belongs in a downstream consumer.
+
+### T184 [OPS] — ALL Lubas scheduled tasks DISABLED on Partha's instruction (2026-09-24) ⛔
+Partha 2026-09-24: "stop all" — every automatic start job is now **Disabled**
+(not deleted, so re-enabling is one command each):
+- `Lubas-Startup` — was AtLogOn, Mon-Fri + holiday guarded. This is the big one:
+  it started the API server, **all 4 TFA recorders**, SEA nifty50, and 2 blast
+  paper runners.
+- `Lubas-YowPartha-Daily` — 08:55 Mon-Fri, WakeToRun (Telegram bot).
+- `Lubas-SubscriptionAlert-Daily` — 09:00 daily.
+- `Lubas-PnL-Log-Daily` — 15:45 Mon-Fri.
+- `Lubas-CB2-Tracker-Daily` — 23:40 daily (was already FAILING, result=1).
+
+**CONSEQUENCE — read before the next backtest:** no market data is being
+recorded from 2026-09-25 onward unless someone runs `startup\start.bat` by
+hand. This is the same silent-gap failure mode as T181 (banknifty died
+2026-09-07 and went unnoticed for 9 days). Any T179 backtest run after this
+date must check its data actually covers the window it claims.
+
+**Re-enable:** `Enable-ScheduledTask -TaskName '<name>'` per task, or
+`Get-ScheduledTask -TaskName 'Lubas-*' | Enable-ScheduledTask` for all.
+
+**NOT covered by this:** the machine still powers itself on at 08:55 EVERY day
+including weekends — that is a BIOS "Resume by RTC Alarm", invisible to Windows
+and unchangeable from software. It must be turned off in BIOS setup. Boot-time
+evidence: 08:55:23 Fri / 08:55:23 Sat / 08:55:18 Sun, with zero wake-from-sleep
+events logged.
