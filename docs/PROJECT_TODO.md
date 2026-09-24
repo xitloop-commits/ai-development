@@ -3832,7 +3832,7 @@ Python, not Node — see the note at the end.
 | 2 | Chain in memory — built from ticks, IV + Greeks | our IV matches Dhan's published chain within tolerance (one-time cross-check) | ✅ **DONE 2026-09-25** — full nifty chain built from ticks live; forward recovered to 0.3pts of futures by parity; ATM delta 0.50/-0.50; proper smile; 109 tests |
 | 3 | Flow rules — own code for all 15 | a test proves our `classify` matches TFA's exactly (D27: agree by test, never by import) | ✅ **DONE 2026-09-25** — `tcs2/flow.py`, 160 tests; classify proven identical to TFA across 8 edge cases; one deliberate divergence logged as T195 |
 | 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed; **plus the OPTION CHAIN button (D38)** | ✅ **DONE 2026-09-25** — ran live, GUI heartbeat confirmed repainting, 252 tests |
-| 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | **BLOCKED** on the crash-safe recording decision | 🚨 |
+| 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | recorder seals a chunk every 10s (D44); a crash costs ≤10s; replay rebuilds opening OI, cumulative delta and session high/low | 🚧 **UNBLOCKED 2026-09-25** |
 | 6 | OI correction — post-session, throttled, feed/official flag | D34 | 📋 |
 | 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 |
 | 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | 📋 |
@@ -3876,9 +3876,9 @@ D22 audit trail), `resolve_cli.py` (the acceptance check), `tests/test_scrip.py`
   32 logical CPUs, a 2000x2000 matmul in 40 ms, so numpy is already multi-core.
   Expect 4-8 cores used of 32.
 
-**Critical path warning:** phase 5 is blocked and should be unblocked BEFORE
-phase 1, not after phase 4. Every day TCS2 runs without settled recording is a
-day of ticks at risk, and ticks cannot be re-obtained.
+**Critical path — RESOLVED 2026-09-25 by D44.** Phase 5 was the last blocker.
+The recorder seals a compressed chunk every 10 seconds, so a crash costs ten
+seconds rather than a day, at about 10% more disk.
 
 **First live day costs a TFA day** — TCS2 and TFA cannot co-exist (D1/D10), so
 SEA and blast sit idle that day (D31). Choose the day deliberately.
