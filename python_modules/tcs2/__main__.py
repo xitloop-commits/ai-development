@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="run headless and print health to the terminal")
     ap.add_argument("--stop", action="store_true",
                     help="ask a running process for this instrument to stop")
+    ap.add_argument("--no-store", action="store_true",
+                    help="run without the database tiers (ticks are still recorded)")
     args = ap.parse_args(argv)
 
     if args.stop:
@@ -89,9 +91,21 @@ def _run(args) -> int:
     threading.Thread(target=watch_for_stop, name="tcs2-stop-watch",
                      daemon=True).start()
 
+    store = None
+    if not args.no_store:
+        try:
+            from .store import Store
+            store = Store()
+            store.ensure_collections()
+        except Exception as exc:                      # noqa: BLE001
+            # Never block the feed on the database. Ticks reach disk regardless,
+            # and every tier is rebuildable from them.
+            print(f"database unavailable, continuing without it: {exc}",
+                  file=sys.stderr)
+
     if args.no_screen:
         from .runtime import InstrumentRuntime
-        rt = InstrumentRuntime(args.instrument)
+        rt = InstrumentRuntime(args.instrument, store=store)
         rt.start()
         try:
             while rt.running and not _STOPPING.is_set():
@@ -109,7 +123,7 @@ def _run(args) -> int:
         return 0
 
     from .screen import run
-    run(args.instrument, stopping=_STOPPING)
+    run(args.instrument, stopping=_STOPPING, store=store)
     return 0
 
 

@@ -347,9 +347,10 @@ class Screen(tk.Tk):
         return "\n".join(out)
 
 
-def run(instrument: str, stopping: "threading.Event | None" = None) -> None:
+def run(instrument: str, stopping: "threading.Event | None" = None,
+        store=None) -> None:
     """Start the feed on a worker, then give Tkinter the main thread (D16)."""
-    rt = InstrumentRuntime(instrument)
+    rt = InstrumentRuntime(instrument, store=store)
     rt.start()
     try:
         Screen(rt, stopping=stopping).mainloop()

@@ -184,24 +184,34 @@ def test_damage_in_the_middle_does_not_hide_everything_behind_it(tmp_path):
 
 
 def test_a_damaged_file_is_reported_as_damaged(tmp_path):
-    """Silence is what cost us in T185: the files looked fine."""
-    r = rec(tmp_path, seal_every_sec=0.05)
+    """Silence is what cost us in T185: the files looked fine.
+
+    Sealing on every write makes member boundaries deterministic, so the
+    corruption lands inside a member rather than wherever the timing put one.
+    """
+    r = rec(tmp_path, seal_every_sec=0.0)
     r.start()
     for i in range(200):
-        r.write({"i": i})
-        if i % 25 == 0:
-            time.sleep(0.06)
+        r.write({"i": i, "pad": "x" * 200})
     r.stop()
 
     clean = ReadReport()
     list(read_json(r.path, clean))
     assert clean.clean
     assert clean.damaged_members == 0
+    assert clean.members >= 2
 
-    _corrupt_middle(r.path, at_frac=0.5)
+    # Damage the payload of a member well inside the file, not a boundary.
+    raw = bytearray(r.path.read_bytes())
+    at = len(raw) // 2
+    for i in range(at, min(at + 32, len(raw))):
+        raw[i] ^= 0xFF
+    r.path.write_bytes(bytes(raw))
+
     dirty = ReadReport()
     list(read_json(r.path, dirty))
-    assert not dirty.clean
+    assert not dirty.clean, "a damaged file must not read as clean"
+    assert dirty.damaged_members >= 1
 
 
 def test_standard_gzip_check_flags_a_damaged_file(tmp_path):

@@ -364,3 +364,73 @@ def test_recorded_ticks_can_be_replayed_back_into_a_fresh_runtime(tmp_path):
     assert opts[0]["oi"] == 4000
     assert opts[-1]["oi"] == 4000 + 29 * 10
     assert opts[-1]["ltp"] == pytest.approx(129.0)
+
+
+# -- end of day (D29) ----------------------------------------------------
+
+def test_the_daily_record_has_all_six_parts(tmp_path):
+    """D29 locked six parts; a record missing one is not the record."""
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    r._on_tick(full(900, ltp=23520.0))
+    r._ensure_flow_band()
+    for i in range(10):
+        r._on_tick(full(1000, ltp=100.0 + i, oi=4000 + i * 10, volume=5000 + i))
+    rec = r.build_daily_record()
+    for part in ("instrument", "trade_date", "expiries", "futures",
+                 "underlying", "quality"):
+        assert part in rec, part
+    assert rec["expiries"][0]["exp"] == EXPIRY
+    assert rec["futures"][0]["ltp"] == pytest.approx(23520.0)
+
+
+def test_the_quality_stamp_says_whether_the_day_is_usable(tmp_path):
+    """D29 part 6 - so a study can drop a bad day instead of averaging it in.
+
+    That is what went wrong when blast's crude dataset held 2026-08-21 with two
+    rows and nothing noticed (T185).
+    """
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    r._on_tick(full(1000, ltp=100.0))
+    q = r.build_daily_record()["quality"]
+    for key in ("complete", "ticks", "legs_subscribed", "legs_seen", "coverage",
+                "first_tick", "last_tick", "span_seconds", "disconnects",
+                "bookless_prints"):
+        assert key in q, key
+    # Two ticks is not a session.
+    assert q["complete"] is False
+
+
+def test_a_short_day_is_not_marked_complete(tmp_path):
+    """The 2026-08-21 case: two rows must never read as a full day."""
+    r = runtime(tmp_path)
+    t0 = time.time()
+    r._on_tick(full(1000, ltp=100.0, ts=t0))
+    r._on_tick(full(1000, ltp=101.0, ts=t0 + 30))
+    assert r.build_daily_record()["quality"]["complete"] is False
+
+
+def test_atm_iv_is_none_rather_than_nan_in_the_record(tmp_path):
+    """NaN does not survive JSON or Mongo cleanly; absent is the honest value."""
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    rec = r.build_daily_record()
+    assert rec["expiries"][0]["atm_iv"] is None
+
+
+def test_end_of_day_without_a_store_is_a_no_op(tmp_path):
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    assert r.write_end_of_day() == 0
+
+
+def test_flush_drains_oi_changes_even_without_a_store(tmp_path):
+    """Otherwise the pending list grows all day in a headless run."""
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    r._on_tick(full(1000, oi=1000))
+    r._on_tick(full(1000, oi=1200, volume=5001))
+    assert r.chain.oi_changes
+    r.flush_store()
+    assert not r.chain.oi_changes

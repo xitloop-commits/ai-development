@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from .chain import Chain, ChainSummary
 from .flow import FlowState
 from .health import Health
 from .recorder import TickRecorder
+from .store import Store, current_rows, eod_rows
 from .wire import Disconnect, RequestCode, Tick
 
 # How often the analytics pass and the snapshot run. IV for a full chain costs
@@ -44,6 +46,12 @@ DEFAULT_REFRESH_SEC = 0.25
 
 # How often health is appended to disk (D17).
 HEALTH_INTERVAL_SEC = 10.0
+
+# How often the database tiers are flushed (D23: batched, never per change).
+# Nothing live reads the database - the screen reads memory (D16) - so this can
+# be generous. Measured: a full 1,484-leg upsert takes 113 ms, so five seconds
+# is a 2% duty cycle on a worker thread.
+STORE_INTERVAL_SEC = 5.0
 
 # Flow state is kept for the futures and for option legs near the money. One
 # FlowState per leg across 1,500 legs is affordable in memory but pointless:
@@ -79,7 +87,8 @@ class InstrumentRuntime:
                  health_dir: Path | None = None,
                  resolved: scrip.Resolved | None = None,
                  ticks_dir: Path | None = None,
-                 record: bool = True) -> None:
+                 record: bool = True,
+                 store: Store | None = None) -> None:
         self.instrument = instrument
         self.cap = cfg.CAPABILITIES[instrument]
         self.refresh_sec = refresh_sec
@@ -101,6 +110,12 @@ class InstrumentRuntime:
         if record:
             day = (ticks_dir or cfg.TICKS_DIR) / self.resolved.trade_date
             self.recorder = TickRecorder(day / f"{instrument}_ticks.ndjson.gz")
+
+        # The database tiers (D23/D24). Optional: a headless probe or a test
+        # runs perfectly well without one, and nothing live depends on it.
+        self.store = store
+        self._last_store_flush = 0.0
+        self._eod_written = False
 
         # Flow is tracked per security, for the futures and a band of options.
         self.flow: dict[int, FlowState] = {}
@@ -232,6 +247,117 @@ class InstrumentRuntime:
         with self._snap_lock:
             return self._snap
 
+    # -- the database ----------------------------------------------------
+
+    def flush_store(self, now: float | None = None) -> tuple[int, int]:
+        """Push the Now tier and the intraday rows. Returns (upserts, rows).
+
+        Drains the chain's pending OI changes whether or not a store is
+        configured, so the list cannot grow without bound in a headless run.
+        """
+        changes = self.chain.drain_oi_changes()
+        if self.store is None:
+            return 0, 0
+        try:
+            upserts = self.store.upsert_current(
+                self.instrument, current_rows(self.chain), now)
+            rows = self.store.write_intraday(
+                self.instrument, changes, self.resolved.trade_date)
+            return upserts, rows
+        except Exception as exc:                      # noqa: BLE001
+            # A database problem must never stop the feed or the recorder. The
+            # ticks are already on disk; the tiers are rebuildable from them.
+            self.store.stats.errors.append(f"{type(exc).__name__}: {exc}"[:200])
+            self.health.recorder.note = f"store: {exc}"[:120]
+            return 0, 0
+
+    def write_end_of_day(self, now: float | None = None) -> int:
+        """One row per strike for today, plus the daily record (D23 tier 3, D29).
+
+        Tagged as coming from our feed. The exchange revises OI after the close -
+        crude was out by 15.5% - so the post-session job (D34) rewrites these
+        rows as `official` once Dhan publishes.
+
+        Safe to call twice: the day is cleared first, and the daily record is
+        replaced rather than appended, so a re-run cannot leave two disagreeing
+        records for one day.
+        """
+        if self.store is None:
+            return 0
+        day = self.resolved.trade_date
+        self.store.clear_eod(self.instrument, day)
+        n = self.store.write_eod(self.instrument, day, eod_rows(self.chain))
+        self.store.write_daily(self.build_daily_record(now))
+        self._eod_written = True
+        return n
+
+    def build_daily_record(self, now: float | None = None) -> dict:
+        """Kind C, the six-part daily record (D29).
+
+        Part 6, the data-quality stamp, is the one that pays for itself: it lets
+        a later study drop a bad day automatically instead of silently averaging
+        it in - which is what went wrong when blast's crude dataset held
+        2026-08-21 with two rows and nothing noticed (T185).
+        """
+        now = now if now is not None else time.time()
+        h = self.health
+        ch = self.chain
+        expiries = []
+        for e in ch.expiries:
+            sm = ch.summary(e, now)
+            expiries.append({
+                "exp": e, "dte": round(sm.days_to_expiry, 4),
+                "forward": ch.forward.get(e, 0.0),
+                "call_oi": sm.total_call_oi, "put_oi": sm.total_put_oi,
+                "call_vol": sm.total_call_volume, "put_vol": sm.total_put_volume,
+                "pcr_oi": round(sm.pcr_oi, 4), "pcr_vol": round(sm.pcr_volume, 4),
+                "max_pain": sm.max_pain, "atm": sm.atm_strike,
+                "atm_straddle": sm.atm_straddle,
+                "atm_iv": None if sm.atm_iv != sm.atm_iv else round(sm.atm_iv, 6),
+                "call_wall": [sm.call_wall_strike, sm.call_wall_oi],
+                "put_wall": [sm.put_wall_strike, sm.put_wall_oi],
+                "legs_ticked": sm.legs_seen,
+            })
+        futures = [{"sid": sid, "ltp": px} for sid, px in sorted(ch.futures.items())]
+        span = (h.last_tick_at - h.first_tick_at) if h.first_tick_at else 0.0
+        return {
+            "instrument": self.instrument,
+            "trade_date": self.resolved.trade_date,
+            "written_at": dt.datetime.fromtimestamp(now).isoformat(timespec="seconds"),
+            "expiries": expiries,
+            "futures": futures,
+            "underlying": {
+                "spot": ch.spot, "reference": ch.reference, "vix": ch.vix,
+                "session_high": max((f.session_high for f in self.flow.values()),
+                                    default=0.0),
+                "session_low": min((f.session_low for f in self.flow.values()
+                                    if f.session_low > 0), default=0.0),
+            },
+            "quality": {
+                # D29 part 6. `complete` is deliberately conservative: it says
+                # only that data spanned most of the session, never that the data
+                # is correct.
+                "complete": span >= 0.8 * self._session_seconds(),
+                "ticks": h.ticks, "frames": h.frames,
+                "legs_subscribed": h.legs_subscribed, "legs_seen": h.legs_seen,
+                "coverage": round(h.coverage(), 4),
+                "first_tick": (dt.datetime.fromtimestamp(h.first_tick_at).isoformat(
+                    timespec="seconds") if h.first_tick_at else None),
+                "last_tick": (dt.datetime.fromtimestamp(h.last_tick_at).isoformat(
+                    timespec="seconds") if h.last_tick_at else None),
+                "span_seconds": round(span, 1),
+                "rows_written": h.rows_written,
+                "disconnects": h.disconnects,
+                "last_disconnect": h.last_disconnect,
+                "bookless_prints": h.unknown_prints,
+            },
+        }
+
+    def _session_seconds(self) -> float:
+        o = [int(x) for x in self.cap.session_open.split(":")]
+        c = [int(x) for x in self.cap.session_close.split(":")]
+        return max(1.0, ((c[0] * 60 + c[1]) - (o[0] * 60 + o[1])) * 60.0)
+
     # -- the feed thread -------------------------------------------------
 
     def _legs(self) -> list[tuple[str, str]]:
@@ -274,6 +400,19 @@ class InstrumentRuntime:
             if now >= next_pub:
                 self.publish(now)
                 next_pub = now + self.refresh_sec
+            if now - self._last_store_flush >= STORE_INTERVAL_SEC:
+                self.flush_store(now)
+                self._last_store_flush = now
+                # Write the end-of-day rows once, on the transition out of the
+                # session, rather than at shutdown. A process killed after the
+                # close would otherwise never produce them.
+                if (not self._eod_written and self.health.ticks > 0
+                        and not self.in_session(now)
+                        and self.health.first_tick_at > 0):
+                    try:
+                        self.write_end_of_day(now)
+                    except Exception as exc:          # noqa: BLE001
+                        self.health.recorder.note = f"eod: {exc}"[:120]
             if now - self._last_health_write >= HEALTH_INTERVAL_SEC:
                 self.health.append_to(self.health_path, now)
                 self._last_health_write = now
@@ -298,6 +437,12 @@ class InstrumentRuntime:
         if self._feed_thread is not None:
             self._feed_thread.join(timeout=timeout)
             self._feed_thread = None
+        # A last flush before shutting down, so the final few seconds of OI
+        # changes reach the database rather than dying with the process.
+        try:
+            self.flush_store()
+        except Exception:                             # noqa: BLE001
+            pass
         # The recorder stops LAST and is given longer, because a graceful stop
         # must drain the queue and seal the open member. Cutting it short here
         # would throw away the final seconds that D44 exists to protect.
