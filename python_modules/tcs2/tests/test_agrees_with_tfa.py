@@ -1,0 +1,119 @@
+"""TCS2 - our parser must agree with TFA's on the same bytes.
+
+Spec: docs/systems/14_tcs2.md D27
+
+D27 says TCS2 owns its own code and imports nothing from the research packages,
+with agreement enforced **by a test rather than by a shared import**. This file
+is that test, and it is the ONLY place in TCS2 that may import
+tick_feature_agent - a test-only import, never from the running service.
+
+The one place they deliberately DISAGREE is also asserted here, so nobody
+"fixes" it back: TFA reads a single packet per WebSocket frame, and TCS2 reads
+every packet in the frame.
+"""
+from __future__ import annotations
+
+import struct
+
+import pytest
+
+from tcs2 import wire
+
+# Test-only import. Never do this from a TCS2 runtime module (D27).
+tfa = pytest.importorskip("tick_feature_agent.feed.binary_parser")
+
+
+def _hdr(code: int, length: int, seg: int, sid: int) -> bytes:
+    return struct.pack("<BhBi", code, length, seg, sid)
+
+
+def _full_body() -> bytes:
+    return struct.pack(
+        "<fhifiiiiiiffff",
+        1.10, 130, 1790068500, 1.30, 131235, 163670, 1154140,
+        2679560, 2680060, 2679060,
+        1.5, 2.95, 1.5, 1.1)
+
+
+def _depth_bytes() -> bytes:
+    out = b""
+    for i in range(5):
+        out += struct.pack("<iihh2f", 19045 - i, 17095 - i, 12, 9,
+                           1.05 - i * 0.05, 1.15 + i * 0.05)
+    return out
+
+
+def _full(sec_id: int = 56908) -> bytes:
+    return _hdr(8, 162, 2, sec_id) + _full_body() + _depth_bytes()
+
+
+FULL_FIELDS = [
+    "ltp", "ltq", "ltt", "atp", "volume", "total_buy", "total_sell",
+    "oi", "high_oi", "low_oi",
+    "day_open", "day_high", "day_low", "day_close",
+    "bid", "ask", "bid_size", "ask_size",
+]
+
+
+def test_full_packet_every_field_agrees():
+    pkt = _full()
+    ours = wire.parse_packet(pkt)
+    theirs = tfa.parse_full_packet(pkt)
+    for f in FULL_FIELDS:
+        assert getattr(ours, f) == pytest.approx(theirs[f]), f
+
+
+def test_full_packet_every_depth_level_agrees():
+    pkt = _full()
+    ours = wire.parse_packet(pkt)
+    theirs = tfa.parse_full_packet(pkt)
+    assert len(ours.depth) == len(theirs["depth"]) == 5
+    for i, (o, t) in enumerate(zip(ours.depth, theirs["depth"])):
+        assert o.bid_qty == t["bid_qty"], i
+        assert o.ask_qty == t["ask_qty"], i
+        assert o.bid_orders == t["bid_orders"], i
+        assert o.ask_orders == t["ask_orders"], i
+        assert o.bid_price == pytest.approx(t["bid_price"]), i
+        assert o.ask_price == pytest.approx(t["ask_price"]), i
+
+
+def test_header_agrees():
+    pkt = _full(sec_id=68407)
+    ours = wire.parse_header(pkt)
+    theirs = tfa.parse_header(pkt)
+    assert ours.response_code == theirs.response_code
+    assert ours.message_length == theirs.message_length
+    assert ours.exchange_segment == theirs.exchange_segment
+    assert ours.security_id == theirs.security_id
+
+
+def test_ticker_and_oi_agree():
+    tick = _hdr(2, 16, 2, 111) + struct.pack("<fi", 23476.25, 1790000000)
+    assert wire.parse_packet(tick).ltp == pytest.approx(
+        tfa.parse_ticker_packet(tick)["ltp"])
+
+    oi = _hdr(5, 12, 2, 222) + struct.pack("<i", 5_696_000)
+    assert wire.parse_packet(oi).oi == tfa.parse_oi_packet(oi)["oi"]
+
+
+def test_disconnect_reason_table_agrees():
+    assert wire.DISCONNECT_REASON == tfa.DISCONNECT_REASON
+
+
+def test_segment_tables_agree():
+    assert wire.EXCHANGE_SEGMENT_NAME == tfa.EXCHANGE_SEGMENT_NAME
+
+
+def test_deliberate_difference_multi_packet_frames():
+    """The one intentional divergence - do not 'fix' this test.
+
+    A frame holding three packets: TFA surfaces the first and drops two, TCS2
+    surfaces all three. See T194.
+    """
+    frame = _full(sec_id=1) + _full(sec_id=2) + _full(sec_id=3)
+
+    ours = [t.security_id for t in wire.iter_packets(frame)]
+    assert ours == [1, 2, 3]
+
+    header, _ = tfa.dispatch(frame)
+    assert header.security_id == 1, "TFA reads only the first packet in a frame"

@@ -3899,3 +3899,40 @@ boot and have Windows shut itself back down on Sat/Sun (would need a shutdown
 added to the weekend branch of `startup/_scheduled-start.bat` AND to its
 generator `startup/install-scheduled-tasks.ps1`, since that file is
 auto-generated).
+
+### T194 [DATA] — TFA may be dropping ticks: one packet read per WS frame 🚨
+Found 2026-09-25 while writing TCS2's own parser (T193 phase 1).
+
+`tick_feature_agent/feed/dhan_feed.py:390` calls `dispatch(buf)` **once** per
+WebSocket frame, and `binary_parser.dispatch()` parses **one** packet. But every
+Dhan packet header carries its own `message_length`, which exists so packets can
+be concatenated in a single frame.
+
+**Demonstrated** — a frame built from three FULL packets for three securities:
+
+```
+frame = FULL(56908) + FULL(111) + FULL(222)
+  TCS2 wire.iter_packets ->  [56908, 111, 222]
+  TFA  binary_parser.dispatch -> 56908 only      <- two silently lost
+```
+
+**Why this might be the coverage gap.** On 2026-09-22 only **192 of 472** nifty
+option legs appeared to tick in our recordings, and 46 of those 192 had OI that
+never moved. If Dhan batches packets per frame, TFA would systematically keep
+whichever security happens to be first and drop the rest — which looks exactly
+like "most legs never traded".
+
+Against that: Dhan may in practice send one packet per frame, in which case
+nothing is lost and the coverage figure has another cause.
+
+**NOT YET CONFIRMED against a live feed.** The decisive measurement is a
+histogram of packets-per-frame, which TCS2 phase 1 will produce on its first live
+run. Do not change TFA before that number exists.
+
+If confirmed, it affects every dataset TFA ever produced — features, labels,
+backtests, the flow study — so it is a bigger finding than T185.
+
+Parser agreement is otherwise exact: `tcs2/tests/test_agrees_with_tfa.py` checks
+all 18 FULL-packet fields, all 5 depth levels, the header, ticker, OI, and both
+lookup tables. The frame-walking difference is the single deliberate divergence
+and is asserted there so nobody reverts it.
