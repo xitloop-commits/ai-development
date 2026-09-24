@@ -3818,3 +3818,67 @@ including weekends — that is a BIOS "Resume by RTC Alarm", invisible to Window
 and unchangeable from software. It must be turned off in BIOS setup. Boot-time
 evidence: 08:55:23 Fri / 08:55:23 Sat / 08:55:18 Sun, with zero wake-from-sleep
 events logged.
+
+### T193 [TCS2] — build TCS2 — PHASE 0 DONE 2026-09-24 🚧
+Design is settled: [docs/systems/14_tcs2.md](systems/14_tcs2.md) D1-D34.
+Python, not Node — see the note at the end.
+
+**8 phases, in dependency order:**
+
+| # | phase | done when | status |
+|---|---|---|---|
+| 0 | Contracts — scrip master, resolve expiries/futures/legs | leg counts land in `EXPECTED_LEGS`, expiry choice matches D19 | ✅ **DONE 2026-09-24** |
+| 1 | Feed — own Dhan WS client + binary parser | nifty's ~1,500 legs subscribe on ONE connection with no 804, full session, no disconnect | 📋 |
+| 2 | Chain in memory — built from ticks, IV + Greeks | our IV matches Dhan's published chain within tolerance (one-time cross-check) | 📋 |
+| 3 | Flow rules — own code for all 15 | a test proves our `classify` matches TFA's exactly (D27: agree by test, never by import) | 📋 |
+| 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed | 📋 |
+| 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | **BLOCKED** on the crash-safe recording decision | 🚨 |
+| 6 | OI correction — post-session, throttled, feed/official flag | D34 | 📋 |
+| 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 |
+| 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | 📋 |
+
+**Phase 0 shipped:** `python_modules/tcs2/` — `config.py` (capability table D11,
+paths, limits), `scrip.py` (detailed-master download/cache, contract resolution,
+D22 audit trail), `resolve_cli.py` (the acceptance check), `tests/test_scrip.py`
+(14 tests, all passing).
+
+**Verified live 2026-09-24** against the real 35.4 MB master:
+
+| process | legs | expiries | futures | headroom |
+|---|---|---|---|---|
+| nifty50 | 1,500 | 09-29, 10-27, 11-23 | SEP + OCT | 3.3x |
+| banknifty | 1,442 | 09-29, 10-27 | SEP + OCT | 3.5x |
+| crudeoil | 786 | 10-15, 11-17 | OCT + NOV | 6.4x |
+| naturalgas | 342 | 10-23, 11-20 | SEP + OCT | 14.6x |
+| | **4,070** | | | **4 of 5 connections** |
+
+**Two observations from the live run, neither a blocker:**
+- **nifty picked three MONTHLIES, no weekly** — correct, not a bug. On 2026-09-24
+  the nearest nifty expiry is 2026-09-29, which is the last Tuesday and therefore
+  carries flag `M`: this week's weekly IS the monthly (D26). With that slot
+  filled, the resolver takes the month after (11-23) as the third chain. Next
+  week's 10-06 weekly is picked up by the next startup, which is what D26 wants.
+- **nifty's 09-29 chain spans 1,500-49,500** across 268 strikes, far wider than
+  the 10-27 and 11-23 chains. Dhan's master genuinely lists those strikes. It is
+  why the count is 1,500 rather than the 1,488 measured on 2026-09-23 — expiries
+  do not carry equal strike counts, which `EXPECTED_LEGS` allows for by being a
+  range rather than a target.
+
+**Python over Node, decided 2026-09-24:**
+- the chain maths needs numpy — 1,484-leg IV solve in 14 ms, Greeks in 0.71 ms;
+  Node has no equivalent without native modules
+- TFA already proves Python handles this exact feed at this scale
+- the screen is already Python (Tkinter, `market_screen`), and everything
+  downstream (scoring kind D, studies) is Python
+- Node's one advantage was its existing Dhan client, which D27 discards anyway
+- GIL is not a problem: Tk releases it while idle, numpy releases it during
+  maths, and four processes are four interpreters. Measured on this machine —
+  32 logical CPUs, a 2000x2000 matmul in 40 ms, so numpy is already multi-core.
+  Expect 4-8 cores used of 32.
+
+**Critical path warning:** phase 5 is blocked and should be unblocked BEFORE
+phase 1, not after phase 4. Every day TCS2 runs without settled recording is a
+day of ticks at risk, and ticks cannot be re-obtained.
+
+**First live day costs a TFA day** — TCS2 and TFA cannot co-exist (D1/D10), so
+SEA and blast sit idle that day (D31). Choose the day deliberately.
