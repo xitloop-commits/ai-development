@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from datetime import date as dt_date
 
 from tcs2 import store as st
 from tcs2.history import Candle, HistoryError, estimate_runtime
@@ -229,3 +230,109 @@ def test_the_runtime_estimate_matches_the_reasoning_in_d34():
 
 def test_the_estimate_is_zero_for_nothing():
     assert estimate_runtime(0) == 0.0
+
+
+# -- catch-up (D50) ------------------------------------------------------
+
+def test_pending_days_are_those_with_feed_rows_and_no_official_ones(store):
+    """The whole state this job needs - no marker file, no last-run timestamp."""
+    from tcs2.oi_correct import pending_days
+    seed(store, [(1, 1000)], day="2026-09-22")
+    seed(store, [(1, 1000)], day="2026-09-23")
+    seed(store, [(1, 1000)], day="2026-09-24")
+    correct_day("crudeoil", "2026-09-23", store, FakeHistory({"1": 900}))
+
+    got = pending_days("crudeoil", store, lookback_days=30,
+                       today=dt_date(2026, 9, 25))
+    assert got == ["2026-09-22", "2026-09-24"]
+
+
+def test_pending_days_respects_the_lookback(store):
+    from tcs2.oi_correct import pending_days
+    seed(store, [(1, 1000)], day="2026-08-01")
+    seed(store, [(1, 1000)], day="2026-09-24")
+    got = pending_days("crudeoil", store, lookback_days=10,
+                       today=dt_date(2026, 9, 25))
+    assert got == ["2026-09-24"]
+
+
+def test_catch_up_corrects_every_published_pending_day(store):
+    from tcs2.oi_correct import catch_up
+    seed(store, [(1, 1000)], day="2026-09-22")
+    seed(store, [(1, 1000)], day="2026-09-23")
+    hist = FakeHistory({"1": 900})
+    hist.latest_published_day = lambda *a, **k: "2026-09-23"
+
+    reps = catch_up("crudeoil", store, hist, lookback_days=30,
+                    today=dt_date(2026, 9, 25))
+    assert [r.trade_date for r in reps] == ["2026-09-22", "2026-09-23"]
+    assert all(r.corrected == 1 for r in reps)
+
+
+def test_catch_up_skips_a_day_dhan_has_not_published(store):
+    """Measured 2026-09-25 at 02:35: Dhan's latest day was 2026-09-23.
+
+    So 2026-09-24 was absent eleven hours after its close - for NSE and MCX
+    alike. A day that is not there yet must be left pending, not written wrong.
+    """
+    from tcs2.oi_correct import catch_up, pending_days
+    seed(store, [(1, 1000)], day="2026-09-23")
+    seed(store, [(1, 1000)], day="2026-09-24")
+    hist = FakeHistory({"1": 900})
+    hist.latest_published_day = lambda *a, **k: "2026-09-23"
+
+    reps = catch_up("crudeoil", store, hist, lookback_days=30,
+                    today=dt_date(2026, 9, 25))
+    done = {r.trade_date: r for r in reps}
+    assert done["2026-09-23"].corrected == 1
+    assert done["2026-09-24"].corrected == 0
+    assert "not published yet" in done["2026-09-24"].errors[0]
+
+    # And it is still pending, so the next run picks it up.
+    assert "2026-09-24" in pending_days("crudeoil", store, 30,
+                                        today=dt_date(2026, 9, 25))
+
+
+def test_a_day_published_late_is_picked_up_on_a_later_run(store):
+    """Self-healing: the point of catch-up (D50).
+
+    A fixed schedule would lose 2026-09-24 permanently if its one attempt ran
+    before Dhan published it.
+    """
+    from tcs2.oi_correct import catch_up, pending_days
+    seed(store, [(1, 1000)], day="2026-09-24")
+
+    early = FakeHistory({"1": 900})
+    early.latest_published_day = lambda *a, **k: "2026-09-23"
+    catch_up("crudeoil", store, early, lookback_days=30,
+             today=dt_date(2026, 9, 25))
+    assert pending_days("crudeoil", store, 30, today=dt_date(2026, 9, 26))
+
+    later = FakeHistory({"1": 900})
+    later.latest_published_day = lambda *a, **k: "2026-09-25"
+    reps = catch_up("crudeoil", store, later, lookback_days=30,
+                    today=dt_date(2026, 9, 26))
+    assert reps[0].corrected == 1
+    assert not pending_days("crudeoil", store, 30, today=dt_date(2026, 9, 26))
+
+
+def test_catch_up_does_nothing_when_nothing_is_pending(store):
+    from tcs2.oi_correct import catch_up
+    assert catch_up("crudeoil", store, FakeHistory({}), lookback_days=30,
+                    today=dt_date(2026, 9, 25)) == []
+
+
+def test_running_catch_up_twice_costs_nothing(store):
+    """The schedule must not have to be exact, so a repeat must be harmless."""
+    from tcs2.oi_correct import catch_up
+    seed(store, [(1, 1000)], day="2026-09-23")
+    hist = FakeHistory({"1": 900})
+    hist.latest_published_day = lambda *a, **k: "2026-09-23"
+    catch_up("crudeoil", store, hist, lookback_days=30, today=dt_date(2026, 9, 25))
+
+    hist2 = FakeHistory({"1": 900})
+    hist2.latest_published_day = lambda *a, **k: "2026-09-23"
+    assert catch_up("crudeoil", store, hist2, lookback_days=30,
+                    today=dt_date(2026, 9, 25)) == []
+    assert len([r for r in store.read_eod("crudeoil")
+                if r["meta"]["src"] == st.FROM_OFFICIAL]) == 1

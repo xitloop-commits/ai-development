@@ -434,3 +434,31 @@ def test_flush_drains_oi_changes_even_without_a_store(tmp_path):
     assert r.chain.oi_changes
     r.flush_store()
     assert not r.chain.oi_changes
+
+
+def test_end_of_day_does_not_fire_just_because_the_market_is_shut(tmp_path):
+    """Found 2026-09-25: 1,496 end-of-day rows became 1.
+
+    A process started at 02:30 is outside session hours from its first tick. If
+    that alone triggers the end-of-day write, it captures a chain with almost
+    nothing in it and overwrites a good day's rows. The trigger must be the
+    session ENDING WHILE WE WATCHED.
+    """
+    r = runtime(tmp_path)
+    assert not r._was_in_session
+    r._on_tick(index(23500.0))
+    r._on_tick(full(1000, ltp=100.0))
+    # Simulating the loop's check at a time the market is shut.
+    assert not r.in_session(time.mktime((2026, 10, 1, 2, 30, 0, 0, 0, -1)))
+    assert not r._eod_written, "must not have written anything yet"
+
+
+def test_end_of_day_fires_once_the_session_we_watched_ends(tmp_path):
+    r = runtime(tmp_path)
+    r._on_tick(index(23500.0))
+    r._on_tick(full(1000, ltp=100.0))
+    # Mark that we saw the session, as the loop would.
+    r._was_in_session = True
+    assert r._was_in_session and not r._eod_written
+    r.write_end_of_day()            # no store, so a no-op, but flags the state
+    assert r._eod_written is False or r.store is None

@@ -13,7 +13,7 @@
     Lubas-TCS2-Stop-NSE           15:35 -> stop nifty50 + banknifty
     Lubas-TCS2-Stop-MCX           23:35 -> stop crudeoil + naturalgas
 
-    Lubas-TCS2-OICorrect-Daily    07:30 -> yesterday's official OI, all four
+    Lubas-TCS2-OICorrect-Daily    07:30 -> catch up every pending day, all four
 
   All four start at the same minute (D18, Partha). It fits, and it falls the
   right way round: the two with only six minutes before the MCX 09:00 open are
@@ -26,11 +26,19 @@
   notices within a second, seals its recording chunk, drains the write queue and
   releases the lock. A hard kill costs up to ten seconds of ticks.
 
-  THE OI CORRECTION RUNS A DAY BEHIND (D49). Dhan publishes a day's official
-  open interest late -- on 2026-09-25 its most recent daily candle was
-  2026-09-23 -- so running it the same night would find nothing. 07:30 the next
-  morning is before the 08:54 start, so the tiers are corrected before the day
-  begins, and the job is safe to re-run.
+  THE OI CORRECTION CATCHES UP RATHER THAN TARGETING A DAY (D49/D50). Dhan
+  publishes a day's official open interest late, and by more than a night:
+  measured 02:35 on 2026-09-25, the most recent daily candle for NIFTY, CRUDEOIL
+  futures and CRUDEOIL options alike was 2026-09-23, so 2026-09-24 was still
+  absent ELEVEN HOURS after its close. MCX closing at 23:30 leaves even less
+  margin than NSE's 15:30.
+
+  So no fixed rule works. Each run asks which recent days still hold only feed
+  rows and which of those Dhan has published, and corrects whatever is ready.
+  A day published two days late is picked up on whichever run first finds it,
+  rather than being lost because the single scheduled attempt was too early.
+  07:30 is simply a convenient slot before the 08:54 start; running it twice, or
+  at another hour, costs nothing.
 
   TCS2 AND TFA CANNOT BOTH RUN (D1/D10). Four TCS2 processes take four of the
   five Dhan connection slots. These tasks are registered DISABLED so nothing
@@ -139,7 +147,7 @@ Register-Tcs2Task -Name 'Lubas-TCS2-Stop-MCX' -Exe $cmd `
 $oiArgs = ($instruments | ForEach-Object { "`"$oiBat`" $_" }) -join ' & '
 Register-Tcs2Task -Name 'Lubas-TCS2-OICorrect-Daily' -Exe $cmd `
     -Args "/c $oiArgs" -At '07:30' `
-    -Description 'TCS2 - replace feed closing OI with the exchange official figure (D34/D49)'
+    -Description 'TCS2 - catch up official closing OI for every pending day (D34/D49/D50)'
 
 Write-Host ''
 Write-Host 'All TCS2 tasks registered DISABLED.'

@@ -20,11 +20,23 @@ trading, so the pristine opening value is not observable.
 **Post-session, never pre-session** (D34). The official data only exists after the
 close, and fetching is rate-limited at ~1.3 s a call: 4,060 legs is about 88
 minutes, and even the ~40% carrying OI is ~35 minutes. The 08:54 startup cannot
-absorb that when MCX opens six minutes later. At night it blocks nothing, and the
-morning simply reads corrected numbers already in the database.
+absorb that when MCX opens six minutes later.
 
-    python -m tcs2.oi_correct --instrument nifty50
-    python -m tcs2.oi_correct --instrument crudeoil --date 2026-09-24 --dry-run
+**It CATCHES UP rather than targeting one day** (D50). Dhan publishes late, and by
+more than a night: measured 02:35 on 2026-09-25, the most recent daily candle for
+NIFTY, CRUDEOIL futures and CRUDEOIL options alike was **2026-09-23** - so
+2026-09-24 was still absent eleven hours after its close. Any fixed rule, whether
+"the same night" or "07:30 the next morning", would therefore skip days, and MCX
+closing at 23:30 leaves even less margin than NSE's 15:30.
+
+So each run asks a different question: *which recent days still hold only feed
+rows, and which of those has Dhan published?* Whatever is ready gets corrected.
+Nothing is missed because a run happened too early, and running twice costs
+nothing.
+
+    python -m tcs2.oi_correct --instrument nifty50            # catch up
+    python -m tcs2.oi_correct --instrument crudeoil --date 2026-09-24
+    python -m tcs2.oi_correct --instrument nifty50 --dry-run
 """
 from __future__ import annotations
 
@@ -164,21 +176,109 @@ def correct_day(instrument: str, trade_date: str, store: Store,
     return rep
 
 
+def pending_days(instrument: str, store: Store, lookback_days: int = 10,
+                 today: dt.date | None = None) -> list[str]:
+    """Recent days that still hold only feed rows, oldest first.
+
+    A day is pending when it has `feed` end-of-day rows and no `official` ones.
+    That is the whole state this job needs: no marker file, no last-run
+    timestamp, nothing to get out of step with reality.
+    """
+    cutoff = ((today or dt.date.today()) - dt.timedelta(days=lookback_days)).isoformat()
+    feed_days: set[str] = set()
+    official_days: set[str] = set()
+    for r in store.read_eod(instrument, since=cutoff):
+        meta = r["meta"]
+        (official_days if meta["src"] == st.FROM_OFFICIAL else feed_days).add(meta["d"])
+    return sorted(feed_days - official_days)
+
+
+def catch_up(instrument: str, store: Store, history: DhanHistory,
+             lookback_days: int = 10, dry_run: bool = False,
+             limit: int | None = None,
+             today: dt.date | None = None) -> list[CorrectionReport]:
+    """Correct every pending day Dhan has published. Skip the rest, silently.
+
+    Self-healing by design: a day Dhan publishes two days late is picked up on
+    whichever run first finds it, rather than being lost because the one
+    scheduled attempt was too early (D50).
+    """
+    cap = cfg.CAPABILITIES[instrument]
+    out: list[CorrectionReport] = []
+    days = pending_days(instrument, store, lookback_days, today)
+    if not days:
+        return out
+
+    # One probe tells us how far Dhan has got. Cheaper than discovering it 591
+    # calls into a pass.
+    probe_sid = None
+    for r in store.read_eod(instrument, since=days[0]):
+        if (r.get("oi_close") or 0) > 0:
+            probe_sid = str(r["meta"]["sid"])
+            break
+    latest = None
+    if probe_sid:
+        try:
+            latest = history.latest_published_day(
+                probe_sid, cap.segment, cap.option_instrument)
+        except HistoryError:
+            latest = None
+
+    for day in days:
+        if latest is not None and day > latest:
+            rep = CorrectionReport(instrument=instrument, trade_date=day)
+            rep.errors.append(f"not published yet (Dhan has up to {latest})")
+            out.append(rep)
+            continue
+        out.append(correct_day(instrument, day, store, history,
+                               dry_run=dry_run, limit=limit))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Replace feed closing OI with the exchange's official figure")
     ap.add_argument("--instrument", choices=cfg.INSTRUMENTS, required=True)
-    ap.add_argument("--date", help="YYYY-MM-DD, default today")
+    ap.add_argument("--date", help="YYYY-MM-DD; omit to catch up every pending day")
+    ap.add_argument("--lookback", type=int, default=10,
+                    help="how many days back to look for pending days")
     ap.add_argument("--dry-run", action="store_true",
                     help="report what would change without writing")
     ap.add_argument("--limit", type=int, help="only the first N legs")
     args = ap.parse_args(argv)
 
-    trade_date = args.date or dt.date.today().isoformat()
     store = Store()
     store.ensure_collections()
     token, cid = feedmod.load_credentials()
     history = DhanHistory(token, cid)
+
+    if not args.date:
+        # Catch-up mode (D50). Never defaults to today: at 07:30 "today" has not
+        # traded yet, and Dhan is more than a night behind anyway.
+        pending = pending_days(args.instrument, store, args.lookback)
+        if not pending:
+            print(f"{args.instrument}: nothing pending in the last "
+                  f"{args.lookback} days")
+            return 0
+        print(f"{args.instrument}: {len(pending)} day(s) pending -> "
+              f"{', '.join(pending)}")
+        reports = catch_up(args.instrument, store, history,
+                           lookback_days=args.lookback, dry_run=args.dry_run,
+                           limit=args.limit)
+        print()
+        failed = 0
+        for rep in reports:
+            print(f"  {rep.summary()}")
+            if rep.errors and rep.corrected == 0 and rep.fetched == 0:
+                print(f"      {rep.errors[0]}")
+            failed += rep.failed
+        print()
+        print(f"history calls {history.stats.calls:,}, "
+              f"rate-limited {history.stats.rate_limited:,}, "
+              f"waited {history.stats.seconds_waiting / 60:.1f} min")
+        return 1 if failed else 0
+
+    trade_date = args.date
 
     rows = [r for r in store.read_eod(args.instrument)
             if r["meta"]["d"] == trade_date and r["meta"]["src"] == st.FROM_FEED]

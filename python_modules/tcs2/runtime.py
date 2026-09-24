@@ -116,6 +116,12 @@ class InstrumentRuntime:
         self.store = store
         self._last_store_flush = 0.0
         self._eod_written = False
+        # Whether this process has ever seen the market open. End-of-day rows are
+        # written on the session ENDING WHILE WE WATCHED, never merely on being
+        # outside session hours - otherwise a process started at 02:30 writes an
+        # almost-empty chain and overwrites a good day. Found 2026-09-25 when
+        # 1,496 end-of-day rows became 1.
+        self._was_in_session = False
 
         # Flow is tracked per security, for the futures and a band of options.
         self.flow: dict[int, FlowState] = {}
@@ -406,9 +412,10 @@ class InstrumentRuntime:
                 # Write the end-of-day rows once, on the transition out of the
                 # session, rather than at shutdown. A process killed after the
                 # close would otherwise never produce them.
-                if (not self._eod_written and self.health.ticks > 0
-                        and not self.in_session(now)
-                        and self.health.first_tick_at > 0):
+                if self.in_session(now):
+                    self._was_in_session = True
+                elif (self._was_in_session and not self._eod_written
+                        and self.health.ticks > 0):
                     try:
                         self.write_end_of_day(now)
                     except Exception as exc:          # noqa: BLE001
