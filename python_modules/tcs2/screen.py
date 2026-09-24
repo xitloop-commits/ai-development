@@ -22,6 +22,7 @@ without a display.
 """
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -199,9 +200,11 @@ class OptionChainWindow(tk.Toplevel):
 class Screen(tk.Tk):
     """One instrument, one window (D15)."""
 
-    def __init__(self, rt: InstrumentRuntime) -> None:
+    def __init__(self, rt: InstrumentRuntime,
+                 stopping: "threading.Event | None" = None) -> None:
         super().__init__()
         self.rt = rt
+        self._stopping = stopping
         self.title(f"TCS2 - {rt.instrument}")
         self.configure(bg=BG)
         self.geometry("1180x740")
@@ -255,6 +258,11 @@ class Screen(tk.Tk):
     # -- repaint ---------------------------------------------------------
 
     def _repaint(self) -> None:
+        # A stop signal reaches Tk here rather than through the handler, because
+        # Tk cannot be touched from a signal handler safely.
+        if self._stopping is not None and self._stopping.is_set():
+            self._close()
+            return
         # The GUI's own heartbeat. Beaten here, in the repaint, so a frozen
         # window stops beating and says so - rather than being beaten by the
         # feed thread, which would make a dead window look alive.
@@ -339,11 +347,11 @@ class Screen(tk.Tk):
         return "\n".join(out)
 
 
-def run(instrument: str) -> None:
+def run(instrument: str, stopping: "threading.Event | None" = None) -> None:
     """Start the feed on a worker, then give Tkinter the main thread (D16)."""
     rt = InstrumentRuntime(instrument)
     rt.start()
     try:
-        Screen(rt).mainloop()
+        Screen(rt, stopping=stopping).mainloop()
     finally:
         rt.stop()

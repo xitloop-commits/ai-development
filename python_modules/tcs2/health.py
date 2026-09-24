@@ -65,12 +65,24 @@ class Beat:
         return now - self.last_beat
 
     def status(self, now: float | None = None,
-               stale_sec: float = DEFAULT_STALE_SEC) -> str:
+               stale_sec: float = DEFAULT_STALE_SEC,
+               expected: bool = True) -> str:
+        """How this thread is doing.
+
+        `expected=False` means nothing SHOULD be arriving - outside market hours,
+        or before the open. Then silence is IDLE rather than DEAD. Measured
+        2026-09-25: with the market closed the recorder had nothing to write and
+        its age climbed past every threshold, which would have shown DEAD all
+        night. A light that cries wolf is a light you stop looking at, which is
+        how 2026-09-18 went unnoticed for two and a half hours.
+        """
         if self.last_beat == 0.0:
             return IDLE
         age = self.age(now)
         if age <= stale_sec:
             return OK
+        if not expected:
+            return IDLE
         if age <= stale_sec * 5:
             return LATE
         return DEAD
@@ -89,6 +101,8 @@ class Health:
     pid: int = field(default_factory=os.getpid)
     started_at: float = field(default_factory=time.time)
     stale_sec: float = DEFAULT_STALE_SEC
+    # False outside market hours: silence is then expected, not a stall.
+    in_session: bool = True
 
     feed: Beat = field(default_factory=lambda: Beat("feed"))
     recorder: Beat = field(default_factory=lambda: Beat("recorder"))
@@ -123,8 +137,17 @@ class Health:
         stop looking at the three separately.
         """
         order = {OK: 0, IDLE: 1, LATE: 2, DEAD: 3}
-        return max((t.status(now, self.stale_sec) for t in self.threads),
+        return max((self.status_of(t, now) for t in self.threads),
                    key=lambda s: order[s])
+
+    def status_of(self, beat: Beat, now: float | None = None) -> str:
+        """A thread's status, taking the session into account.
+
+        The GUI is expected to repaint whatever the market is doing; the feed and
+        recorder are only expected to be busy while the market is open.
+        """
+        expected = True if beat is self.gui else self.in_session
+        return beat.status(now, self.stale_sec, expected=expected)
 
     def tick_rate(self, now: float | None = None) -> float:
         if self.first_tick_at == 0.0 or self.last_tick_at <= self.first_tick_at:
@@ -147,7 +170,7 @@ class Health:
         for name in ("feed", "recorder", "gui"):
             b = getattr(self, name)
             d[name]["age"] = b.age(now)
-            d[name]["status"] = b.status(now, self.stale_sec)
+            d[name]["status"] = self.status_of(b, now)
         return d
 
     def append_to(self, path: Path, now: float | None = None) -> None:
@@ -163,7 +186,7 @@ class Health:
     def summary(self, now: float | None = None) -> str:
         """One line for a terminal. The screen renders the object instead."""
         now = now if now is not None else time.time()
-        parts = [f"{b.name} {b.status(now, self.stale_sec)} {b.age(now):.1f}s"
+        parts = [f"{b.name} {self.status_of(b, now)} {b.age(now):.1f}s"
                  for b in self.threads]
         return (f"{self.instrument} | " + "  ".join(parts)
                 + f" | ticks {self.ticks:,} ({self.tick_rate(now):,.0f}/s)"

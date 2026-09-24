@@ -48,8 +48,9 @@ def resolved(n_strikes: int = 5) -> Resolved:
         option_expiries=(EXPIRY,), options=tuple(opts))
 
 
-def runtime(tmp_path) -> InstrumentRuntime:
-    return InstrumentRuntime("nifty50", health_dir=tmp_path, resolved=resolved())
+def runtime(tmp_path, record: bool = False) -> InstrumentRuntime:
+    return InstrumentRuntime("nifty50", health_dir=tmp_path, resolved=resolved(),
+                             ticks_dir=tmp_path / "ticks", record=record)
 
 
 def full(sid: int, ltp=100.0, oi=1000, volume=5000, ts=None) -> Tick:
@@ -268,3 +269,98 @@ def test_health_can_be_written(tmp_path):
     r.health.append_to(r.health_path)
     assert r.health_path.exists()
     assert r.health_path.read_text(encoding="utf-8").count("\n") == 1
+
+
+# -- recording (D8, D44) -------------------------------------------------
+
+def test_recording_is_off_when_asked_and_on_by_default(tmp_path):
+    assert runtime(tmp_path).recorder is None
+    assert runtime(tmp_path, record=True).recorder is not None
+
+
+def test_every_tick_reaches_the_recorder(tmp_path):
+    from tcs2.recorder import read_json
+    r = runtime(tmp_path, record=True)
+    r.recorder.start()
+    r._on_tick(index(23500.0))
+    for i in range(20):
+        r._on_tick(full(1000, ltp=100.0 + i, volume=5000 + i))
+    r.recorder.stop()
+    rows = list(read_json(r.recorder.path))
+    assert len(rows) == 21
+
+
+def test_recorded_rows_carry_what_arrived_not_what_we_computed(tmp_path):
+    """D8: store what arrived. IV, Greeks and flow are all rebuildable.
+
+    Keeping derived values out is what lets a changed analysis be replayed
+    against the same data rather than compared against a frozen answer.
+    """
+    from tcs2.recorder import read_json
+    r = runtime(tmp_path, record=True)
+    r.recorder.start()
+    r._on_tick(full(1000, ltp=132.5, oi=4200, volume=9100))
+    r.recorder.stop()
+    row = list(read_json(r.recorder.path))[0]
+    assert row["ltp"] == pytest.approx(132.5)
+    assert row["oi"] == 4200
+    assert row["bid"] and row["ask"] and row["d"]        # the book, 5 levels
+    for derived in ("iv", "delta", "gamma", "theta", "vega"):
+        assert derived not in row
+
+
+def test_the_recorder_beat_comes_from_writes_not_from_being_alive(tmp_path):
+    """The 2026-09-18 failure, guarded.
+
+    A recorder thread that is running but writing nothing must NOT report
+    healthy. The beat is taken from the last actual write.
+    """
+    from tcs2.health import IDLE
+    r = runtime(tmp_path, record=True)
+    r.recorder.start()
+    try:
+        r.publish()
+        assert r.health.recorder.status() == IDLE, (
+            "a running-but-silent recorder must not look healthy")
+        r._on_tick(full(1000, ltp=100.0))
+        import time as _t
+        _t.sleep(0.05)
+        r.publish()
+        assert r.health.recorder.beats > 0
+        assert r.health.recorder.last_beat > 0
+    finally:
+        r.recorder.stop()
+
+
+def test_rows_written_is_reported_in_health(tmp_path):
+    r = runtime(tmp_path, record=True)
+    r.recorder.start()
+    for i in range(10):
+        r._on_tick(full(1000, ltp=100.0 + i, volume=5000 + i))
+    import time as _t
+    _t.sleep(0.1)
+    snap = r.publish()
+    r.recorder.stop()
+    assert snap.health["rows_written"] == 10
+
+
+def test_recorded_ticks_can_be_replayed_back_into_a_fresh_runtime(tmp_path):
+    """Replay is what rebuilds opening OI, cumulative delta and session high/low
+    after a crash (D44). If it does not round-trip, the guarantee is empty.
+    """
+    from tcs2.recorder import read_json
+    live = runtime(tmp_path, record=True)
+    live.recorder.start()
+    live._on_tick(index(23500.0))
+    for i in range(30):
+        live._on_tick(full(1000, ltp=100.0 + i, oi=4000 + i * 10,
+                           volume=5000 + i * 100))
+    live.recorder.stop()
+
+    rows = list(read_json(live.recorder.path))
+    assert len(rows) == 31
+    # The values needed to rebuild state are all present.
+    opts = [r for r in rows if r["sid"] == 1000]
+    assert opts[0]["oi"] == 4000
+    assert opts[-1]["oi"] == 4000 + 29 * 10
+    assert opts[-1]["ltp"] == pytest.approx(129.0)

@@ -34,6 +34,7 @@ from . import scrip
 from .chain import Chain, ChainSummary
 from .flow import FlowState
 from .health import Health
+from .recorder import TickRecorder
 from .wire import Disconnect, RequestCode, Tick
 
 # How often the analytics pass and the snapshot run. IV for a full chain costs
@@ -76,7 +77,9 @@ class InstrumentRuntime:
 
     def __init__(self, instrument: str, refresh_sec: float = DEFAULT_REFRESH_SEC,
                  health_dir: Path | None = None,
-                 resolved: scrip.Resolved | None = None) -> None:
+                 resolved: scrip.Resolved | None = None,
+                 ticks_dir: Path | None = None,
+                 record: bool = True) -> None:
         self.instrument = instrument
         self.cap = cfg.CAPABILITIES[instrument]
         self.refresh_sec = refresh_sec
@@ -91,6 +94,13 @@ class InstrumentRuntime:
         self.health.legs_subscribed = self.resolved.total_legs
         self.health_path = (health_dir or cfg.HEALTH_DIR) / \
             self.resolved.trade_date / f"{instrument}.ndjson"
+
+        # Kind A (D8): every tick, exactly as received. Sealed every 10 seconds
+        # (D44), so a crash costs ten seconds rather than a day.
+        self.recorder: TickRecorder | None = None
+        if record:
+            day = (ticks_dir or cfg.TICKS_DIR) / self.resolved.trade_date
+            self.recorder = TickRecorder(day / f"{instrument}_ticks.ndjson.gz")
 
         # Flow is tracked per security, for the futures and a band of options.
         self.flow: dict[int, FlowState] = {}
@@ -109,10 +119,32 @@ class InstrumentRuntime:
         self._feed: feedmod.DhanFeed | None = None
         self._last_health_write = 0.0
 
+    # -- session ---------------------------------------------------------
+
+    def in_session(self, now: float | None = None) -> bool:
+        """Is the market open for this instrument right now?
+
+        Health uses it so a quiet market reads IDLE rather than DEAD. Measured
+        2026-09-25 with the market closed: the recorder had nothing to write and
+        its age climbed past every threshold, which would have shown DEAD all
+        night. A light that cries wolf is one you stop looking at, which is how
+        2026-09-18 went unnoticed for two and a half hours.
+        """
+        import datetime as _dt
+        t = _dt.datetime.fromtimestamp(now if now is not None else time.time())
+        if t.weekday() >= 5:
+            return False
+        opens = _dt.time(*(int(x) for x in self.cap.session_open.split(":")))
+        closes = _dt.time(*(int(x) for x in self.cap.session_close.split(":")))
+        return opens <= t.time() <= closes
+
     # -- the tick path, on the feed thread -------------------------------
 
     def _on_tick(self, t: Tick) -> None:
         """Runs on the feed thread. Must stay cheap and must never block."""
+        if self.recorder is not None:
+            # Queued, never written here: the feed thread must not wait on disk.
+            self.recorder.write(_tick_row(t))
         self.chain.on_tick(t)
         fs = self.flow.get(t.security_id)
         if fs is not None:
@@ -155,6 +187,21 @@ class InstrumentRuntime:
         h.legs_seen = int((self.chain.tick_count > 0).sum())
         h.analytics_ms = ms
         h.unknown_prints = sum(f.unknown_prints for f in self.flow.values())
+        h.in_session = self.in_session(now)
+        if self.recorder is not None:
+            rs = self.recorder.stats
+            h.rows_written = rs.lines
+            if rs.last_write_at:
+                # The recorder's beat comes from an actual write reaching the
+                # writer thread - never from the fact that the thread is alive.
+                # A thread that is running but writing nothing is precisely the
+                # 2026-09-18 failure.
+                self.health.recorder.last_beat = rs.last_write_at
+                self.health.recorder.beats = rs.lines
+                if self.health.recorder.started_at == 0.0:
+                    self.health.recorder.started_at = rs.last_write_at
+            if rs.errors:
+                self.health.recorder.note = rs.errors[-1]
         if self._feed is not None:
             h.frames = self._feed.stats.frames
             h.disconnects = len(self._feed.stats.disconnects)
@@ -198,6 +245,8 @@ class InstrumentRuntime:
         return legs
 
     async def _feed_loop(self) -> None:
+        if self.recorder is not None and not self.recorder.running:
+            self.recorder.start()
         token, cid = feedmod.load_credentials()
         self._feed = feedmod.DhanFeed(token, cid, on_tick=self._on_tick,
                                       mode=RequestCode.SUBSCRIBE_FULL)
@@ -249,7 +298,43 @@ class InstrumentRuntime:
         if self._feed_thread is not None:
             self._feed_thread.join(timeout=timeout)
             self._feed_thread = None
+        # The recorder stops LAST and is given longer, because a graceful stop
+        # must drain the queue and seal the open member. Cutting it short here
+        # would throw away the final seconds that D44 exists to protect.
+        if self.recorder is not None and self.recorder.running:
+            self.recorder.stop(timeout=30.0)
 
     @property
     def running(self) -> bool:
         return self._feed_thread is not None and self._feed_thread.is_alive()
+
+
+def _tick_row(t: Tick) -> dict:
+    """One tick as a record. Everything received, nothing derived.
+
+    D8's rule: store what arrived, never what we computed from it. IV, Greeks,
+    flow readings and the chain are all rebuildable from these rows, and keeping
+    them out means a change to the analysis can be replayed against the same
+    data rather than compared against a frozen answer.
+    """
+    row = {
+        "sid": t.security_id, "k": t.kind, "ts": round(t.recv_ts, 6),
+        "ltp": t.ltp, "ltq": t.ltq, "ltt": t.ltt, "vol": t.volume,
+        "oi": t.oi, "bid": t.bid, "ask": t.ask,
+        "bq": t.bid_size, "aq": t.ask_size,
+    }
+    if t.atp:
+        row["atp"] = t.atp
+    if t.total_buy or t.total_sell:
+        row["tb"], row["ts_"] = t.total_buy, t.total_sell
+    if t.high_oi or t.low_oi:
+        row["hoi"], row["loi"] = t.high_oi, t.low_oi
+    if t.day_open or t.day_high or t.day_low or t.day_close:
+        row["o"], row["h"] = t.day_open, t.day_high
+        row["l"], row["c"] = t.day_low, t.day_close
+    if t.prev_close or t.prev_oi:
+        row["pc"], row["poi"] = t.prev_close, t.prev_oi
+    if t.depth:
+        row["d"] = [[l.bid_qty, l.ask_qty, l.bid_orders, l.ask_orders,
+                     l.bid_price, l.ask_price] for l in t.depth]
+    return row
