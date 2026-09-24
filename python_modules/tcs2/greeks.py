@@ -233,3 +233,35 @@ def implied_vol(market_price: ArrayLike, underlying: ArrayLike, strike: ArrayLik
 def year_fraction(now_epoch: float, expiry_epoch: float) -> float:
     """Time to expiry in years, floored at zero."""
     return max(0.0, (expiry_epoch - now_epoch) / (365.0 * 24 * 3600.0))
+
+
+def forward_from_parity(strikes: ArrayLike, call_px: ArrayLike, put_px: ArrayLike,
+                        spot: float, t_years: float, rate: float = DEFAULT_RATE,
+                        max_strikes: int = 8) -> float:
+    """The forward the option market is actually pricing, by put-call parity.
+
+    `C - P = df * (F - K)`, so every strike quoting both sides gives its own
+    reading of F. The median of the strikes nearest the money is taken, because
+    parity is exact only where both legs are liquid and a single wide quote far
+    from the money would otherwise drag the answer.
+
+    **Why this is derived rather than assumed.** Forcing `F = spot * e^(rT)`
+    conflicts with the market: at spot 23,500, r 6.5% and 11 days that forward is
+    23,546, which puts the no-arbitrage floor for the 23,400 call at 145.8 - so a
+    real premium of 132.5 has no implied vol at all and every in-the-money call
+    returns NaN. Measured 2026-09-18, NSE weekly options price around spot rather
+    than the futures, so the rate-implied forward is simply the wrong number.
+    Reading F out of the option prices sidesteps the question for both exchanges.
+
+    Returns `spot` unchanged when no strike quotes both sides.
+    """
+    k = np.asarray(strikes, dtype=np.float64)
+    c = np.asarray(call_px, dtype=np.float64)
+    p = np.asarray(put_px, dtype=np.float64)
+    both = (c > 0) & (p > 0) & np.isfinite(c) & np.isfinite(p)
+    if not both.any() or t_years <= MIN_T:
+        return float(spot)
+    k, c, p = k[both], c[both], p[both]
+    near = np.argsort(np.abs(k - spot))[:max_strikes]
+    fwd = k[near] + (c[near] - p[near]) * np.exp(rate * t_years)
+    return float(np.median(fwd))
