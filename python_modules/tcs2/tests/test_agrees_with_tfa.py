@@ -117,3 +117,48 @@ def test_deliberate_difference_multi_packet_frames():
 
     header, _ = tfa.dispatch(frame)
     assert header.security_id == 1, "TFA reads only the first packet in a frame"
+
+
+# -- trade-side classification (D27) ------------------------------------
+
+ofi = pytest.importorskip("tick_feature_agent.features.ofi")
+
+
+@pytest.mark.parametrize("ltp,bid,ask", [
+    (101.0, 99.0, 101.0),        # exactly at the offer
+    (102.0, 99.0, 101.0),        # through the offer
+    (99.0, 99.0, 101.0),         # exactly at the bid
+    (98.0, 99.0, 101.0),         # through the bid
+    (100.0, 99.0, 101.0),        # inside the spread
+    (100.0, 100.0, 100.0),       # zero spread
+    (0.05, 0.05, 0.10),          # a near-worthless leg
+    (56000.0, 55990.0, 56010.0),  # a large-priced instrument
+])
+def test_classify_agrees_with_tfa_wherever_a_book_exists(ltp, bid, ask):
+    """D27: agreement enforced by test, not by a shared import."""
+    from tcs2 import flow
+    ours = flow.classify(ltp, bid, ask)
+    theirs = ofi._trade_direction(ltp, bid, ask)
+    assert float(ours) == theirs
+
+
+def test_deliberate_difference_a_missing_book_is_not_passive():
+    """The second intentional divergence - do not 'fix' this test.
+
+    Both reference implementations SAY a bookless packet is missing data, and
+    both then RETURN their passive value:
+
+      * `tick_feature_agent/features/ofi.py` - docstring "treated as missing",
+        returns 0.0, which is also its passive value
+      * `claude_cohort/flow.py:64` - comment "no book, not a passive trade",
+        returns PASSIVE
+
+    Downstream that makes "we could not tell" indistinguishable from "neither
+    side was aggressive", so bookless prints are silently counted in the passive
+    share and dilute the buy and sell shares. TCS2 returns UNKNOWN and excludes
+    them. See T195.
+    """
+    from tcs2 import flow
+    assert flow.classify(100.0, 0.0, 0.0) == flow.UNKNOWN
+    assert flow.UNKNOWN != flow.PASSIVE
+    assert ofi._trade_direction(100.0, 0.0, 0.0) == 0.0    # their passive value

@@ -3830,7 +3830,7 @@ Python, not Node — see the note at the end.
 | 0 | Contracts — scrip master, resolve expiries/futures/legs | leg counts land in `EXPECTED_LEGS`, expiry choice matches D19 | ✅ **DONE 2026-09-24** |
 | 1 | Feed — own Dhan WS client + binary parser | nifty's ~1,500 legs subscribe on ONE connection with no 804, full session, no disconnect | 📋 |
 | 2 | Chain in memory — built from ticks, IV + Greeks | our IV matches Dhan's published chain within tolerance (one-time cross-check) | ✅ **DONE 2026-09-25** — full nifty chain built from ticks live; forward recovered to 0.3pts of futures by parity; ATM delta 0.50/-0.50; proper smile; 109 tests |
-| 3 | Flow rules — own code for all 15 | a test proves our `classify` matches TFA's exactly (D27: agree by test, never by import) | 📋 |
+| 3 | Flow rules — own code for all 15 | a test proves our `classify` matches TFA's exactly (D27: agree by test, never by import) | ✅ **DONE 2026-09-25** — `tcs2/flow.py`, 160 tests; classify proven identical to TFA across 8 edge cases; one deliberate divergence logged as T195 |
 | 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed; **plus the OPTION CHAIN button (D38)** so our computed chain can be compared against the broker's | 📋 |
 | 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | **BLOCKED** on the crash-safe recording decision | 🚨 |
 | 6 | OI correction — post-session, throttled, feed/official flag | D34 | 📋 |
@@ -3954,3 +3954,36 @@ Parser agreement is otherwise exact: `tcs2/tests/test_agrees_with_tfa.py` checks
 all 18 FULL-packet fields, all 5 depth levels, the header, ticker, OI, and both
 lookup tables. The frame-walking difference is the single deliberate divergence
 and is asserted there so nobody reverts it.
+
+### T195 [DATA] — a missing order book is counted as a PASSIVE trade 📋
+Found 2026-09-25 while writing TCS2's own flow layer (T193 phase 3).
+
+Both reference implementations **say** a bookless packet is missing data, and
+both then **return their passive value**:
+
+| file | says | returns |
+|---|---|---|
+| `tick_feature_agent/features/ofi.py:52` | docstring: "pre-depth packet, treated as missing" | `0.0` — which is also its passive value |
+| `claude_cohort/flow.py:64` | comment: "no book, **not a passive trade**" | `PASSIVE` |
+
+The comment in `claude_cohort` contradicts the line directly beneath it.
+
+**Why it matters.** Downstream, "we could not tell which side was aggressive"
+becomes indistinguishable from "neither side was aggressive". Bookless prints are
+counted in the passive bucket, which **dilutes the buy and sell shares** — so
+aggression looks weaker than it was, and it looks weaker specifically at the
+moments when depth is missing, which cluster at the open.
+
+**Size unknown.** Nobody has counted how many prints arrive without a book. TCS2
+counts them (`FlowState.unknown_prints`), so the first live session gives the
+number. Until then this is a correctness concern of unmeasured size, not a
+demonstrated error.
+
+**TCS2 returns UNKNOWN** and excludes those prints from every share
+(`tcs2/flow.py`). The divergence is asserted in
+`tcs2/tests/test_agrees_with_tfa.py` so it is not reverted by accident, while
+every case where a book DOES exist is proven identical to TFA across eight
+edge cases including zero spread, a 0.05 premium and a 56,000 instrument.
+
+Do not change TFA or claude_cohort before the live count exists — that is the
+T194 lesson.
