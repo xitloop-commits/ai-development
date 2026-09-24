@@ -1903,6 +1903,93 @@ def _screen_replay_days(limit: int = 8) -> list[str]:
     return sorted(full, reverse=True)[:limit]
 
 
+def _tcs2_running() -> dict:
+    """Which TCS2 instrument processes hold a lock right now.
+
+    Reads the lock files TCS2 writes (D45) rather than scanning processes, so it
+    reports the same thing TCS2 itself would refuse a second start over.
+    """
+    out: dict[str, int] = {}
+    lock_dir = ROOT / "data" / "tcs2" / "locks"
+    if not lock_dir.is_dir():
+        return out
+    for name in ("nifty50", "banknifty", "crudeoil", "naturalgas"):
+        try:
+            pid = int((lock_dir / f"{name}.pid").read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            continue
+        # A lock left by a crash still has a file; TCS2 checks liveness, so so
+        # do we, otherwise the launcher would show a dead process as running.
+        try:
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if h:
+                ctypes.windll.kernel32.CloseHandle(h)
+                out[name] = pid
+        except Exception:
+            out[name] = pid
+    return out
+
+
+def act_tcs2() -> None:
+    """System 14 — TCS2. One process per instrument, screen inside each.
+
+    TCS2 and TFA are mutually exclusive (D1/D10): four TCS2 processes take four
+    of the five Dhan connection slots, so SEA and blast do not run on a TCS2 day
+    (D31 — paused, not retired).
+    """
+    INSTRUMENTS = ("nifty50", "banknifty", "crudeoil", "naturalgas")
+    while True:
+        live = _tcs2_running()
+        rows = []
+        for name in INSTRUMENTS:
+            pid = live.get(name)
+            rows.append(InstrumentRow(
+                instrument=name,
+                checked=False, enabled=True,
+                status_line=(f"running (pid {pid}) — select to STOP" if pid
+                             else "stopped — select to START with screen"),
+            ))
+        rows.append(InstrumentRow(
+            instrument="— headless (no screen, all four) —",
+            checked=False, enabled=True,
+            status_line="records ticks and fills the DB without a window",
+        ))
+
+        note = ("TCS2 replaces TFA for the day: 4 of 5 Dhan slots. "
+                "SEA and blast idle while it runs.")
+        res = submenu(
+            title=f"TCS2  —  {note}",
+            rows=rows,
+            show_date_mode_toggle=False,
+            bottom_actions=["Go"],
+        )
+        if res.cancelled:
+            return
+        if not res.selected:
+            print()
+            print(f"  {YELLOW('!')} Nothing selected.")
+            _pause_briefly()
+            continue
+
+        print()
+        for choice in res.selected:
+            if choice.startswith("—"):
+                for name in INSTRUMENTS:
+                    if name not in live:
+                        _launch_new_window(f"TCS2 {name} (headless)",
+                                           "tcs2.bat", name, "--no-screen")
+                continue
+            if choice in live:
+                # Never a hard kill: --stop seals the recording chunk and
+                # releases the lock. SIGTERM does nothing on Windows (D46).
+                print(f"  stopping {choice} gracefully ...")
+                _run_bat_sync(f"stop TCS2 {choice}", "tcs2.bat", choice, "--stop")
+            else:
+                _launch_new_window(f"TCS2 {choice}", "tcs2.bat", choice)
+        _pause_briefly()
+
+
 def act_market_screen() -> None:
     """System 12 — the 2x2 order-flow screen. Live, or replay a recorded day."""
     while True:
@@ -3289,6 +3376,7 @@ def main() -> None:
         RootItem("Live Sim     (SEA for replay: auto-trade + no stale guard)", "S", act_live_sim),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
         RootItem("Screen       (market status — 2x2 order flow)", "D", act_market_screen),
+        RootItem("TCS2         (tick collection — 1 process per instrument)", "2", act_tcs2),
         RootItem("yow-partha   (Telegram control bot)",    "Y", act_yow_partha),
         RootItem("Tools        (token / creds / status)",  ".", act_tools),
         RootItem("Restart      (reload launcher code)",    "L", act_restart_launcher),

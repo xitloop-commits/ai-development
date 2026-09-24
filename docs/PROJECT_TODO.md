@@ -3834,8 +3834,8 @@ Python, not Node — see the note at the end.
 | 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed; **plus the OPTION CHAIN button (D38)** | ✅ **DONE 2026-09-25** — ran live, GUI heartbeat confirmed repainting, 252 tests |
 | 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | recorder seals a chunk every 10s (D44); a crash costs ≤10s | ✅ **DONE 2026-09-25** — T185 reproduced and fixed (886 → 2,846 of 3,000 records recovered); 1,496 Now docs + 1,496 EOD rows + daily record verified live; 341 tests |
 | 6 | OI correction — post-session, throttled, feed/official flag | D34 | ✅ **DONE 2026-09-25** — proved against Dhan on 2026-09-23 (999,999 → 66,105 / 170,300 / 780); runs a day behind per D49; 376 tests |
-| 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 |
-| 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | 📋 |
+| 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 **the only phase left** |
+| 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | ✅ **DONE 2026-09-25** — 7 tasks (4 starts, 2 graceful stops, 1 OI correction at 07:30), registered DISABLED; launcher hotkey `2` reads TCS2's lock files |
 
 **Phase 0 shipped:** `python_modules/tcs2/` — `config.py` (capability table D11,
 paths, limits), `scrip.py` (detailed-master download/cache, contract resolution,
