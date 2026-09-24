@@ -3833,7 +3833,7 @@ Python, not Node — see the note at the end.
 | 3 | Flow rules — own code for all 15 | a test proves our `classify` matches TFA's exactly (D27: agree by test, never by import) | ✅ **DONE 2026-09-25** — `tcs2/flow.py`, 160 tests; classify proven identical to TFA across 8 edge cases; one deliberate divergence logged as T195 |
 | 4 | Screen — Tkinter main thread, workers for feed/recorder | a deliberately stalled GUI does NOT stop the feed; **plus the OPTION CHAIN button (D38)** | ✅ **DONE 2026-09-25** — ran live, GUI heartbeat confirmed repainting, 252 tests |
 | 5 | Storage — Now/intraday/EOD, kinds C/D/E, retention | recorder seals a chunk every 10s (D44); a crash costs ≤10s | ✅ **DONE 2026-09-25** — T185 reproduced and fixed (886 → 2,846 of 3,000 records recovered); 1,496 Now docs + 1,496 EOD rows + daily record verified live; 341 tests |
-| 6 | OI correction — post-session, throttled, feed/official flag | D34 | 📋 |
+| 6 | OI correction — post-session, throttled, feed/official flag | D34 | ✅ **DONE 2026-09-25** — proved against Dhan on 2026-09-23 (999,999 → 66,105 / 170,300 / 780); runs a day behind per D49; 376 tests |
 | 7 | The 25 points (spec 15) | deliberately last — its value is unproven | 📋 |
 | 8 | Ops — 4 tasks at 08:54, launcher section, disable SEA/blast | D18 | 📋 |
 
