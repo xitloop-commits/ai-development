@@ -25,7 +25,8 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 | 11 | [SMA-Model](11_sma_model.md) | Learned SMA5 leg-riding entry/exit model (SPEC DRAFT — no code yet) |
 | 12 | [Market Status Screen](12_market_status_screen.md) | Python 2x2 screen — 15 order-flow rules x 7 windows, live + replay (BUILT) |
 | 13 | [Claude cohort](13_claude_cohort.md) | Context-first option buying — index/flow/OI decides, strike follows (SPEC — backtest first, no code yet) |
-| 14 | [TCS2](14_tcs2.md) | Tick collection service — one process per instrument (nifty/bank/crude/gas), builds the option chain from ticks (DRAFT — design in discussion) |
+| 14 | [TCS2](14_tcs2.md) | Tick collection service — one process per instrument (nifty/bank/crude/gas), builds the option chain from ticks (BUILT 2026-09-25, all 8 phases, 425 tests — unproven live) |
+| 14b | [TCS2 live test plan](14_tcs2_live_test_plan.md) | The checks only a real session can answer — run on the first live day |
 | 15 | [Detection & Decision](15_detection_decision.md) | 25 analysis points from S1-S5 to a TRADE / NO TRADE context; written for NIFTY 50 (SPEC — no code yet) |
 
 ## End-to-end data flow

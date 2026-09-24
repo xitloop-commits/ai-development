@@ -3987,3 +3987,42 @@ now the record of the difference.
 
 Do not change TFA or claude_cohort before the live count exists — that is the
 T194 lesson.
+
+### T196 [TCS2] — first LIVE session test plan — READY, waiting for a session 📋
+Plan: [docs/systems/14_tcs2_live_test_plan.md](systems/14_tcs2_live_test_plan.md)
+
+Everything in TCS2 was verified against a **closed** market or synthetic tapes.
+425 tests pass and D1-D50 are settled, but nothing has seen a real open.
+
+**Next session: Friday 2026-09-25, MCX 09:00 / NSE 09:15.** Saturday and Sunday
+have none, so if it slips the next chance is Monday 2026-09-28.
+
+**Cost of the test day, accepted:** TCS2 takes four of the five Dhan connection
+slots, so TFA cannot run, and with TFA down SEA and blast sit idle (D1/D10/D31 -
+paused, not retired).
+
+**The check that matters most (B1):** start nifty50 alone and watch for `804`.
+1,500 legs on one connection has only ever been proven on a *quiet* socket (D37).
+A live open is the real test of D13, and if it fails the whole connection plan
+needs revisiting.
+
+**Three numbers that have never been measured** and which the day exists to
+produce:
+- **tick rate under load** - every figure so far is a market-closed snapshot burst
+- **bookless-print count** - the measurement T195 is waiting for; if it is large,
+  TFA and claude_cohort have been diluting every buy/sell share
+- **disk per day** - the ~1 GB estimate came from TFA's recordings at a different
+  record shape (69 bytes/tick against our 34)
+
+**The check that validates our maths (C1):** the OPTION CHAIN button, read against
+the broker's own chain. We build the chain from ticks and compute every Greek
+ourselves; nothing else compares those numbers to an independent source. If IV is
+systematically off, suspect the **forward** first - it is derived from put-call
+parity and a bad forward shifts the whole chain the same way.
+
+**Known gap, expected to show (C5):** after a mid-session restart, today's
+`oi_open`, cumulative delta and session high/low are wrong until replay-on-start
+is wired. That is the known gap, not a new bug.
+
+**Not a failure:** a NO TRADE verdict all day. The verdict is advisory and
+recorded to be scored after ~60 days against spec 15 §5.5 - not followed.
