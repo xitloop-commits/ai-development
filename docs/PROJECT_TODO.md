@@ -3900,7 +3900,25 @@ added to the weekend branch of `startup/_scheduled-start.bat` AND to its
 generator `startup/install-scheduled-tasks.ps1`, since that file is
 auto-generated).
 
-### T194 [DATA] — TFA may be dropping ticks: one packet read per WS frame 🚨
+### T194 [DATA] — TFA one-packet-per-frame — NOT A BUG, measured 2026-09-25 ✅
+**Resolved: Dhan does not batch packets into frames, so TFA loses nothing.**
+Measured on the live socket across **4,196 frames** in three probes (TICKER,
+QUOTE and FULL modes, 300-1,500 legs): **every frame held exactly one packet**,
+`MAX packets in one frame = 1` in every run.
+
+So the hypothesis below is unsupported and the "192 of 472 legs" coverage gap has
+some other cause. TCS2 keeps `wire.iter_packets()` anyway - walking the frame is
+correct per the protocol and costs nothing - and
+`tcs2/tests/test_agrees_with_tfa.py` still asserts the difference so it is not
+reverted by accident.
+
+Also measured in the same probe: **all 1,498 of 1,500 subscribed nifty legs
+responded**, each with one FULL and one OI packet. The whole chain answers,
+including far strikes, which is further evidence for D5.
+
+Original hypothesis, kept for the record:
+
+### ~~T194 original~~ — TFA may be dropping ticks: one packet read per WS frame
 Found 2026-09-25 while writing TCS2's own parser (T193 phase 1).
 
 `tick_feature_agent/feed/dhan_feed.py:390` calls `dispatch(buf)` **once** per
