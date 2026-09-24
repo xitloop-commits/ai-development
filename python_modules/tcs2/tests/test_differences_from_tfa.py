@@ -1,15 +1,25 @@
-"""TCS2 - our parser must agree with TFA's on the same bytes.
+"""TCS2 - where TCS2 DIFFERS from TFA, and why.
 
-Spec: docs/systems/14_tcs2.md D27
+Spec: docs/systems/14_tcs2.md  D27, D42
 
-D27 says TCS2 owns its own code and imports nothing from the research packages,
-with agreement enforced **by a test rather than by a shared import**. This file
-is that test, and it is the ONLY place in TCS2 that may import
-tick_feature_agent - a test-only import, never from the running service.
+**TFA is not an oracle.** This file is a difference detector, not a correctness
+proof. A disagreement here means "go and find out which is right", never "TCS2 is
+wrong" - TFA has already been shown wrong once, in T195, where it labels a
+bookless packet as a passive trade while its own docstring calls it missing data.
 
-The one place they deliberately DISAGREE is also asserted here, so nobody
-"fixes" it back: TFA reads a single packet per WebSocket frame, and TCS2 reads
-every packet in the frame.
+TCS2's correctness comes from the spec, from Dhan, and from measurement:
+
+  * the packet layouts are confirmed against the LIVE socket - measured
+    bytes-per-packet matched the documented layouts exactly in all three
+    subscribe modes on 2026-09-25 (D36)
+  * the segment codes and the 100-per-message batch size are confirmed by
+    1,500 legs subscribing successfully on one connection (D37)
+  * trade-side classification is Lee-Ready, a published rule, not TFA's invention
+  * the option maths is confirmed by put-call parity recovering the futures price
+    to within 0.3 points (D40)
+
+This is the ONLY place in TCS2 that may import tick_feature_agent, and only as a
+test.
 """
 from __future__ import annotations
 
@@ -55,7 +65,12 @@ FULL_FIELDS = [
 ]
 
 
-def test_full_packet_every_field_agrees():
+def test_full_packet_fields_match_tfa():
+    """Both read the same documented layout, so a mismatch means one has a bug.
+
+    Which one would need finding out - the live socket is the arbiter, and it
+    already confirmed our layout byte-for-byte (D36).
+    """
     pkt = _full()
     ours = wire.parse_packet(pkt)
     theirs = tfa.parse_full_packet(pkt)
@@ -63,7 +78,7 @@ def test_full_packet_every_field_agrees():
         assert getattr(ours, f) == pytest.approx(theirs[f]), f
 
 
-def test_full_packet_every_depth_level_agrees():
+def test_full_packet_depth_levels_match_tfa():
     pkt = _full()
     ours = wire.parse_packet(pkt)
     theirs = tfa.parse_full_packet(pkt)
@@ -77,7 +92,7 @@ def test_full_packet_every_depth_level_agrees():
         assert o.ask_price == pytest.approx(t["ask_price"]), i
 
 
-def test_header_agrees():
+def test_header_matches_tfa():
     pkt = _full(sec_id=68407)
     ours = wire.parse_header(pkt)
     theirs = tfa.parse_header(pkt)
@@ -87,7 +102,7 @@ def test_header_agrees():
     assert ours.security_id == theirs.security_id
 
 
-def test_ticker_and_oi_agree():
+def test_ticker_and_oi_match_tfa():
     tick = _hdr(2, 16, 2, 111) + struct.pack("<fi", 23476.25, 1790000000)
     assert wire.parse_packet(tick).ltp == pytest.approx(
         tfa.parse_ticker_packet(tick)["ltp"])
@@ -96,11 +111,11 @@ def test_ticker_and_oi_agree():
     assert wire.parse_packet(oi).oi == tfa.parse_oi_packet(oi)["oi"]
 
 
-def test_disconnect_reason_table_agrees():
+def test_disconnect_reason_table_matches_tfa():
     assert wire.DISCONNECT_REASON == tfa.DISCONNECT_REASON
 
 
-def test_segment_tables_agree():
+def test_segment_tables_match_tfa():
     assert wire.EXCHANGE_SEGMENT_NAME == tfa.EXCHANGE_SEGMENT_NAME
 
 
@@ -134,8 +149,12 @@ ofi = pytest.importorskip("tick_feature_agent.features.ofi")
     (0.05, 0.05, 0.10),          # a near-worthless leg
     (56000.0, 55990.0, 56010.0),  # a large-priced instrument
 ])
-def test_classify_agrees_with_tfa_wherever_a_book_exists(ltp, bid, ask):
-    """D27: agreement enforced by test, not by a shared import."""
+def test_classify_matches_tfa_wherever_a_book_exists(ltp, bid, ask):
+    """Both implement Lee-Ready, a published rule - so both should agree.
+
+    Agreement here is a sanity check on two independent transcriptions of the
+    same published rule, not evidence that either is correct.
+    """
     from tcs2 import flow
     ours = flow.classify(ltp, bid, ask)
     theirs = ofi._trade_direction(ltp, bid, ask)
