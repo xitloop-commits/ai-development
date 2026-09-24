@@ -3882,3 +3882,20 @@ day of ticks at risk, and ticks cannot be re-obtained.
 
 **First live day costs a TFA day** — TCS2 and TFA cannot co-exist (D1/D10), so
 SEA and blast sit idle that day (D31). Choose the day deliberately.
+
+**CORRECTION 2026-09-24 (same session):** the "stop all" above was a
+misunderstanding. Partha's actual goal is only to **stop the weekend 08:55
+power-on** — the recorder jobs should keep running Mon-Fri. The 5 tasks are
+still Disabled and MUST BE RE-ENABLED:
+
+    Get-ScheduledTask -TaskName 'Lubas-*' | Enable-ScheduledTask
+
+(Claude's sandbox blocks re-enabling scheduled tasks, so Partha has to run this
+himself in any PowerShell window. Until then, nothing records.)
+
+The weekend wake-up itself is NOT fixable from software — see the BIOS note
+above. Either change the RTC alarm in BIOS setup to weekdays/off, or accept the
+boot and have Windows shut itself back down on Sat/Sun (would need a shutdown
+added to the weekend branch of `startup/_scheduled-start.bat` AND to its
+generator `startup/install-scheduled-tasks.ps1`, since that file is
+auto-generated).
