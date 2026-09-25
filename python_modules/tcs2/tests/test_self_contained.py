@@ -122,3 +122,53 @@ def test_tcs2_owns_the_things_it_could_have_borrowed():
     assert callable(tcs2.flow.classify)          # vs features/ofi.py, claude_cohort
     assert callable(tcs2.greeks.implied_vol)     # exists nowhere else at all
     assert callable(tcs2.greeks.price_and_greeks)  # vs blast_model/greeks.py
+
+
+# -- D52: where the data lands must not depend on the cwd ----------------
+
+def test_data_paths_are_absolute_and_anchored_to_the_repo():
+    """Found live 2026-09-25, mid-session.
+
+    `startup/tcs2.bat` changed into `python_modules` so that `tcs2` imported as a
+    top-level package. Every data path was relative, so a SECOND data tree
+    appeared at `python_modules/data/tcs2/` holding 4 MB of nifty ticks, while the
+    real recording looked stalled.
+
+    The second symptom was worse: those processes also watched the wrong
+    directory for their stop sentinel, so `--stop` could not reach them and they
+    appeared unkillable.
+
+    Where a day's ticks land must never depend on where the process was launched.
+    """
+    from tcs2 import config as cfg
+
+    for name in ("DATA_ROOT", "SCRIP_DIR", "SCRIP_CSV", "TICKS_DIR",
+                 "ANALYSER_DIR", "HEALTH_DIR", "LOGS_DIR", "RESOLVED_DIR"):
+        path = getattr(cfg, name)
+        assert path.is_absolute(), f"cfg.{name} is relative: {path}"
+
+    # And anchored to this repository, not to wherever Python happens to be.
+    assert cfg.REPO_ROOT.name and (cfg.REPO_ROOT / "python_modules").is_dir()
+    assert cfg.DATA_ROOT == cfg.REPO_ROOT / "data" / "tcs2"
+    assert "python_modules" not in cfg.DATA_ROOT.parts, (
+        "the data tree must not sit inside python_modules")
+
+
+def test_paths_do_not_move_when_the_cwd_changes():
+    """The actual failure, reproduced: import, chdir, and check nothing moved."""
+    import importlib
+    import os
+    from pathlib import Path
+
+    from tcs2 import config as cfg
+    before = cfg.TICKS_DIR
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(Path(cfg.REPO_ROOT) / "python_modules")
+        importlib.reload(cfg)
+        assert cfg.TICKS_DIR == before, (
+            "changing directory moved the data tree - this is the 2026-09-25 bug")
+    finally:
+        os.chdir(cwd)
+        importlib.reload(cfg)

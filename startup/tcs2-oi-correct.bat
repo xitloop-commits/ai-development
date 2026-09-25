@@ -31,6 +31,7 @@ if "%~1"=="" (
 
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
-cd /d "%ROOT%python_modules"
+cd /d "%ROOT%"
+set "PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%"
 
 %PYTHON_CMD% -m tcs2.oi_correct --instrument %*

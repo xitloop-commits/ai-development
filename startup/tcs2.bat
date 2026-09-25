@@ -45,8 +45,12 @@ if "%~1"=="" (
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
-REM TCS2 imports nothing from the other packages (D43), but it is still run
-REM from python_modules so `tcs2` resolves as a top-level package.
-cd /d "%ROOT%python_modules"
+REM Run from the REPO ROOT, with python_modules on the path. Changing into
+REM python_modules instead would make every relative data path resolve there,
+REM which silently created a second data tree under python_modules\data	cs2
+REM on 2026-09-25. Paths are now anchored to the repo in config.py as well --
+REM this is the belt to that braces.
+cd /d "%ROOT%"
+set "PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%"
 
 %PYTHON_CMD% -m tcs2 %*

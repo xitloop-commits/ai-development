@@ -18,7 +18,15 @@ INSTRUMENTS = ("nifty50", "banknifty", "crudeoil", "naturalgas")
 # ── Paths ────────────────────────────────────────────────────────────────
 # Date-first, instrument-second: retention deletes whole days (D20), so a day is
 # one directory to remove rather than a scan across instruments.
-DATA_ROOT = Path("data/tcs2")
+#
+# ANCHORED TO THE REPOSITORY, never to the current directory. `startup/tcs2.bat`
+# runs from `python_modules` so that `tcs2` imports as a top-level package, and a
+# relative path there silently created a SECOND data tree at
+# `python_modules/data/tcs2/` - found live 2026-09-25, mid-session, with 4 MB of
+# nifty ticks in the wrong place and the real recording apparently stalled.
+# Where a process was launched from must never decide where a day's ticks land.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_ROOT = REPO_ROOT / "data" / "tcs2"
 SCRIP_DIR = DATA_ROOT / "scrip"
 SCRIP_CSV = SCRIP_DIR / "api-scrip-master-detailed.csv"
 RESOLVED_DIR = SCRIP_DIR / "resolved"   # opt-in hand-debugging only, not written in normal running
