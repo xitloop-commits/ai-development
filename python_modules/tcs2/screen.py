@@ -77,6 +77,97 @@ def fmt_signed(v: int | None) -> str:
     return f"{v:+,}" if abs(v) < 100_000 else f"{v / 100_000:+,.1f}L"
 
 
+# Readings that are good news, and readings that are not. Words rather than
+# numbers, because most of the 25 points report a state.
+_GOOD_WORDS = {
+    "UP", "CONFIRMED", "STRONG", "GOOD", "TRADE", "READY", "CONTINUATION",
+    "LONG_BUILDUP", "SHORT_COVER", "CE",
+}
+_BAD_WORDS = {
+    "DOWN", "FALSE", "POOR", "REVERSAL", "NO_TRADE", "SHORT_BUILDUP",
+    "LONG_UNWIND", "BUYERS_ABSORBED", "SELLERS_ABSORBED", "PE",
+}
+_WARN_WORDS = {
+    "FLAT", "SUSPECT", "WEAKENING", "BUILDING", "NOT_READY", "NEUTRAL",
+    "WEAK", "FAIR", "NONE", "EXPANSION", "CONTRACTION", "NORMAL",
+    "ACCEPTABLE",
+}
+
+
+def value_tag(value) -> str:
+    """Which colour a reading deserves.
+
+    Partha, 2026-09-25: positive values in green, with their label. So:
+      * a number above zero is green, below zero red, exactly zero neutral
+      * a state that is good news is green, bad news red, in-between amber
+      * a missing reading is dim - never green, because "no answer" is not good
+        news, and never red, because it is not bad news either
+
+    A separate function from the widgets on purpose, so the rules can be tested
+    without a display.
+    """
+    if value is None:
+        return "dim"
+    if isinstance(value, bool):
+        # True on an exhaustion or absorption point is a warning, not a win.
+        return "warn" if value else "dim"
+    if isinstance(value, (int, float)):
+        if value != value:              # NaN
+            return "dim"
+        if value > 0:
+            return "good"
+        if value < 0:
+            return "bad"
+        return "plain"
+    if isinstance(value, str):
+        key = value.strip().upper().replace(" ", "_")
+        if key in _GOOD_WORDS:
+            return "good"
+        if key in _BAD_WORDS:
+            return "bad"
+        if key in _WARN_WORDS:
+            return "warn"
+        return "plain"
+    return "plain"
+
+
+def verdict_tag(verdict) -> str:
+    """The verdict headline. NO TRADE is amber, not red - it is not a failure."""
+    if verdict == "TRADE":
+        return "good"
+    if verdict == "NO_TRADE":
+        return "warn"
+    return "dim"
+
+
+def point_rows(points: dict) -> list[tuple[int, str, str]]:
+    """(number, formatted line, colour tag) for each of the 25 points.
+
+    Missing readings print their REASON rather than a zero (D38), and are dim.
+    """
+    rows: list[tuple[int, str, str]] = []
+    for n in range(1, 26):
+        p = points.get(n)
+        if p is None:
+            continue
+        if p.value is None:
+            rows.append((n, f"  {n:>3} {p.name:<20}{'':>16}{'':>7}   {p.note}",
+                         "dim"))
+            continue
+        val = p.value
+        if isinstance(val, list):
+            shown, tag = f"{len(val)} rows", "plain"
+        elif isinstance(val, dict):
+            shown, tag = "...", "plain"
+        elif isinstance(val, float):
+            shown, tag = f"{val:,.1f}", value_tag(val)
+        else:
+            shown, tag = str(val), value_tag(val)
+        score = "" if p.score is None else f"{p.score:>6.0f}"
+        rows.append((n, f"  {n:>3} {p.name:<20}{shown[:16]:>16}{score:>7}", tag))
+    return rows
+
+
 def fmt_age(seconds: float) -> str:
     if seconds == float("inf"):
         return "never"
@@ -240,18 +331,29 @@ class Screen(tk.Tk):
         left.pack(side="left", fill="both", expand=True)
         tk.Label(left, text="THE 25 POINTS   (scores DESCRIBE, they do not predict)",
                  bg=BG, fg=DIM, font=MONO_SMALL, anchor="w").pack(fill="x")
-        self.points_text = tk.Label(left, text="", bg=BG, fg=FG, font=MONO_SMALL,
-                                    justify="left", anchor="nw")
+        # A Text widget, not a Label: a Label paints one colour for the whole
+        # block, and the point of this panel is that a positive reading looks
+        # different from a negative one at a glance.
+        self.points_text = tk.Text(left, bg=BG, fg=FG, font=MONO_SMALL,
+                                   relief="flat", highlightthickness=0,
+                                   insertwidth=0, wrap="none", cursor="arrow")
         self.points_text.pack(fill="both", expand=True)
+        for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
+                             ("dim", DIM), ("plain", FG), ("head", DIM)):
+            self.points_text.tag_configure(name, foreground=colour)
 
         right = tk.Frame(body, bg=BG, width=470)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
         tk.Label(right, text="VERDICT", bg=BG, fg=DIM, font=MONO_SMALL,
                  anchor="w").pack(fill="x")
-        self.verdict_text = tk.Label(right, text="", bg=BG, fg=FG, font=MONO,
-                                     justify="left", anchor="nw", wraplength=450)
+        self.verdict_text = tk.Text(right, bg=BG, fg=FG, font=MONO, height=16,
+                                    relief="flat", highlightthickness=0,
+                                    insertwidth=0, wrap="word", cursor="arrow")
         self.verdict_text.pack(fill="x", pady=(2, 10))
+        for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
+                             ("dim", DIM), ("plain", FG)):
+            self.verdict_text.tag_configure(name, foreground=colour)
         tk.Label(right, text="ORDER FLOW - futures", bg=BG, fg=DIM,
                  font=MONO_SMALL, anchor="w").pack(fill="x")
         self.flow_text = tk.Label(right, text="", bg=BG, fg=FG, font=MONO_SMALL,
@@ -326,59 +428,62 @@ class Screen(tk.Tk):
                 f"put wall {s.put_wall_strike:>9,.0f} ({fmt_oi(s.put_wall_oi)})")
         self.expiry_text.config(text="\n".join(lines))
 
-        self.points_text.config(text=self._point_lines(snap))
-        self.verdict_text.config(text=self._verdict_lines(snap))
+        self._render_points(snap)
+        self._render_verdict(snap)
         self.flow_text.config(text=self._flow_lines(snap))
 
     def _point_lines(self, snap: Snapshot) -> str:
-        """One line per point. A point with no reading shows its reason, not 0."""
-        if not snap.points:
-            return "  waiting for enough prints ..."
-        out = [f"  {'#':>3} {'point':<20}{'value':>16}{'score':>7}   why not"]
-        for n in range(1, 26):
-            p = snap.points.get(n)
-            if p is None:
-                continue
-            if p.value is None:
-                # Blank, never 0 (D38). A reason, so the gap is explained.
-                out.append(f"  {n:>3} {p.name:<20}{'':>16}{'':>7}   {DIM and ''}{p.note}")
-                continue
-            val = p.value
-            if isinstance(val, list):
-                val = f"{len(val)} rows"
-            elif isinstance(val, dict):
-                val = "..."
-            elif isinstance(val, float):
-                val = f"{val:,.1f}"
-            score = "" if p.score is None else f"{p.score:>6.0f}"
-            out.append(f"  {n:>3} {p.name:<20}{str(val)[:16]:>16}{score:>7}")
-        return "\n".join(out)
+        """Kept for tests. `_render_points` is what paints, with colour."""
+        return "\n".join(f"{n} {t}" for n, t, _ in point_rows(snap.points))
 
-    def _verdict_lines(self, snap: Snapshot) -> str:
+    def _render_points(self, snap: Snapshot) -> None:
+        """Repaint the points panel, colouring each row by its own reading."""
+        w = self.points_text
+        w.config(state="normal")
+        w.delete("1.0", "end")
+        if not snap.points:
+            w.insert("end", "  waiting for enough prints ...\n", "dim")
+            w.config(state="disabled")
+            return
+        header = f"  {'#':>3} {'point':<20}{'value':>16}{'score':>7}   why not\n"
+        w.insert("end", header, "head")
+        for _n, line, tag in point_rows(snap.points):
+            w.insert("end", line + "\n", tag)
+        w.config(state="disabled")
+
+    def _render_verdict(self, snap: Snapshot) -> None:
+        w = self.verdict_text
+        w.config(state="normal")
+        w.delete("1.0", "end")
         p = snap.points.get(25) if snap.points else None
         if p is None or p.value is None:
-            return "  no verdict yet"
+            w.insert("end", "  no verdict yet\n", "dim")
+            w.config(state="disabled")
+            return
         d = p.detail
-        lines = [f"  {p.value}", ""]
+        w.insert("end", f"  {p.value}\n\n", verdict_tag(p.value))
         if d.get("direction"):
-            lines.append(f"  direction   {d['direction']}")
+            w.insert("end", "  direction   ", "plain")
+            w.insert("end", f"{d['direction']}\n", value_tag(d["direction"]))
         if d.get("strike"):
             sk = d["strike"]
-            lines.append(f"  strike      {sk['strike']:,.0f} {sk['side']} {sk['expiry']}")
+            w.insert("end", "  strike      ", "plain")
+            w.insert("end", f"{sk['strike']:,.0f} {sk['side']} {sk['expiry']}\n",
+                     value_tag(sk["side"]))
         if p.score is not None:
-            lines.append(f"  confidence  {p.score:.0f} / 100")
-        lines.append("")
-        lines.append("  why:")
+            w.insert("end", "  confidence  ", "plain")
+            w.insert("end", f"{p.score:.0f} / 100\n", value_tag(p.score))
+        w.insert("end", "\n  why:\n", "plain")
         for r in d.get("reasons", []):
-            lines.append(f"   - {r}")
-        lines.append("")
+            # "all gates clear" is the only reason that is good news.
+            tag = "good" if "clear" in r else "warn"
+            w.insert("end", f"   - {r}\n", tag)
         # Never let a green verdict look more confident than the evidence.
-        lines.append("  ADVISORY ONLY. Not one of the 15 flow")
-        lines.append("  rules beat the base rate over 77 days")
-        lines.append("  and 26,671 decision points. These 25")
-        lines.append("  points are recorded so they can be")
-        lines.append("  scored, not acted on.")
-        return "\n".join(lines)
+        w.insert("end",
+                 "\n  ADVISORY ONLY. Not one of the 15 flow rules beat the base "
+                 "rate over 77 days and 26,671 decision points. These 25 points "
+                 "are recorded so they can be scored, not acted on.\n", "dim")
+        w.config(state="disabled")
 
     def _flow_lines(self, snap: Snapshot) -> str:
         fut_ids = [int(c.security_id) for c in self.rt.resolved.futures]
