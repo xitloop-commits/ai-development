@@ -70,8 +70,17 @@ def mcx_chain(strikes=(9000.0, 9050.0)) -> Chain:
     return Chain(r)
 
 
-def full_tick(sid: int, ltp=100.0, bid=99.0, ask=101.0, oi=1000, volume=5000,
+def full_tick(sid: int, ltp=100.0, bid=None, ask=None, oi=1000, volume=5000,
               ltq=65, ts=None) -> Tick:
+    """A FULL tick whose book BRACKETS its price.
+
+    bid/ask default to ltp -/+ 1 rather than to fixed numbers: IV and the forward
+    are implied from the book mid (a stale LTP implied 100% vol on a real leg),
+    so a fixture whose book does not track its price no longer represents
+    anything real.
+    """
+    bid = ltp - 1.0 if bid is None else bid
+    ask = ltp + 1.0 if ask is None else ask
     depth = tuple(DepthLevel(500 - i, 400 - i, 3, 2, bid - i, ask + i)
                   for i in range(5))
     return Tick(security_id=sid, segment=2, kind=ResponseCode.FULL,

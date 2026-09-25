@@ -143,6 +143,9 @@ class Chain:
 
         # Computed by refresh_analytics().
         self.forward: dict[str, float] = {}
+        # True where IV came from a live book mid rather than a last traded
+        # price. Worth keeping: a leg priced off a stale LTP deserves less trust.
+        self.price_source = np.zeros(n, dtype=bool)
         self.iv = np.full(n, np.nan)
         self.delta = np.full(n, np.nan)
         self.gamma = np.full(n, np.nan)
@@ -331,10 +334,18 @@ class Chain:
         for j, k in enumerate(strikes):
             c = m & (self.strike == k) & self.is_call
             p = m & (self.strike == k) & ~self.is_call
+            # Mid where there is a book, LTP otherwise - parity on stale prints
+            # would drag the forward the same way it dragged the IVs.
             if c.any():
-                call_px[j] = self.ltp[c][0]
+                i = int(np.flatnonzero(c)[0])
+                call_px[j] = ((self.bid[i] + self.ask[i]) / 2.0
+                              if self.bid[i] > 0 and self.ask[i] > 0
+                              else self.ltp[i])
             if p.any():
-                put_px[j] = self.ltp[p][0]
+                i = int(np.flatnonzero(p)[0])
+                put_px[j] = ((self.bid[i] + self.ask[i]) / 2.0
+                             if self.bid[i] > 0 and self.ask[i] > 0
+                             else self.ltp[i])
         fwd = gk.forward_from_parity(strikes, call_px, put_px, ref, t)
         if fwd > 0 and abs(fwd - ref) < 0.2 * ref:
             return fwd
@@ -367,12 +378,54 @@ class Chain:
             self.forward[e] = f
             fwd_arr[sel] = f
 
-        priced = self.ltp > 0
+        # Imply from the BOOK MID where a book exists, and from the last traded
+        # price only when it does not.
+        #
+        # Measured 2026-09-25 against Dhan's chain: on illiquid legs the LTP is
+        # badly stale. The 21,700 call printed 1,820 while its live market was
+        # 1,349 / 1,467 - a mid of 1,408, so the LTP was **412 points** out, and
+        # it implied a 100% volatility on an instrument trading near 11%. The
+        # 18,000 call showed 128% the same way. A mid is the market now; a last
+        # trade is the market whenever it last traded.
+        #
+        # Near the money it makes almost no difference (IV bias against Dhan
+        # moved only +0.223 -> +0.212), because there the LTP is fresh. The gain
+        # is entirely in not publishing absurd numbers on the wings.
+        has_book = (self.bid > 0) & (self.ask > 0)
+        px = np.where(has_book, (self.bid + self.ask) / 2.0, self.ltp)
+        self.price_source = has_book        # for the screen and for validation
+
+        priced = px > 0
         self.iv[:] = np.nan
         if priced.any():
             self.iv[priced] = gk.implied_vol(
-                self.ltp[priced], fwd_arr[priced], self.strike[priced],
+                px[priced], fwd_arr[priced], self.strike[priced],
                 t_years[priced], self.is_call[priced], on_futures=True)
+
+        # Take each strike's volatility from its OUT-OF-THE-MONEY side, and give
+        # it to both legs.
+        #
+        # A deep in-the-money option is almost all intrinsic value, so its vol is
+        # hypersensitive: the 31,500 put quoted a mid of 8,384.82 against an
+        # intrinsic of 8,379.02 - **5.80 of time value on 8,385** - and implied
+        # 114% on an instrument trading near 11%. The out-of-the-money side of the
+        # same strike is where the time value actually lives, which is why every
+        # desk reads vol off the wings. Put-call parity says one vol serves both
+        # legs of a strike, so nothing is lost by doing it properly.
+        for e in self.expiries:
+            sel = self.expiry == e
+            f = self.forward.get(e, 0.0)
+            if f <= 0:
+                continue
+            for k in np.unique(self.strike[sel]):
+                otm_is_call = k >= f
+                src = sel & (self.strike == k) & (self.is_call == otm_is_call)
+                dst = sel & (self.strike == k) & (self.is_call != otm_is_call)
+                if not (src.any() and dst.any()):
+                    continue
+                v = self.iv[src][0]
+                if not np.isnan(v):
+                    self.iv[dst] = v
 
         usable = ~np.isnan(self.iv)
         for arr in (self.delta, self.gamma, self.theta, self.vega):
