@@ -127,5 +127,32 @@ def _run(args) -> int:
     return 0
 
 
+def _log_crash(instrument: str, exc: BaseException) -> None:
+    """Write a startup failure to disk.
+
+    Necessary because the screen runs under `pythonw.exe`, which has no console
+    and **discards stdout and stderr entirely** - so shell redirection cannot
+    capture anything and a crash would otherwise be completely silent. The
+    process has to record its own death.
+    """
+    import datetime
+    import traceback
+    try:
+        d = cfg.LOGS_DIR
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / f"tcs2-{instrument}.log", "a", encoding="utf-8") as f:
+            f.write(f"\n=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=f)
+    except Exception:                                 # noqa: BLE001
+        pass          # a logging failure must not replace the real error
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _inst = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as _exc:                      # noqa: BLE001
+        _log_crash(_inst, _exc)
+        raise

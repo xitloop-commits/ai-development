@@ -19,6 +19,13 @@ REM   Stopping: use --stop, never a hard kill. SIGTERM does nothing
 REM   on Windows (D46, measured). --stop writes a sentinel; the
 REM   process seals its recording chunk, drains the write queue and
 REM   releases its lock. A hard kill costs up to 10 seconds of ticks.
+REM
+REM   Screen mode runs under pythonw.exe so ONLY the screen appears,
+REM   with no console window behind it (Partha 2026-09-25). pythonw
+REM   discards stdout and stderr, so the process logs its own crashes
+REM   to logs\tcs2-<instrument>.log -- see _log_crash in
+REM   python_modules\tcs2\__main__.py. A failure must not be silent
+REM   just because the console is gone.
 REM ================================================================
 
 setlocal EnableDelayedExpansion
@@ -45,12 +52,28 @@ if "%~1"=="" (
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
-REM Run from the REPO ROOT, with python_modules on the path. Changing into
+REM Run from the REPO ROOT with python_modules on the path. Changing into
 REM python_modules instead would make every relative data path resolve there,
-REM which silently created a second data tree under python_modules\data	cs2
-REM on 2026-09-25. Paths are now anchored to the repo in config.py as well --
-REM this is the belt to that braces.
+REM which silently created a second data tree on 2026-09-25 (D52). Paths are
+REM also anchored in config.py -- this is the belt to that braces.
 cd /d "%ROOT%"
 set "PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%"
 
+REM --- which mode? --------------------------------------------------
+set "WANT_SCREEN=1"
+for %%A in (%*) do (
+    if /I "%%A"=="--no-screen" set "WANT_SCREEN=0"
+    if /I "%%A"=="--stop"      set "WANT_SCREEN=0"
+)
+
+REM --- screen mode: no console window ------------------------------
+if "%WANT_SCREEN%"=="1" (
+    set "PYTHONW_CMD=!PYTHON_CMD:python.exe=pythonw.exe!"
+    if exist "!PYTHONW_CMD!" (
+        start "" "!PYTHONW_CMD!" -m tcs2 %*
+        exit /b 0
+    )
+)
+
+REM --- headless, --stop, or no pythonw available --------------------
 %PYTHON_CMD% -m tcs2 %*
