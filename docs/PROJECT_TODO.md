@@ -4026,3 +4026,55 @@ is wired. That is the known gap, not a new bug.
 
 **Not a failure:** a NO TRADE verdict all day. The verdict is advisory and
 recorded to be scored after ~60 days against spec 15 §5.5 - not followed.
+
+### T197 [TCS2] — all four processes died silently around 11:51 on 2026-09-25 🚨
+**The most important result of the first live day, and it is a failure.**
+
+All four TCS2 processes stopped between **11:51 and 11:57** and **nothing ran for
+the next twelve hours**. Last health entries:
+
+| instrument | last health | ticks at death | feed | recorder | disconnects |
+|---|---|---|---|---|---|
+| banknifty | 11:51 | 183,744 | ok | ok | 0 |
+| crudeoil | 11:46 | 131,101 | ok | ok | 0 |
+| naturalgas | 11:57 | 131,857 | ok | ok | 0 |
+| nifty50 | ~11:51 | — | ok | ok | 0 |
+
+**They died healthy.** Feed ok, recorder ok, zero disconnects, no error in
+`logs/tcs2-*.log`. No graceful stop - the health line simply stops.
+
+**Consequences for the day's data:**
+- only ~1.5 hours of session recorded, not a full day
+- **no end-of-day rows at all** (D23 tier 3), because nothing was alive at the
+  15:30 or 23:30 transition that triggers them
+- no daily record (kind C) except one junk row from a 1-tick process
+- the 25 points recorded only ~47 rows per instrument instead of ~375
+
+**Cause: NOT YET KNOWN.** The leading suspicion is the launch path - they were
+started at 11:43 via `Start-Process cmd.exe /c startup	cs2.bat -WindowStyle
+Hidden`, which spawns `pythonw` and exits, leaving pythonw orphaned. Whether
+Windows reaped it, or the hidden console's death took it, is unverified. **Do not
+"fix" this by guessing** - that is the T194 lesson. The next run should launch one
+process and watch it for an hour before all four are trusted.
+
+**What worked, and it matters:**
+- **The health file is the only reason we know.** Per-thread beats written to disk
+  every ten seconds (D17/D30) reconstructed every process's exact lifetime twelve
+  hours later. Without it this would be indistinguishable from "we forgot to
+  start it".
+- **Sealing held.** Damaged-chunk counts were IDENTICAL before and after (nifty 8,
+  banknifty 7, crude 1, gas 0) while chunk counts more than doubled - so that
+  damage came from earlier force-kills, not from normal running or from the
+  crash. 4,012,235 rows across 285.4 MB all read back.
+
+**What failed beyond the crash itself: nobody noticed for twelve hours.** That is
+D17's accepted gap - health on screen only, Telegram deferred to v2 - and the day
+has now demonstrated exactly what it costs. This is T186 repeating, with the one
+difference that this time the record exists. **Reconsider the Telegram alert
+before the next live day.**
+
+**Next steps, in order:**
+1. reproduce: start ONE instrument, headless, and watch for an hour
+2. if it survives headless but not under pythonw, the launch path is the cause
+3. only then decide the fix
+4. re-run the T196 plan on a clean day
