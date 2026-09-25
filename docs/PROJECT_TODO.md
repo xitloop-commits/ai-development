@@ -4078,3 +4078,27 @@ before the next live day.**
 2. if it survives headless but not under pythonw, the launch path is the cause
 3. only then decide the fix
 4. re-run the T196 plan on a clean day
+
+### T198 [OPS] — stop-all.ps1 refuses any manual shutdown after 08:15 📋
+Found 2026-09-25 23:51 while shutting down by hand. The script logged
+*"Reached 08:15 IST cutoff after 0 skip(s); abandoning shutdown for tonight"* and
+exited without doing anything.
+
+The smart-shutdown gate compares the **hour of day only**:
+
+    if (($now.Hour -gt $cutoffHour) -or
+        ($now.Hour -eq $cutoffHour -and $now.Minute -ge $cutoffMinute))
+
+At 23:51, `23 -gt 8` is true, so it believes the 08:15 cutoff has passed.
+
+**Harmless on its schedule, useless by hand.** The task runs at 00:00 where
+`Hour` is 0, so the comparison behaves. But every manual invocation between 08:15
+and midnight - which is exactly when a person would run it - exits doing nothing,
+and the `0 skip(s)` in the message is the tell.
+
+Fix direction: the cutoff means "the next morning's 08:15", so it needs a date,
+not an hour. Something like a target of `today 08:15` when started before it and
+`tomorrow 08:15` otherwise.
+
+Low risk, but it touches the nightly shutdown task, so change it deliberately
+rather than in passing.
