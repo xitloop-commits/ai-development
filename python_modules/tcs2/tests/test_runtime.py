@@ -462,3 +462,54 @@ def test_end_of_day_fires_once_the_session_we_watched_ends(tmp_path):
     assert r._was_in_session and not r._eod_written
     r.write_end_of_day()            # no store, so a no-op, but flags the state
     assert r._eod_written is False or r.store is None
+
+
+# -- D51: the index needs its own subscribe mode -------------------------
+
+def test_index_and_vix_are_subscribed_separately_from_the_options(tmp_path):
+    """An index sends NOTHING in FULL mode. Measured live 2026-09-25.
+
+    Subscribing ids 13, 21 and 25 in FULL returned zero packets, while QUOTE and
+    TICKER returned them normally. Because everything was subscribed in FULL, the
+    chain ran with no spot and no VIX all session - masked by the futures
+    fallback (D41), so nothing looked broken.
+
+    The cost was not cosmetic: with the futures 40 points above spot, the ATM
+    strike came out one strike wrong, and options settle on the index.
+    """
+    r = runtime(tmp_path)
+    full = r._full_legs()
+    quote = r._quote_legs()
+
+    full_ids = {sid for _seg, sid in full}
+    quote_ids = {sid for _seg, sid in quote}
+
+    assert "13" in quote_ids, "the index must be in the QUOTE group"
+    assert "21" in quote_ids, "India VIX must be in the QUOTE group"
+    assert "13" not in full_ids and "21" not in full_ids, (
+        "an index in the FULL group receives nothing at all")
+
+    # Options and futures still need FULL, for the book and open interest.
+    assert "1000" in full_ids
+    assert "900" in full_ids
+    assert all(seg == "IDX_I" for seg, _ in quote)
+
+    # Nothing lost, nothing duplicated.
+    assert not (full_ids & quote_ids)
+    assert full_ids | quote_ids == {sid for _s, sid in r._legs()}
+
+
+def test_mcx_has_no_quote_group(tmp_path):
+    """Crude and gas have no index and no VIX (D11), so the group is empty."""
+    from tcs2.scrip import Contract, Resolved
+    opts = (Contract("2000", "C 9000 CE", "OPTFUT", "2026-10-15", 9000.0, "CE",
+                     "M", 100, 1.0),)
+    res = Resolved(instrument="crudeoil", trade_date="2026-10-01",
+                   index=None, vix=None,
+                   futures=(Contract("2900", "C OCT FUT", "FUTCOM", "2026-10-19",
+                                     0.0, "XX", "M", 100, 1.0),),
+                   option_expiries=("2026-10-15",), options=opts)
+    rt = InstrumentRuntime("crudeoil", health_dir=tmp_path, resolved=res,
+                           ticks_dir=tmp_path / "t", record=False)
+    assert rt._quote_legs() == []
+    assert len(rt._full_legs()) == 2

@@ -419,15 +419,31 @@ class InstrumentRuntime:
 
     # -- the feed thread -------------------------------------------------
 
-    def _legs(self) -> list[tuple[str, str]]:
+    def _full_legs(self) -> list[tuple[str, str]]:
+        """Options and futures - these need FULL for the book and OI (D36)."""
         r, seg = self.resolved, self.cap.segment
         legs = [(seg, c.security_id) for c in r.options]
         legs += [(seg, c.security_id) for c in r.futures]
+        return legs
+
+    def _quote_legs(self) -> list[tuple[str, str]]:
+        """Index and VIX - these send NOTHING in FULL mode (D51).
+
+        Measured live 2026-09-25: ids 13, 21 and 25 subscribed in FULL returned
+        zero packets, while QUOTE returned price and day OHLC. So they go in
+        their own group on the same connection.
+        """
+        r = self.resolved
+        legs = []
         if r.index:
             legs.append(("IDX_I", r.index.security_id))
         if r.vix:
             legs.append(("IDX_I", r.vix.security_id))
         return legs
+
+    def _legs(self) -> list[tuple[str, str]]:
+        """Everything, for a leg count. Not used to subscribe - see above."""
+        return self._full_legs() + self._quote_legs()
 
     async def _feed_loop(self) -> None:
         if self.recorder is not None and not self.recorder.running:
@@ -436,7 +452,13 @@ class InstrumentRuntime:
         self._feed = feedmod.DhanFeed(token, cid, on_tick=self._on_tick,
                                       mode=RequestCode.SUBSCRIBE_FULL)
         await self._feed.connect()
-        await self._feed.subscribe(self._legs())
+        # Two groups, two modes, one connection (D51). An index in FULL mode
+        # returns nothing at all, so subscribing everything together silently
+        # loses spot and VIX.
+        await self._feed.subscribe(self._full_legs(), RequestCode.SUBSCRIBE_FULL)
+        quote_legs = self._quote_legs()
+        if quote_legs:
+            await self._feed.subscribe(quote_legs, RequestCode.SUBSCRIBE_QUOTE)
         self.health.feed.beat(note="connected")
 
         next_pub = time.time()

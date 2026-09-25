@@ -127,15 +127,22 @@ class DhanFeed:
         self._running = True
         self.stats.connected_at = time.time()
 
-    async def subscribe(self, legs: Iterable[tuple[str, str]]) -> int:
+    async def subscribe(self, legs: Iterable[tuple[str, str]],
+                        mode: int | None = None) -> int:
         """Subscribe (segment_name, security_id) pairs. Returns messages sent.
 
         Split into batches of MAX_INSTRUMENTS_PER_MSG because Dhan rejects more
-        than that in one message. nifty's ~1,500 legs is 15 messages.
+        than that in one message. nifty's ~1,500 legs is 16 messages.
+
+        `mode` overrides the connection's default for THIS group only, so one
+        connection can carry groups subscribed in different modes. That is not a
+        nicety: **an index sends nothing at all in FULL mode**. Measured live
+        2026-09-25 - subscribing ids 13, 21 and 25 in FULL returned zero packets,
+        while QUOTE and TICKER returned them normally (D51).
         """
         if self._ws is None:
             raise RuntimeError("not connected")
-        msgs = wire.build_subscribe(list(legs), self._mode)
+        msgs = wire.build_subscribe(list(legs), mode if mode is not None else self._mode)
         for m in msgs:
             await self._ws.send(json.dumps(m))
         return len(msgs)
