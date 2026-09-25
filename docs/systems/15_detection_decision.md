@@ -247,6 +247,35 @@ Points 5-8 are both: a total on a row, plus per-strike detail on the ladder.
   and 23 (liquidity); the rest inform. That split is a guess and is recorded as
   one — it is exactly what 60 days of kind D should overturn.
 
+## 7b. BOTH SIDES, always — Partha 2026-09-25
+
+**We trade up and down.** Market up means buy a call; market down means buy a
+put. So point 25's question is never *"is there a trade"* but **"is a CALL entry
+good now, or a PUT entry?"** - and each side is judged on its own evidence.
+
+`p25_decision` therefore returns a verdict per side, each with its own reasons,
+and the screen shows both whether or not either is viable. A NO TRADE now tells
+you **which side is closer**: measured live 2026-09-25 with the tape falling, the
+put was one gate away ("direction not confirmed yet") while the call was two
+("direction is DOWN, not UP" as well).
+
+**Why this is a correctness matter and not a presentation one.** The SEA gate had
+exactly this bug: an `upside_percentile_60s >= 60` filter blocked **every put**,
+so the gate was structurally call-only while the model behind it was balanced.
+The failure was invisible because nothing compared the two sides.
+
+Two things stop it recurring:
+
+- **Absorption is leg-aware.** *Buyers* absorbed - buyers aggressive, price
+  refusing to rise - kills a CALL and says nothing against a PUT. Only the
+  absorption working against a given side counts against it.
+- **A mirror test.** `test_the_two_sides_are_STRUCTURALLY_symmetric` runs a
+  rising tape and its mirror, and requires the blocked side to be blocked for the
+  **same number of reasons** in both. A one-sided gate fails it immediately.
+
+**Both sides viable at once is treated as contradictory**, not as a choice: the
+verdict stands aside rather than picking one.
+
 ## 8. Built 2026-09-25 — `python_modules/tcs2/analysis.py`
 
 All 25 points, 36 tests, verified against the live chain.

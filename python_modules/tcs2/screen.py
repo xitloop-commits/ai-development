@@ -465,19 +465,30 @@ class Screen(tk.Tk):
         if d.get("direction"):
             w.insert("end", "  direction   ", "plain")
             w.insert("end", f"{d['direction']}\n", value_tag(d["direction"]))
-        if d.get("strike"):
-            sk = d["strike"]
-            w.insert("end", "  strike      ", "plain")
-            w.insert("end", f"{sk['strike']:,.0f} {sk['side']} {sk['expiry']}\n",
-                     value_tag(sk["side"]))
         if p.score is not None:
             w.insert("end", "  confidence  ", "plain")
             w.insert("end", f"{p.score:.0f} / 100\n", value_tag(p.score))
-        w.insert("end", "\n  why:\n", "plain")
-        for r in d.get("reasons", []):
-            # "all gates clear" is the only reason that is good news.
-            tag = "good" if "clear" in r else "warn"
-            w.insert("end", f"   - {r}\n", tag)
+
+        # Both sides, always, each with what it is waiting for. We trade up AND
+        # down: up means buy a call, down means buy a put. The question is which
+        # side is good now, never simply whether there is a trade.
+        for key, label in (("call", "CALL"), ("put", "PUT ")):
+            side = d.get(key)
+            if not side:
+                continue
+            w.insert("end", f"\n  {label}  ", "plain")
+            if side.get("viable"):
+                sk = side.get("strike") or {}
+                w.insert("end", "GOOD", "good")
+                if sk:
+                    w.insert("end", f"   {sk['strike']:,.0f} {sk['side']} "
+                                    f"{sk['expiry']}", "good")
+                w.insert("end", "\n", "plain")
+            else:
+                w.insert("end", "no\n", "warn")
+            for r in side.get("reasons", []):
+                tag = "good" if "clear" in r else "dim"
+                w.insert("end", f"      - {r}\n", tag)
         # Never let a green verdict look more confident than the evidence.
         w.insert("end",
                  "\n  ADVISORY ONLY. Not one of the 15 flow rules beat the base "

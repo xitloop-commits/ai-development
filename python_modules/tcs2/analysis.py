@@ -605,6 +605,57 @@ class Analysis:
 
     # -- 25: the verdict ------------------------------------------------
 
+    def _side_verdict(self, side: str, pts: dict[int, Point]) -> dict:
+        """Is a CALL entry good now, or a PUT entry? Evaluated per side.
+
+        We trade both directions (Partha 2026-09-25): up means buy a call, down
+        means buy a put. So the question is never "is there a trade" but "which
+        side, if either, looks good now" - and each side must be judged by its own
+        evidence rather than by a single directional filter.
+
+        **This is leg-aware on purpose.** The SEA gate had exactly this bug: an
+        `upside_percentile_60s >= 60` filter blocked EVERY put, so the gate was
+        structurally call-only while the model behind it was balanced. A test in
+        `test_analysis.py` mirrors the tape and requires the mirrored verdict, so
+        that class of bias cannot return unnoticed.
+
+        Absorption is the asymmetric one worth naming: *buyers* absorbed means
+        buyers were aggressive and price would not rise, which kills a call and
+        says nothing against a put.
+        """
+        want = UP if side == "CE" else DOWN
+        against = "BUYERS_ABSORBED" if side == "CE" else "SELLERS_ABSORBED"
+        reasons: list[str] = []
+
+        d, t, c = pts.get(1), pts.get(19), pts.get(20)
+        ab, ex, lq = pts.get(21), pts.get(22), pts.get(23)
+
+        direction = d.value if d and d.available else None
+        if direction is None:
+            reasons.append("no direction reading yet")
+        elif direction != want:
+            reasons.append(f"direction is {direction}, not {want}")
+
+        if t and t.available and t.value == POOR:
+            reasons.append("clocks disagree")
+        if c and c.available and c.value != CONFIRMED:
+            reasons.append("direction not confirmed yet")
+        if ab and ab.available and ab.value == against:
+            # Only the absorption that works against THIS side counts.
+            reasons.append(f"{against.lower().replace('_', ' ')}")
+        if ex and ex.available and ex.value:
+            reasons.append("flow exhausting")
+        if lq and lq.available and lq.value == "POOR":
+            reasons.append("spread too wide to trade")
+
+        strike = None
+        if not reasons:
+            sm = self.chain.summary(self._expiry())
+            strike = {"strike": sm.atm_strike, "side": side,
+                      "expiry": self._expiry()}
+        return {"side": side, "viable": not reasons,
+                "reasons": reasons or ["all gates clear"], "strike": strike}
+
     def p25_decision(self, points: dict[int, Point] | None = None) -> Point:
         """TRADE / NO TRADE, with the reason - and with no authority to size.
 
@@ -618,44 +669,43 @@ class Analysis:
         `advisory` is True always, and nothing downstream may treat it otherwise.
         """
         pts = points or self.all()
-        reasons: list[str] = []
-
         d = pts.get(1)
-        t = pts.get(19)
-        c = pts.get(20)
-        ab = pts.get(21)
-        ex = pts.get(22)
-        lq = pts.get(23)
-
         direction = d.value if d and d.available else None
-        if direction in (None, FLAT):
-            reasons.append("no clear direction")
-        if t and t.available and t.value == POOR:
-            reasons.append("clocks disagree")
-        if c and c.available and c.value != CONFIRMED:
-            reasons.append("direction not confirmed yet")
-        if ab and ab.available and ab.value != "NONE":
-            reasons.append(f"{ab.value.lower().replace('_', ' ')}")
-        if ex and ex.available and ex.value:
-            reasons.append("flow exhausting")
-        if lq and lq.available and lq.value == "POOR":
-            reasons.append("spread too wide to trade")
 
-        verdict = NO_TRADE if reasons else TRADE
-        strike = None
-        if verdict == TRADE and direction in (UP, DOWN):
-            sm = self.chain.summary(self._expiry())
-            strike = {"strike": sm.atm_strike,
-                      "side": "CE" if direction == UP else "PE",
-                      "expiry": self._expiry()}
+        # Both sides, judged independently. Never one directional filter.
+        call = self._side_verdict("CE", pts)
+        put = self._side_verdict("PE", pts)
+
+        if call["viable"] and not put["viable"]:
+            verdict, strike = TRADE, call["strike"]
+        elif put["viable"] and not call["viable"]:
+            verdict, strike = TRADE, put["strike"]
+        elif call["viable"] and put["viable"]:
+            # Both sides cannot genuinely be good at once - that means the
+            # evidence is contradictory, which is a reason to stand aside rather
+            # than to pick one.
+            verdict, strike = NO_TRADE, None
+            call["reasons"] = put["reasons"] = ["both sides read viable - "
+                                               "contradictory, standing aside"]
+            call["viable"] = put["viable"] = False
+        else:
+            verdict, strike = NO_TRADE, None
 
         scores = [p.score for p in pts.values()
                   if p.score is not None and p.n in (1, 2, 19, 20)]
         confidence = round(statistics.mean(scores), 1) if scores else 0.0
+
+        if verdict == TRADE:
+            reasons = ["all gates clear"]
+        else:
+            # Say what each side is waiting for, not just that there is no trade.
+            reasons = ([f"CALL: {r}" for r in call["reasons"]]
+                       + [f"PUT: {r}" for r in put["reasons"]])
+
         return Point(25, "decision", verdict, confidence,
                      {"direction": direction, "strike": strike,
-                      "reasons": reasons or ["all gates clear"],
-                      "advisory": True},
+                      "call": call, "put": put,
+                      "reasons": reasons, "advisory": True},
                      note="ADVISORY ONLY - spec 15 §5.5 bar not yet cleared")
 
     # -- everything ------------------------------------------------------

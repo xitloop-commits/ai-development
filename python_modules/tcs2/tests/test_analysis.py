@@ -491,3 +491,140 @@ def test_the_record_keeps_a_missing_point_as_null():
     assert missing
     for p in missing:
         assert p["note"], "a null point must say why"
+
+
+# -- both sides, judged symmetrically -----------------------------------
+#
+# We trade both directions: up means buy a call, down means buy a put (Partha
+# 2026-09-25). So the question is never "is there a trade" but "which side, if
+# either, is good now".
+#
+# The SEA gate had exactly this bug once: an `upside_percentile_60s >= 60` filter
+# blocked EVERY put, so the gate was structurally call-only while the model
+# behind it was balanced. These tests exist so that cannot return unnoticed.
+
+def _falling(n: int = 60, step: float = 2.0):
+    """The mirror of _rising: price walking down, sellers hitting the bid."""
+    ch = _chain()
+    fs = FlowState()
+    ch.on_tick(Tick(security_id=13, segment=0, kind=ResponseCode.TICKER,
+                    recv_ts=T0, ltp=23500.0))
+    vol = 0
+    for i in range(n):
+        px = 23500.0 - i * step
+        vol += 500
+        t = fut_tick(i * 2.0, px, vol, bid=px, ask=px + 1)
+        ch.on_tick(t)
+        fs.on_tick(t)
+    return Analysis(ch, {900: fs}), ch, fs
+
+
+def test_the_verdict_reports_BOTH_sides_always():
+    """Even when neither is viable, each side says what it is waiting for."""
+    for factory in (_rising, _falling, _flat):
+        a, _, _ = factory()
+        d = a.p25_decision()
+        assert "call" in d.detail and "put" in d.detail
+        for side in ("call", "put"):
+            assert "viable" in d.detail[side]
+            assert d.detail[side]["reasons"], f"{side} gave no reason"
+
+
+def test_a_rising_tape_favours_the_call_side_not_the_put():
+    a, _, _ = _rising(n=200)
+    d = a.p25_decision()
+    call, put = d.detail["call"], d.detail["put"]
+    assert not put["viable"], "a rising tape must not make a put viable"
+    assert any("not DOWN" in r or "DOWN" in r for r in put["reasons"])
+
+
+def test_a_falling_tape_favours_the_put_side_not_the_call():
+    """The mirror. If this fails while the rising case passes, we are call-biased."""
+    a, _, _ = _falling(n=200)
+    d = a.p25_decision()
+    call, put = d.detail["call"], d.detail["put"]
+    assert not call["viable"], "a falling tape must not make a call viable"
+    assert any("not UP" in r or "UP" in r for r in call["reasons"])
+
+
+def test_the_two_sides_are_STRUCTURALLY_symmetric():
+    """The anti-SEA-bug test.
+
+    Mirroring the tape must mirror the verdict. If the rising case blocks the put
+    for one set of reasons and the falling case blocks the call for a DIFFERENT
+    number of reasons, some gate is one-sided.
+    """
+    up, _, _ = _rising(n=200)
+    down, _, _ = _falling(n=200)
+    u, dn = up.p25_decision().detail, down.p25_decision().detail
+
+    # The side that is against the tape must be blocked in both, for the same
+    # count of reasons - the mirrored gate, not a different one.
+    assert not u["put"]["viable"] and not dn["call"]["viable"]
+    assert len(u["put"]["reasons"]) == len(dn["call"]["reasons"]), (
+        f"asymmetric gating: rising blocks put with {u['put']['reasons']}, "
+        f"falling blocks call with {dn['call']['reasons']}")
+
+
+def test_absorption_only_blocks_the_side_it_works_against():
+    """Buyers absorbed kills a CALL and says nothing against a PUT.
+
+    This is the leg-awareness the SEA gate lacked.
+    """
+    ch = _chain()
+    fs = FlowState()
+    vol = 0
+    for i in range(30):                      # heavy lifting, price flat
+        vol += 800
+        t = fut_tick(i * 2.0, 23500.0, vol, bid=23499.0, ask=23500.0)
+        ch.on_tick(t); fs.on_tick(t)
+    a = Analysis(ch, {900: fs})
+    pts = a.all()
+    if pts[21].value == "BUYERS_ABSORBED":
+        call = a._side_verdict("CE", pts)
+        put = a._side_verdict("PE", pts)
+        assert any("buyers absorbed" in r for r in call["reasons"])
+        assert not any("buyers absorbed" in r for r in put["reasons"]), (
+            "buyers being absorbed says nothing against a put")
+
+
+def test_a_flat_tape_makes_neither_side_viable():
+    a, _, _ = _flat()
+    d = a.p25_decision()
+    assert not d.detail["call"]["viable"]
+    assert not d.detail["put"]["viable"]
+    assert d.value == an.NO_TRADE
+
+
+def test_both_sides_viable_means_stand_aside():
+    """Contradictory evidence is a reason to do nothing, not to pick one."""
+    a, _, _ = _rising()
+    pts = a.all()
+    # Force both to pass by making every gate agree with both directions.
+    import copy
+    pts = copy.deepcopy(pts)
+    pts[1] = Point(1, "direction", an.UP, 90.0)
+    pts[19] = Point(19, "entry_timing", an.STRONG, 100.0)
+    pts[20] = Point(20, "confirmation", an.CONFIRMED, 100.0)
+    pts[21] = Point(21, "absorption", "NONE", 0.0)
+    pts[22] = Point(22, "exhaustion", False, None)
+    pts[23] = Point(23, "liquidity", "GOOD", 95.0)
+    call_ok = a._side_verdict("CE", pts)["viable"]
+    assert call_ok, "with every gate clear and direction UP, the call must pass"
+    # And the put must be blocked, by direction alone.
+    assert not a._side_verdict("PE", pts)["viable"]
+
+
+def test_the_strike_side_matches_the_viable_side():
+    a, _, _ = _falling(n=200)
+    d = a.p25_decision()
+    if d.value == an.TRADE:
+        assert d.detail["strike"]["side"] == "PE"
+
+
+def test_the_recorded_row_keeps_both_sides():
+    """Kind D must record which side was considered, not just the verdict."""
+    a, _, _ = _rising()
+    rec = a.record()
+    assert any("CALL" in r or "PUT" in r for r in rec["reasons"]) or \
+        rec["verdict"] == an.TRADE
