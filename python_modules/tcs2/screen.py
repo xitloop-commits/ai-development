@@ -23,6 +23,7 @@ without a display.
 from __future__ import annotations
 
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -138,6 +139,76 @@ def verdict_tag(verdict) -> str:
     if verdict == "NO_TRADE":
         return "warn"
     return "dim"
+
+
+# A score has to move by this much before it blinks. Scores jitter by fractions
+# of a point between repaints, and something that blinks constantly is something
+# you stop seeing - the same reason D47 stopped the health light crying wolf.
+RISE_THRESHOLD = 5.0
+
+# How long a point keeps blinking after it rose.
+BLINK_SECONDS = 4.0
+
+# Repaints per half-blink. The phase is driven by the repaint COUNTER, not by
+# wall-clock: at a 300 ms repaint a 2 Hz clock-based blink aliases and flickers
+# unevenly. Two repaints lit, two dark, is a clean ~600 ms blink.
+BLINK_REPAINTS = 2
+
+
+class RiseTracker:
+    """Remembers which points' scores went UP, so the screen can blink them.
+
+    Partha, 2026-09-25: blink a point whose score increases, to catch the eye.
+
+    Deliberately not "any increase". A score drifting from 61.2 to 61.4 between
+    repaints is noise, and a row that blinks constantly is a row you stop
+    looking at. Only a rise of `RISE_THRESHOLD` counts, and the blink expires
+    after `BLINK_SECONDS` so the screen settles.
+
+    Separate from the widgets so the behaviour can be tested without a display.
+    """
+
+    def __init__(self, threshold: float = RISE_THRESHOLD,
+                 blink_seconds: float = BLINK_SECONDS) -> None:
+        self.threshold = threshold
+        self.blink_seconds = blink_seconds
+        self._last: dict[int, float] = {}
+        self._rose_at: dict[int, float] = {}
+        self._rise: dict[int, float] = {}
+
+    def update(self, points: dict, now: float) -> None:
+        """Take the current scores and note which ones rose materially."""
+        for n, p in points.items():
+            score = getattr(p, "score", None)
+            if score is None or score != score:        # missing or NaN
+                # A point that stops reporting should not keep blinking from a
+                # rise it made before it went blank.
+                self._last.pop(n, None)
+                self._rose_at.pop(n, None)
+                continue
+            prev = self._last.get(n)
+            if prev is not None and score - prev >= self.threshold:
+                self._rose_at[n] = now
+                self._rise[n] = score - prev
+            self._last[n] = score
+
+    def blinking(self, now: float) -> set[int]:
+        """Which points are still within their blink window."""
+        return {n for n, t in self._rose_at.items()
+                if now - t < self.blink_seconds}
+
+    def rise_of(self, n: int) -> float:
+        return self._rise.get(n, 0.0)
+
+    @staticmethod
+    def phase_on(repaint_count: int,
+                 per_half: int = BLINK_REPAINTS) -> bool:
+        """True on the 'lit' half of the blink cycle.
+
+        Driven by the repaint counter rather than the clock, so the blink is even
+        regardless of how the repaint interval divides into a frequency.
+        """
+        return (repaint_count // max(1, per_half)) % 2 == 0
 
 
 def point_rows(points: dict) -> list[tuple[int, str, str]]:
@@ -341,6 +412,12 @@ class Screen(tk.Tk):
         for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
                              ("dim", DIM), ("plain", FG), ("head", DIM)):
             self.points_text.tag_configure(name, foreground=colour)
+        # The lit half of a blink: a background, so it reads as attention rather
+        # than as a different value.
+        self.points_text.tag_configure("rise", foreground="#0b0e11",
+                                       background=GREEN)
+        self._rises = RiseTracker()
+        self._paints = 0
 
         right = tk.Frame(body, bg=BG, width=470)
         right.pack(side="right", fill="y")
@@ -384,6 +461,7 @@ class Screen(tk.Tk):
         if self._stopping is not None and self._stopping.is_set():
             self._close()
             return
+        self._paints += 1
         # The GUI's own heartbeat. Beaten here, in the repaint, so a frozen
         # window stops beating and says so - rather than being beaten by the
         # feed thread, which would make a dead window look alive.

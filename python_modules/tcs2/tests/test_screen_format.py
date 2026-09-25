@@ -195,3 +195,109 @@ def test_a_label_and_its_value_share_the_line():
     _n, line, tag = point_rows(pts)[0]
     assert "direction" in line and "UP" in line
     assert tag == "good"
+
+
+# -- blinking a point whose score rose ----------------------------------
+
+from tcs2.screen import BLINK_REPAINTS, RISE_THRESHOLD, RiseTracker
+
+T = 1790000000.0
+
+
+def _pts(scores: dict) -> dict:
+    """Point objects keyed by number. Scores are what the tracker watches."""
+    return {n: Point(n, f"p{n}", 1.0, s) for n, s in scores.items()}
+
+
+def test_nothing_blinks_on_the_first_reading():
+    """There is no previous score to have risen from."""
+    r = RiseTracker()
+    r.update(_pts({1: 80.0}), T)
+    assert r.blinking(T) == set()
+
+
+def test_a_material_rise_blinks():
+    """Partha, 2026-09-25: blink a point whose score increases."""
+    r = RiseTracker()
+    r.update(_pts({1: 40.0}), T)
+    r.update(_pts({1: 40.0 + RISE_THRESHOLD}), T + 1)
+    assert r.blinking(T + 1) == {1}
+
+
+def test_a_trivial_rise_does_NOT_blink():
+    """Scores jitter by fractions between repaints.
+
+    A row that blinks constantly is a row you stop seeing - the same reason the
+    health light was made session-aware rather than crying wolf all night.
+    """
+    r = RiseTracker()
+    r.update(_pts({1: 61.2}), T)
+    r.update(_pts({1: 61.4}), T + 0.3)
+    assert r.blinking(T + 0.3) == set()
+
+
+def test_a_fall_does_not_blink():
+    r = RiseTracker()
+    r.update(_pts({1: 80.0}), T)
+    r.update(_pts({1: 40.0}), T + 1)
+    assert r.blinking(T + 1) == set()
+
+
+def test_the_blink_expires():
+    r = RiseTracker(blink_seconds=4.0)
+    r.update(_pts({1: 10.0}), T)
+    r.update(_pts({1: 90.0}), T + 1)
+    assert r.blinking(T + 1) == {1}
+    assert r.blinking(T + 4.9) == {1}
+    assert r.blinking(T + 5.1) == set()
+
+
+def test_only_the_point_that_rose_blinks():
+    r = RiseTracker()
+    r.update(_pts({1: 10.0, 2: 50.0, 3: 90.0}), T)
+    r.update(_pts({1: 60.0, 2: 50.0, 3: 90.0}), T + 1)
+    assert r.blinking(T + 1) == {1}
+
+
+def test_the_size_of_the_rise_is_remembered():
+    """So the row can say WHY it is blinking, not just flash."""
+    r = RiseTracker()
+    r.update(_pts({1: 20.0}), T)
+    r.update(_pts({1: 55.0}), T + 1)
+    assert r.rise_of(1) == pytest.approx(35.0)
+
+
+def test_a_point_that_goes_blank_stops_blinking():
+    """A rise made before the point went missing must not keep flashing."""
+    r = RiseTracker()
+    r.update(_pts({1: 20.0}), T)
+    r.update(_pts({1: 80.0}), T + 1)
+    assert r.blinking(T + 1) == {1}
+    r.update({1: Point(1, "p1", None, None, note="no prints")}, T + 2)
+    assert r.blinking(T + 2) == set()
+
+
+def test_a_nan_score_is_treated_as_missing():
+    r = RiseTracker()
+    r.update(_pts({1: 20.0}), T)
+    r.update({1: Point(1, "p1", 1.0, float("nan"))}, T + 1)
+    assert r.blinking(T + 1) == set()
+
+
+# -- the blink phase -----------------------------------------------------
+
+def test_the_phase_alternates_evenly_on_the_repaint_counter():
+    """Driven by the counter, not the clock.
+
+    At a 300 ms repaint, a 2 Hz clock-based blink aliases and flickers unevenly.
+    """
+    phases = [RiseTracker.phase_on(i, per_half=BLINK_REPAINTS)
+              for i in range(BLINK_REPAINTS * 4)]
+    assert phases[:BLINK_REPAINTS] == [True] * BLINK_REPAINTS
+    assert phases[BLINK_REPAINTS:BLINK_REPAINTS * 2] == [False] * BLINK_REPAINTS
+    assert phases[BLINK_REPAINTS * 2:BLINK_REPAINTS * 3] == [True] * BLINK_REPAINTS
+
+
+def test_the_phase_never_sticks():
+    seen = {RiseTracker.phase_on(i) for i in range(20)}
+    assert seen == {True, False}
