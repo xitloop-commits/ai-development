@@ -512,15 +512,21 @@ class Screen(tk.Tk):
 
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
-        tk.Label(left, text="THE 25 POINTS   (scores DESCRIBE, they do not predict)",
-                 bg=BG, fg=DIM, font=MONO_SMALL, anchor="w").pack(fill="x")
+        # The chain IS the main screen (Partha 2026-09-29), with the 25 points
+        # behind `p`. That is the right way round: the chain is measurement, the
+        # points are unproven (spec 15 §5.4), and the chain is what gets read.
+        self.body_view = "chain"
+        self.body_label = tk.Label(left, text="", bg=BG, fg=DIM,
+                                   font=MONO_SMALL, anchor="w")
+        self.body_label.pack(fill="x")
+        self.chain_text = make_chain_widget(left)
+
         # A Text widget, not a Label: a Label paints one colour for the whole
         # block, and the point of this panel is that a positive reading looks
         # different from a negative one at a glance.
         self.points_text = tk.Text(left, bg=BG, fg=FG, font=MONO_SMALL,
                                    relief="flat", highlightthickness=0,
                                    insertwidth=0, wrap="none", cursor="arrow")
-        self.points_text.pack(fill="both", expand=True)
         for name, colour in CHAIN_TAGS:
             self.points_text.tag_configure(name, foreground=colour)
         # The lit half of a blink: a background, so it reads as attention rather
