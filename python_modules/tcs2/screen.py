@@ -27,6 +27,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
+from . import chainview as cv
 from .health import DEAD, IDLE, LATE, OK
 from .runtime import InstrumentRuntime, Snapshot
 
@@ -295,6 +296,19 @@ class OptionChainWindow(tk.Toplevel):
         tk.Label(self, text=note, bg=BG, fg=DIM, font=MONO_SMALL,
                  anchor="w").pack(fill="x", padx=10)
 
+        # Plain English is the DEFAULT view (Partha 2026-09-29). The numbers are
+        # still there on `v` - they were never the thing being read.
+        self.view = "words"
+        self.bind("<KeyPress-v>", lambda _e: self._toggle_view())
+
+        self.words = tk.Text(self, bg=BG, fg=FG, font=MONO, relief="flat",
+                             highlightthickness=0, insertwidth=0, wrap="none",
+                             cursor="arrow")
+        for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
+                             ("dim", DIM), ("plain", FG), ("head", DIM)):
+            self.words.tag_configure(name, foreground=colour)
+        self.words.tag_configure("atmrow", background="#20303f")
+
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure("chain.Treeview", background=BG, foreground=FG,
@@ -311,9 +325,20 @@ class OptionChainWindow(tk.Toplevel):
             self.tree.column(key, width=width * 9, anchor=anchor, stretch=False)
         self.tree.tag_configure("atm", background="#20303f")
         self.tree.tag_configure("wall", background="#2c2418")
-        self.tree.pack(fill="both", expand=True, padx=10, pady=(4, 10))
-
+        self._show_view()
         self._repaint()
+
+    def _toggle_view(self) -> None:
+        self.view = "numbers" if self.view == "words" else "words"
+        self._show_view()
+
+    def _show_view(self) -> None:
+        self.tree.pack_forget()
+        self.words.pack_forget()
+        if self.view == "words":
+            self.words.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+        else:
+            self.tree.pack(fill="both", expand=True, padx=10, pady=(4, 10))
 
     def _repaint(self) -> None:
         expiry = self.expiry_var.get()
@@ -326,6 +351,43 @@ class OptionChainWindow(tk.Toplevel):
         self.after(600, self._repaint)
 
     def _render(self, expiry: str, summary) -> None:
+        if self.view == "words":
+            self._render_words(expiry, summary)
+        else:
+            self._render_numbers(expiry, summary)
+
+    def _render_words(self, expiry: str, summary) -> None:
+        """The chain in plain English - one phrase per strike, per side."""
+        ch = self.rt.chain
+        w = self.words
+        w.config(state="normal")
+        w.delete("1.0", "end")
+
+        rows = cv.build_rows(ch, expiry, self.rt.flow)
+        if summary is not None:
+            self.header.config(
+                text=(f"{self.rt.instrument}   {summary.spot:,.2f}   "
+                      f"{summary.days_to_expiry:.1f} days   "
+                      f"{cv.summary_line(rows, summary.spot)}"))
+
+        w.insert("end", f"  {'WHAT IS HAPPENING (CALLS)':<36}{'OI':>9}{'price':>9}"
+                        f"   {'STRIKE':^9}   {'price':<9}{'OI':<9}"
+                        f"{'WHAT IS HAPPENING (PUTS)':<36}\n", "head")
+        for r in rows:
+            mark = "*" if r.is_atm else " "
+            cbar = "#" * r.call.bar
+            pbar = "#" * r.put.bar
+            w.insert("end", f"  {cbar + ' ' + r.call.phrase:<36}", r.call.tag)
+            w.insert("end", f"{fmt_oi(r.call.oi):>9}{fmt_num(r.call.ltp):>9}",
+                     "plain")
+            w.insert("end", f"  {mark}{r.strike:>8,.0f}  ",
+                     "warn" if r.is_atm else "plain")
+            w.insert("end", f"{fmt_num(r.put.ltp):<9}{fmt_oi(r.put.oi):<9}",
+                     "plain")
+            w.insert("end", f"{pbar + ' ' + r.put.phrase:<36}\n", r.put.tag)
+        w.config(state="disabled")
+
+    def _render_numbers(self, expiry: str, summary) -> None:
         ch = self.rt.chain
         if summary is not None:
             self.header.config(
@@ -587,7 +649,7 @@ class Screen(tk.Tk):
                   if f["unknown_prints"] else ""),
                "",
                f"  {'window':>8}  {'buy%':>6}{'sell%':>7}{'delta':>10}"
-               f"{'large%':>8}  {'reading':<40}"]
+               f"{'large%':>8}  {'reading':<36}"]
         for w in sorted(f["windows"]):
             d = f["windows"][w]
             a, ab, pr, ex = (d["aggression"], d["absorption"],
@@ -608,7 +670,7 @@ class Screen(tk.Tk):
             out.append(
                 f"  {w:>7}s  {a['buy_share'] * 100:>5.0f}%{a['sell_share'] * 100:>6.0f}%"
                 f"{d['delta']:>10,}{d['print_size']['large_share'] * 100:>7.0f}%"
-                f"  {', '.join(notes) or '-':<40}")
+                f"  {', '.join(notes) or '-':<36}")
         return "\n".join(out)
 
 

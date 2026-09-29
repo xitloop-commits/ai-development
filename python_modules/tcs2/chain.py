@@ -44,6 +44,11 @@ from .wire import ResponseCode, Tick
 # every IV on expiry day meaningless.
 EXPIRY_TIME = {"NSE": (15, 30), "MCX": (23, 30)}
 
+# How many one-minute open-interest samples to keep per leg. MCX runs 14.5
+# hours, so 900 covers the longest session with room to spare.
+OI_TRAIL_MINUTES = 900
+OI_TRAIL_INTERVAL_SEC = 60.0
+
 
 @dataclass
 class OIChange:
@@ -162,6 +167,19 @@ class Chain:
         self._vix_id = int(resolved.vix.security_id) if resolved.vix else None
         self.vix = 0.0
 
+        # A minute-by-minute trail of each leg's open interest.
+        #
+        # "Built in the last twenty minutes" and "held all day" are different
+        # facts about the same number, and telling them apart is the whole point
+        # of having the tape rather than a snapshot. One sample a minute for the
+        # session is 4,060 legs x 400 minutes x 8 bytes = about 13 MB, which is
+        # nothing beside the 285 MB of ticks a day already costs.
+        self._oi_trail = np.zeros((n, OI_TRAIL_MINUTES), dtype=np.int64)
+        self._oi_trail_at = np.full(OI_TRAIL_MINUTES, np.nan)
+        self._trail_pos = 0
+        self._trail_filled = 0
+        self._last_trail_sample = 0.0
+
         self.oi_changes: list[OIChange] = []
         self.ticks_applied = 0
         self.unknown_ticks = 0
@@ -273,6 +291,49 @@ class Chain:
                 ltp=float(self.ltp[i]), volume=int(self.volume[i])))
         self._oi_prev[i] = oi
 
+    def sample_oi_trail(self, now: float | None = None) -> bool:
+        """Record every leg's open interest, once a minute. Returns True if taken.
+
+        Called from the publish path. Cheap: one array copy, no per-leg work.
+        """
+        now = now if now is not None else time.time()
+        if now - self._last_trail_sample < OI_TRAIL_INTERVAL_SEC:
+            return False
+        self._oi_trail[:, self._trail_pos] = self.oi
+        self._oi_trail_at[self._trail_pos] = now
+        self._trail_pos = (self._trail_pos + 1) % OI_TRAIL_MINUTES
+        self._trail_filled = min(self._trail_filled + 1, OI_TRAIL_MINUTES)
+        self._last_trail_sample = now
+        return True
+
+    def oi_change_over(self, minutes: float,
+                       now: float | None = None) -> np.ndarray:
+        """Change in open interest across roughly the last `minutes`.
+
+        Zero where there is no sample that old yet - deliberately not the change
+        since open, because "we do not know" and "it did not move" are different
+        answers and conflating them is how a screen invents confidence.
+        """
+        if self._trail_filled == 0:
+            return np.zeros(len(self.oi), dtype=np.int64)
+        now = now if now is not None else time.time()
+        cutoff = now - minutes * 60.0
+        ages = self._oi_trail_at
+        valid = ~np.isnan(ages) & (ages <= cutoff)
+        if not valid.any():
+            return np.zeros(len(self.oi), dtype=np.int64)
+        # The newest sample that is still older than the cutoff.
+        idx = int(np.nanargmax(np.where(valid, ages, -np.inf)))
+        return self.oi - self._oi_trail[:, idx]
+
+    def oi_trail_span(self, now: float | None = None) -> float:
+        """Seconds of open-interest history held, so a caller can say COLD."""
+        ages = self._oi_trail_at[~np.isnan(self._oi_trail_at)]
+        if ages.size < 2:
+            return 0.0
+        now = now if now is not None else time.time()
+        return float(now - ages.min())
+
     def drain_oi_changes(self) -> list[OIChange]:
         """Hand over pending intraday rows and forget them.
 
@@ -366,6 +427,7 @@ class Chain:
         """
         now = now if now is not None else time.time()
         t0 = time.perf_counter()
+        self.sample_oi_trail(now)
         if self.reference <= 0:
             return 0.0
 
