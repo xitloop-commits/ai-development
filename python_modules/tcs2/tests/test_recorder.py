@@ -152,12 +152,13 @@ def test_damage_in_the_middle_does_not_hide_everything_behind_it(tmp_path):
 
     A standard gzip reader gives up at the fault. Ours must not.
     """
-    r = rec(tmp_path, seal_every_sec=0.05)
+    # Seal on every write so member boundaries are deterministic. Driving them
+    # with sleeps made this pass alone and fail under full-suite load, because
+    # the corruption then landed on a boundary instead of inside a member.
+    r = rec(tmp_path, seal_every_sec=0.0)
     r.start()
     for i in range(300):
-        r.write({"i": i})
-        if i % 30 == 0:
-            time.sleep(0.06)
+        r.write({"i": i, "pad": "x" * 120})
     r.stop()
     full = [x["i"] for x in read_json(r.path)]
     assert len(full) == 300

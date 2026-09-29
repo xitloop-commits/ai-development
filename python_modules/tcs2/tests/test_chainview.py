@@ -270,3 +270,85 @@ def test_the_three_cases_are_all_different():
     buyers = leg(**args, buyers_aggressive=True).phrase
     unknown = leg(**args, buyers_aggressive=None).phrase
     assert len({writers, buyers, unknown}) == 3
+
+
+# -- hiding strikes with nothing on them --------------------------------
+
+class _FakeChain:
+    """Enough of a chain to exercise build_rows without a feed."""
+
+    def __init__(self, strikes, live_map, atm):
+        import numpy as _np
+        self.cap = type("C", (), {"strike_step": 50.0})()
+        self.instrument = "nifty50"
+        n = len(strikes) * 2
+        self.strike = _np.array([k for k in strikes for _ in (0, 1)], dtype=float)
+        self.is_call = _np.array([f for _ in strikes for f in (True, False)])
+        self.expiry = _np.array(["2026-10-06"] * n, dtype="U10")
+        self.security_id = _np.arange(1000, 1000 + n, dtype=_np.int64)
+        self.oi = _np.full(n, 1000, dtype=_np.int64)
+        self.oi_open = _np.full(n, 1000, dtype=_np.int64)
+        self.ltp = _np.full(n, 10.0)
+        self._atm = atm
+        self.price_source = _np.array(
+            [live_map.get((k, f), True) for k in strikes for f in (True, False)])
+        self.tick_count = _np.array(
+            [1 if live_map.get((k, f), True) is not None else 0
+             for k in strikes for f in (True, False)], dtype=_np.int64)
+
+    def summary(self, expiry, now=None):
+        return type("S", (), {"atm_strike": self._atm})()
+
+    def oi_change_over(self, minutes, now=None):
+        import numpy as _np
+        return _np.zeros(len(self.strike), dtype=_np.int64)
+
+    def oi_trail_span(self, now=None):
+        return 7200.0
+
+
+def test_a_strike_dead_on_both_sides_is_hidden():
+    ch = _FakeChain([23000.0, 23050.0, 23100.0],
+                    {(23050.0, True): False, (23050.0, False): False},
+                    atm=23100.0)
+    rows = cv.build_rows(ch, "2026-10-06")
+    assert [r.strike for r in rows] == [23000.0, 23100.0]
+
+
+def test_a_strike_with_ONE_live_side_is_kept():
+    """The far wings are exactly where one side trades and the other does not.
+
+    Hiding the row would throw away the live side.
+    """
+    ch = _FakeChain([23000.0, 23050.0],
+                    {(23050.0, True): False},      # call dead, put live
+                    atm=23000.0)
+    rows = cv.build_rows(ch, "2026-10-06")
+    assert 23050.0 in [r.strike for r in rows]
+
+
+def test_the_at_the_money_row_is_never_hidden():
+    """Losing your place on the ladder is worse than one empty line."""
+    ch = _FakeChain([23000.0, 23100.0],
+                    {(23100.0, True): False, (23100.0, False): False},
+                    atm=23100.0)
+    rows = cv.build_rows(ch, "2026-10-06")
+    assert 23100.0 in [r.strike for r in rows]
+
+
+def test_hiding_can_be_turned_off():
+    ch = _FakeChain([23000.0, 23050.0],
+                    {(23050.0, True): False, (23050.0, False): False},
+                    atm=23000.0)
+    assert len(cv.build_rows(ch, "2026-10-06", hide_dead=False)) == 2
+
+
+def test_the_screen_can_say_how_many_were_hidden():
+    """Filtering silently is the same fault as a blank that means zero -
+    the reader cannot tell 'nothing there' from 'we did not show you'."""
+    ch = _FakeChain([23000.0, 23050.0, 23150.0],
+                    {(23050.0, True): False, (23050.0, False): False,
+                     (23150.0, True): False, (23150.0, False): False},
+                    atm=23000.0)
+    rows = cv.build_rows(ch, "2026-10-06")
+    assert cv.hidden_count(ch, "2026-10-06", rows) == 2

@@ -240,6 +240,87 @@ def point_rows(points: dict) -> list[tuple[int, str, str]]:
     return rows
 
 
+CHAIN_TAGS = (("good", GREEN), ("bad", RED), ("warn", AMBER), ("dim", DIM),
+              ("plain", FG), ("head", DIM))
+
+
+def make_chain_widget(parent) -> "tk.Text":
+    """A Text widget set up to draw the chain. Used by both windows."""
+    w = tk.Text(parent, bg=BG, fg=FG, font=MONO_SMALL, relief="flat",
+                highlightthickness=0, insertwidth=0, wrap="none",
+                cursor="arrow")
+    for name, colour in CHAIN_TAGS:
+        w.tag_configure(name, foreground=colour)
+    return w
+
+
+def render_chain(w: "tk.Text", rt, expiry: str) -> str:
+    """Draw the plain-English chain into `w`. Returns the one-line summary.
+
+    Shared by the main screen and the comparison window so the two can never
+    drift apart - a chain that reads differently in two places is worse than
+    having only one.
+    """
+    ch = rt.chain
+    w.config(state="normal")
+    w.delete("1.0", "end")
+
+    rows = cv.build_rows(ch, expiry, rt.flow)
+    hidden = cv.hidden_count(ch, expiry, rows)
+
+    w.insert("end", f"  {'WHAT IS HAPPENING (CALLS)':<36}{'OI':>9}{'price':>9}"
+                    f"   {'STRIKE':^9}   {'price':<9}{'OI':<9}"
+                    f"{'WHAT IS HAPPENING (PUTS)':<36}\n", "head")
+
+    atm_line = None
+    for n, r in enumerate(rows):
+        if r.is_atm:
+            atm_line = n + 2              # +1 for the header, +1 for 1-based
+        mark = "*" if r.is_atm else " "
+        w.insert("end", f"  {'#' * r.call.bar + ' ' + r.call.phrase:<36}",
+                 r.call.tag)
+        w.insert("end", f"{fmt_oi(r.call.oi):>9}{fmt_num(r.call.ltp):>9}", "plain")
+        w.insert("end", f"  {mark}{r.strike:>8,.0f}  ",
+                 "warn" if r.is_atm else "plain")
+        w.insert("end", f"{fmt_num(r.put.ltp):<9}{fmt_oi(r.put.oi):<9}", "plain")
+        w.insert("end", f"{'#' * r.put.bar + ' ' + r.put.phrase:<36}\n", r.put.tag)
+
+    if hidden:
+        # Say what was left out. Filtering silently is the same fault as a blank
+        # cell that means zero: the reader cannot tell "nothing there" from "we
+        # did not show you".
+        w.insert("end", f"\n  {hidden} strike(s) hidden - no live market\n", "dim")
+    w.config(state="disabled")
+
+    centre_on(w, atm_line, len(rows) + 2)
+    spot = ch.reference
+    return (f"{spot:,.2f}   {cv.summary_line(rows, spot)}"
+            if rows else "waiting for the chain to fill ...")
+
+
+def centre_on(w: "tk.Text", line: int | None, total: int) -> None:
+    """Put the at-the-money row in the middle of the window.
+
+    A chain is read outward from where price actually is, so the spot row belongs
+    in the centre rather than wherever the scroll happens to sit - and it is
+    re-centred on every repaint, because the at-the-money strike moves during the
+    session.
+    """
+    if not line or total <= 0:
+        return
+    try:
+        px = w.winfo_height()
+        row_px = max(1, w.dlineinfo("1.0")[3]) if w.dlineinfo("1.0") else 16
+        visible = max(1, px // row_px)
+        top = max(0, line - visible // 2)
+        w.yview_moveto(min(1.0, top / max(total, 1)))
+    except Exception:                                 # noqa: BLE001
+        try:
+            w.see(f"{line}.0")
+        except Exception:                             # noqa: BLE001
+            pass
+
+
 def fmt_age(seconds: float) -> str:
     if seconds == float("inf"):
         return "never"
@@ -301,13 +382,7 @@ class OptionChainWindow(tk.Toplevel):
         self.view = "words"
         self.bind("<KeyPress-v>", lambda _e: self._toggle_view())
 
-        self.words = tk.Text(self, bg=BG, fg=FG, font=MONO, relief="flat",
-                             highlightthickness=0, insertwidth=0, wrap="none",
-                             cursor="arrow")
-        for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
-                             ("dim", DIM), ("plain", FG), ("head", DIM)):
-            self.words.tag_configure(name, foreground=colour)
-        self.words.tag_configure("atmrow", background="#20303f")
+        self.words = make_chain_widget(self)
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -358,34 +433,9 @@ class OptionChainWindow(tk.Toplevel):
 
     def _render_words(self, expiry: str, summary) -> None:
         """The chain in plain English - one phrase per strike, per side."""
-        ch = self.rt.chain
-        w = self.words
-        w.config(state="normal")
-        w.delete("1.0", "end")
-
-        rows = cv.build_rows(ch, expiry, self.rt.flow)
-        if summary is not None:
-            self.header.config(
-                text=(f"{self.rt.instrument}   {summary.spot:,.2f}   "
-                      f"{summary.days_to_expiry:.1f} days   "
-                      f"{cv.summary_line(rows, summary.spot)}"))
-
-        w.insert("end", f"  {'WHAT IS HAPPENING (CALLS)':<36}{'OI':>9}{'price':>9}"
-                        f"   {'STRIKE':^9}   {'price':<9}{'OI':<9}"
-                        f"{'WHAT IS HAPPENING (PUTS)':<36}\n", "head")
-        for r in rows:
-            mark = "*" if r.is_atm else " "
-            cbar = "#" * r.call.bar
-            pbar = "#" * r.put.bar
-            w.insert("end", f"  {cbar + ' ' + r.call.phrase:<36}", r.call.tag)
-            w.insert("end", f"{fmt_oi(r.call.oi):>9}{fmt_num(r.call.ltp):>9}",
-                     "plain")
-            w.insert("end", f"  {mark}{r.strike:>8,.0f}  ",
-                     "warn" if r.is_atm else "plain")
-            w.insert("end", f"{fmt_num(r.put.ltp):<9}{fmt_oi(r.put.oi):<9}",
-                     "plain")
-            w.insert("end", f"{pbar + ' ' + r.put.phrase:<36}\n", r.put.tag)
-        w.config(state="disabled")
+        line = render_chain(self.words, self.rt, expiry)
+        if summary is not None and line:
+            self.header.config(text=f"{self.rt.instrument}   {line}")
 
     def _render_numbers(self, expiry: str, summary) -> None:
         ch = self.rt.chain
@@ -471,8 +521,7 @@ class Screen(tk.Tk):
                                    relief="flat", highlightthickness=0,
                                    insertwidth=0, wrap="none", cursor="arrow")
         self.points_text.pack(fill="both", expand=True)
-        for name, colour in (("good", GREEN), ("bad", RED), ("warn", AMBER),
-                             ("dim", DIM), ("plain", FG), ("head", DIM)):
+        for name, colour in CHAIN_TAGS:
             self.points_text.tag_configure(name, foreground=colour)
         # The lit half of a blink: a background, so it reads as attention rather
         # than as a different value.
@@ -480,6 +529,7 @@ class Screen(tk.Tk):
                                        background=GREEN)
         self._rises = RiseTracker()
         self._paints = 0
+        self._show_body()
 
         right = tk.Frame(body, bg=BG, width=470)
         right.pack(side="right", fill="y")
@@ -500,10 +550,26 @@ class Screen(tk.Tk):
         self.flow_text.pack(fill="both", expand=True)
 
         self.bind("<KeyPress-c>", lambda _e: self.open_chain())
+        self.bind("<KeyPress-p>", lambda _e: self._toggle_body())
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.after(REPAINT_MS, self._repaint)
 
     # -- actions ---------------------------------------------------------
+
+    def _toggle_body(self) -> None:
+        self.body_view = "points" if self.body_view == "chain" else "chain"
+        self._show_body()
+
+    def _show_body(self) -> None:
+        self.chain_text.pack_forget()
+        self.points_text.pack_forget()
+        if self.body_view == "chain":
+            self.chain_text.pack(fill="both", expand=True)
+        else:
+            self.body_label.config(
+                text="THE 25 POINTS   (scores DESCRIBE, they do not predict)"
+                     "      [p] back to the chain")
+            self.points_text.pack(fill="both", expand=True)
 
     def open_chain(self) -> None:
         if self._chain_window is not None and self._chain_window.winfo_exists():
@@ -568,7 +634,15 @@ class Screen(tk.Tk):
                 f"put wall {s.put_wall_strike:>9,.0f} ({fmt_oi(s.put_wall_oi)})")
         self.expiry_text.config(text="\n".join(lines))
 
-        self._render_points(snap)
+        if self.body_view == "chain":
+            expiry = snap.expiries[0] if snap.expiries else ""
+            if expiry:
+                line = render_chain(self.chain_text, self.rt, expiry)
+                self.body_label.config(text=f"OPTION CHAIN  {expiry}   {line}"
+                                            f"      [p] the 25 points   "
+                                            f"[c] compare with your broker")
+        else:
+            self._render_points(snap)
         self._render_verdict(snap)
         self.flow_text.config(text=self._flow_lines(snap))
 

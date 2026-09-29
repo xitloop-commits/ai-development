@@ -57,6 +57,11 @@ class LegView:
     ltp: float = 0.0
     live: bool = True         # False when the price is a stale last trade
 
+    @property
+    def dead(self) -> bool:
+        """Nothing real to read here - no live market, or never traded."""
+        return self.phrase in ("no live market", "nothing here", "")
+
 
 @dataclass
 class StrikeView:
@@ -64,6 +69,11 @@ class StrikeView:
     call: LegView
     put: LegView
     is_atm: bool = False
+
+    @property
+    def dead(self) -> bool:
+        """Both sides unreadable. One live side is still worth a row."""
+        return self.call.dead and self.put.dead
 
 
 def _bar(oi: int, biggest: int) -> int:
@@ -171,8 +181,18 @@ def leg_phrase(*, is_call: bool, oi: int, oi_open: int, oi_recent: int,
 
 
 def build_rows(chain, expiry: str, flow: dict | None = None,
-               now: float | None = None, around: int = 0) -> list[StrikeView]:
-    """Every strike of an expiry, as phrases ready to draw."""
+               now: float | None = None, around: int = 0,
+               hide_dead: bool = True) -> list[StrikeView]:
+    """Every strike of an expiry, as phrases ready to draw.
+
+    `hide_dead` drops strikes with nothing real on EITHER side (Partha
+    2026-09-29). A chain carries hundreds of strikes that have never traded and
+    have no live market; they are rows of noise between the ones that matter.
+
+    A strike is only dropped when BOTH sides are unreadable. A dead call beside a
+    live put is still worth a row - hiding it would lose the live side, and the
+    far wings are exactly where one side trades and the other does not.
+    """
     m = chain.expiry == expiry
     if not m.any():
         return []
@@ -218,9 +238,27 @@ def build_rows(chain, expiry: str, flow: dict | None = None,
                 trail_seconds=trail)
             lv.ltp = float(chain.ltp[i])
             legs[flag] = lv
-        out.append(StrikeView(strike=float(k), call=legs[True], put=legs[False],
-                              is_atm=(k == atm)))
+        view = StrikeView(strike=float(k), call=legs[True], put=legs[False],
+                          is_atm=(k == atm))
+        # The at-the-money row always stays, even if quiet - losing your place on
+        # the ladder is worse than one empty line.
+        if hide_dead and view.dead and not view.is_atm:
+            continue
+        out.append(view)
     return out
+
+
+def hidden_count(chain, expiry: str, shown: list[StrikeView]) -> int:
+    """How many strikes were dropped, so the screen can say so.
+
+    Filtering silently would be the same fault as a blank cell that means zero:
+    the reader cannot tell "nothing there" from "we did not show you".
+    """
+    m = chain.expiry == expiry
+    if not m.any():
+        return 0
+    total = int(np.unique(chain.strike[m]).size)
+    return max(0, total - len(shown))
 
 
 def summary_line(rows: list[StrikeView], spot: float) -> str:
