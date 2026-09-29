@@ -102,6 +102,8 @@ class StrikeView:
     call: LegView
     put: LegView
     is_atm: bool = False
+    reach: str = ""           # the chance price gets to this strike, in words
+    reach_tag: str = "dim"
 
     @property
     def dead(self) -> bool:
@@ -310,6 +312,109 @@ def buildup_words(*, is_call: bool, price: float, price_open: float,
     return word, ("good" if good else "bad")
 
 
+# How likely price is to get somewhere, in words a reader does not have to
+# translate. The boundaries are round numbers on purpose - the underlying figure
+# is an estimate, and decimal places on an estimate are false precision.
+REACH_WORDS = ((0.80, "sure"), (0.60, "likely"), (0.40, "even"),
+               (0.20, "maybe"), (0.05, "unlikely"), (0.0, "long shot"))
+
+
+def reach_words(chance: float | None) -> tuple[str, str]:
+    """The chance of price reaching a strike, as a number and a plain word."""
+    if chance is None or not (0.0 <= chance <= 1.0):
+        return "", "dim"
+    word = next(w for edge, w in REACH_WORDS if chance >= edge)
+    tag = ("good" if chance >= 0.60 else
+           "warn" if chance >= 0.20 else "dim")
+    return f"{chance * 100:.0f}% {word}", tag
+
+
+def reach_chance(strike: float, forward: float, vol: float,
+                 t_years: float) -> float | None:
+    """The chance price REACHES `strike` before expiry, from our own IV.
+
+    Partha 2026-09-29: "add strike breakout/in possiblity".
+
+    Two steps, both standard:
+
+      1. the chance of finishing past the strike is N(d2) - the option market's
+         own probability, read out of the implied volatility we computed
+      2. the chance of ever TOUCHING it along the way is about twice that, capped
+         at one (the reflection principle, for a price with no drift)
+
+    Touching is the question a trader is actually asking. "Will it break 23,800"
+    is not "will it close above 23,800" - a level can be broken and given back in
+    the same hour, and the finishing probability would understate that badly.
+
+    Returns None when we have no volatility for the strike. The screen then shows
+    nothing, which is the point: a refused number is not a zero, and the one thing
+    worse than no estimate is a confident one built on a missing input.
+
+    The estimate assumes no drift and a constant volatility to expiry. Neither is
+    true. It is the chain's own view of itself, which is what makes it worth
+    showing next to the chain - not a forecast of ours.
+    """
+    if forward <= 0 or strike <= 0 or vol is None or t_years <= 0:
+        return None
+    if not np.isfinite(vol) or vol <= 0:
+        return None
+    vol_t = vol * np.sqrt(t_years)
+    if vol_t <= 0:
+        return None
+    d2 = (np.log(forward / strike) - 0.5 * vol * vol * t_years) / vol_t
+    # Which tail we want depends on which way price has to travel to get there.
+    finish_past = _ndtr(d2) if strike > forward else _ndtr(-d2)
+    return float(min(1.0, 2.0 * finish_past))
+
+
+def _ndtr(x: float) -> float:
+    """Standard normal CDF. Kept here so chainview needs no scipy."""
+    import math
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def overall_buildup(chain, expiry: str) -> tuple[str, str]:
+    """What today's position building adds up to, across the whole chain.
+
+    Partha 2026-09-29: "add build up status in layman english". The per-strike
+    column says what happened at each strike; this says what it amounts to, which
+    is the reading you want before looking at any single row.
+
+    Stated as what it does to price, because that is the only reason to care:
+    calls being written caps it, puts being written holds it up, and unwinding
+    does the opposite of whichever it was.
+    """
+    m = chain.expiry == expiry
+    if not m.any():
+        return "", "dim"
+    ch = chain.oi_change
+    call_up = int(np.clip(ch[m & chain.is_call], 0, None).sum())
+    put_up = int(np.clip(ch[m & ~chain.is_call], 0, None).sum())
+    call_down = int(-np.clip(ch[m & chain.is_call], None, 0).sum())
+    put_down = int(-np.clip(ch[m & ~chain.is_call], None, 0).sum())
+
+    # Two pressures, not four labels. Calls being written and puts being given up
+    # both push the same way, and lumping them lets the two sides be compared -
+    # which is the only way to tell a lean from a fight. Picking the largest of
+    # four categories cannot: equal call and put writing would crown one of them
+    # on a tie and call it a lean.
+    cap = call_up + put_down                 # holding price down
+    support = put_up + call_down             # holding price up
+    total = cap + support
+    if total <= 0:
+        return "no position building yet today", "dim"
+    if abs(cap - support) / total < 0.20:
+        return "positions building on both sides - no clear lean", "warn"
+
+    if cap > support:
+        if call_up >= put_down:
+            return "call sellers stacking up - price being capped", "bad"
+        return "put sellers backing off - the floor is thinning", "bad"
+    if put_up >= call_down:
+        return "put sellers stacking up - price being held up", "good"
+    return "call sellers backing off - the cap is loosening", "good"
+
+
 def _who(buy_share: float | None, is_call: bool) -> tuple[str, str]:
     """Who is crossing the spread on this leg, and how one-sidedly.
 
@@ -430,6 +535,13 @@ def build_rows(chain, expiry: str, flow: dict | None = None,
     recent = chain.oi_change_over(FAST_WINDOW_MIN, now)
     trail = chain.oi_trail_span(now)
 
+    # For the breakout chance: the chain's own forward and its time to run.
+    fwd = float(chain.forward.get(expiry, 0.0) or chain.reference)
+    try:
+        t_years = float(chain.time_to_expiry(expiry, now))
+    except Exception:                                 # noqa: BLE001
+        t_years = 0.0
+
     call_oi = chain.oi[m & chain.is_call]
     put_oi = chain.oi[m & ~chain.is_call]
     biggest_call = int(call_oi.max()) if call_oi.size else 0
@@ -480,12 +592,27 @@ def build_rows(chain, expiry: str, flow: dict | None = None,
             legs[flag] = lv
         view = StrikeView(strike=float(k), call=legs[True], put=legs[False],
                           is_atm=(k == atm))
+        view.reach, view.reach_tag = reach_words(
+            reach_chance(float(k), fwd, _strike_vol(chain, m, k), t_years))
         # The at-the-money row always stays, even if quiet - losing your place on
         # the ladder is worse than one empty line.
         if hide_dead and view.dead and not view.is_atm:
             continue
         out.append(view)
     return out
+
+
+def _strike_vol(chain, m, k) -> float:
+    """The volatility to use for one strike: whichever side we could price.
+
+    IV is implied from the out-of-the-money side and shared with its pair, so both
+    legs normally carry the same number. Taking the first finite one keeps the
+    estimate available at strikes where only one side has a usable book.
+    """
+    sel = m & (chain.strike == k)
+    vols = chain.iv[sel]
+    good = vols[np.isfinite(vols)]
+    return float(good[0]) if good.size else float("nan")
 
 
 def hidden_count(chain, expiry: str, shown: list[StrikeView]) -> int:

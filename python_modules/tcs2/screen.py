@@ -263,8 +263,17 @@ OI_W = 10
 PX_W = 10
 STRIKE_W = 11
 
+REACH_W = 14
+
 HALF_W = BAR_W + PHRASE_W + BUILD_W + WHO_W + LVL_W + OI_W + PX_W
-CHAIN_W = HALF_W * 2 + STRIKE_W
+
+# Where the strike column starts within a line, and the whole line's width. The
+# line is NOT symmetric any more - the breakout chance sits beside the strike,
+# where it can be read against it, rather than out at an edge. So centring keys
+# off the strike column itself (see centre_pad), which is what was actually
+# asked for: "strike should be horizontally center always".
+STRIKE_AT = HALF_W
+CHAIN_W = HALF_W + STRIKE_W + REACH_W + HALF_W
 
 
 def maximise(win) -> None:
@@ -299,7 +308,7 @@ def chain_header() -> list[tuple[str, str]]:
         (f"{'':{BAR_W}}{'WHAT IS HAPPENING (CALLS)':<{PHRASE_W}}"
          f"{'TODAY':<{BUILD_W}}{'WHO':^{WHO_W}}"
          f"{'LVL':^{LVL_W}}{'OI':>{OI_W}}{'PRICE':>{PX_W}}", "head"),
-        (f"{'STRIKE':^{STRIKE_W}}", "head"),
+        (f"{'STRIKE':^{STRIKE_W}}{'GET HERE?':^{REACH_W}}", "head"),
         (f"{'PRICE':<{PX_W}}{'OI':<{OI_W}}{'LVL':^{LVL_W}}"
          f"{'WHO':^{WHO_W}}{'TODAY':<{BUILD_W}}"
          f"{'WHAT IS HAPPENING (PUTS)':<{PHRASE_W}}{'':{BAR_W}}", "head"),
@@ -328,6 +337,7 @@ def chain_row(r) -> list[tuple[str, str]]:
         (f"{fmt_oi(c.oi):>{OI_W}}", "plain"),
         (f"{fmt_num(c.ltp):>{PX_W}}", "plain" if c.live else "dim"),
         (f"{strike:^{STRIKE_W}}", "warn" if r.is_atm else "plain"),
+        (f"{r.reach:^{REACH_W}}", r.reach_tag),
         (f"{fmt_num(pu.ltp):<{PX_W}}", "plain" if pu.live else "dim"),
         (f"{fmt_oi(pu.oi):<{OI_W}}", "plain"),
         (f"{pu.level:^{LVL_W}}", "warn" if pu.level else "dim"),
@@ -357,7 +367,8 @@ def verdict_summary(snap) -> tuple[str, str] | None:
 
 
 def status_lines(control, levels: list, tug=None,
-                 verdict: tuple[str, str] | None = None) -> list[tuple[str, str]]:
+                 verdict: tuple[str, str] | None = None,
+                 buildup: tuple[str, str] | None = None) -> list[tuple[str, str]]:
     """The overall reading, in plain words (Partha 2026-09-29).
 
     Who is in control, how clearly, and why - then the levels that matter, each
@@ -381,6 +392,13 @@ def status_lines(control, levels: list, tug=None,
     else:
         out.append(("  nothing measured yet - waiting for the tape" + "\n", "dim"))
 
+    if buildup:
+        # Partha 2026-09-29: "add build up status in layman english". The TODAY
+        # column says what happened at each strike; this says what it all amounts
+        # to, which is the reading you want before looking at any single row.
+        out.append(("  today: ", "dim"))
+        out.append((buildup[0] + "\n", buildup[1]))
+
     if tug is not None and tug.phrase:
         # Partha 2026-09-29: "thug war need to be identified". Both sides
         # committing at the same strikes is the one state where neither the walls
@@ -400,12 +418,19 @@ def status_lines(control, levels: list, tug=None,
 
 
 def centre_pad(w: "tk.Text", width: int = CHAIN_W) -> str:
-    """Spaces that put the middle of a `width`-wide block at the middle of the WINDOW.
+    """Spaces that put the STRIKE column at the middle of the WINDOW.
 
-    Partha 2026-09-29: the strike column is centred horizontally, always. It is
-    measured against the window rather than against this widget, because the widget
-    sits to the left of the verdict panel - centring inside the widget would leave
-    the strike visibly off-centre on screen, which is the thing being asked for.
+    Partha 2026-09-29: the strike column is centred horizontally, always. Two
+    things follow from "the strike", not "the line":
+
+      * it is measured against the WINDOW, not against this widget - the widget
+        can sit beside a panel, and centring inside it would leave the strike
+        visibly off-centre on screen, which is not what was asked
+      * it centres the strike COLUMN, so the line either side of it does not have
+        to be symmetric - which is what lets the breakout chance sit next to the
+        strike instead of out at an edge
+
+    Clamped so the line never runs off the right of the widget.
     """
     try:
         char = getattr(w, "_char_px", 0)
@@ -417,7 +442,7 @@ def centre_pad(w: "tk.Text", width: int = CHAIN_W) -> str:
         offset = w.winfo_rootx() - top.winfo_rootx()
         mid = top.winfo_width() / 2 - offset
         cols = max(1, w.winfo_width() // char)
-        pad = int(round(mid / char)) - width // 2
+        pad = int(round(mid / char)) - (STRIKE_AT + STRIKE_W // 2)
         return " " * max(0, min(pad, cols - width))
     except Exception:                                 # noqa: BLE001
         return ""
@@ -453,7 +478,8 @@ def render_chain(w: "tk.Text", rt, expiry: str,
     if board is not w:
         board.config(state="normal")
         board.delete("1.0", "end")
-    for text, tag in status_lines(control, levels, tug, verdict_summary(snap)):
+    for text, tag in status_lines(control, levels, tug, verdict_summary(snap),
+                                  cv.overall_buildup(ch, expiry)):
         board.insert("end", text, tag)
     if board is not w:
         board.config(state="disabled")

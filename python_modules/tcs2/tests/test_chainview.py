@@ -394,6 +394,8 @@ class _FakeChain:
         self.ltp = _np.full(n, 10.0)
         self.day_open = _np.full(n, 10.0)
         self.prev_close = _np.full(n, 10.0)
+        self.iv = _np.full(n, 0.20)
+        self.forward = {"2026-10-06": float(atm)}
         self._atm = atm
         self.reference = float(atm)
         self.price_source = _np.array(
@@ -411,6 +413,9 @@ class _FakeChain:
 
     def oi_trail_span(self, now=None):
         return 7200.0
+
+    def time_to_expiry(self, expiry, now=None):
+        return 7.0 / 365.0
 
 
 def test_a_strike_dead_on_both_sides_is_hidden():
@@ -614,3 +619,140 @@ def test_strength_says_how_one_sided_the_evidence_was():
     c = cv.control_status(ch, "2026-10-06", flow=flow, futures_ids=(7,))
     assert c.strength == 100
     assert "firmly" in c.phrase
+
+
+# -- the chance of price getting to a strike -----------------------------
+#
+# Partha 2026-09-29: "add strike breakout/in possiblity".
+
+
+F = 23_520.0
+VOL = 0.14
+T = 7.0 / 365.0
+
+
+def test_a_strike_price_is_already_at_is_all_but_certain_to_be_reached():
+    assert cv.reach_chance(23_500.0, F, VOL, T) > 0.9
+
+
+def test_a_far_strike_is_a_long_shot():
+    assert cv.reach_chance(26_000.0, F, VOL, T) < 0.05
+
+
+def test_the_further_away_a_strike_is_the_less_likely_it_is_reached():
+    chances = [cv.reach_chance(F + d, F, VOL, T) for d in (100, 300, 600, 1200)]
+    assert chances == sorted(chances, reverse=True)
+
+
+def test_it_works_downwards_too():
+    """A level below price has to be reached by falling to it - same question."""
+    near = cv.reach_chance(F - 100, F, VOL, T)
+    far = cv.reach_chance(F - 1_200, F, VOL, T)
+    assert near > far > 0.0
+
+
+def test_higher_volatility_makes_a_far_strike_more_reachable():
+    calm = cv.reach_chance(24_200.0, F, 0.10, T)
+    wild = cv.reach_chance(24_200.0, F, 0.40, T)
+    assert wild > calm
+
+
+def test_more_time_makes_a_far_strike_more_reachable():
+    assert cv.reach_chance(24_200.0, F, VOL, 30 / 365) > \
+           cv.reach_chance(24_200.0, F, VOL, 1 / 365)
+
+
+def test_it_is_a_touch_probability_not_a_settlement_one():
+    """"Will it break 23,800" is not "will it close above 23,800" - a level can be
+    broken and given back in the same hour. Reaching is about twice as likely as
+    finishing past, so an at-the-money strike must read far above 50%."""
+    assert cv.reach_chance(F, F, VOL, T) > 0.9
+
+
+def test_no_volatility_means_NO_answer_rather_than_a_zero():
+    """A refused number is not a zero. The one thing worse than no estimate is a
+    confident one built on a missing input."""
+    assert cv.reach_chance(23_600.0, F, float("nan"), T) is None
+    assert cv.reach_chance(23_600.0, F, 0.0, T) is None
+    assert cv.reach_chance(23_600.0, 0.0, VOL, T) is None
+    assert cv.reach_chance(23_600.0, F, VOL, 0.0) is None
+
+
+def test_a_refused_chance_shows_nothing_at_all():
+    assert cv.reach_words(None) == ("", "dim")
+
+
+def test_the_chance_is_said_in_words_as_well_as_a_number():
+    assert cv.reach_words(0.95)[0] == "95% sure"
+    assert cv.reach_words(0.65)[0] == "65% likely"
+    assert cv.reach_words(0.45)[0] == "45% even"
+    assert cv.reach_words(0.25)[0] == "25% maybe"
+    assert cv.reach_words(0.10)[0] == "10% unlikely"
+    assert cv.reach_words(0.01)[0] == "1% long shot"
+
+
+def test_a_likely_reach_is_coloured_and_a_long_shot_is_not():
+    assert cv.reach_words(0.80)[1] == "good"
+    assert cv.reach_words(0.30)[1] == "warn"
+    assert cv.reach_words(0.02)[1] == "dim"
+
+
+def test_every_row_carries_the_chance_of_being_reached():
+    ch = _LevelChain({(23_000.0, True): 500, (23_100.0, True): 500}, spot=23_000.0)
+    rows = cv.build_rows(ch, "2026-10-06", hide_dead=False)
+    assert rows
+    assert all(r.reach for r in rows)
+
+
+# -- what today's buildup adds up to ------------------------------------
+#
+# Partha 2026-09-29: "add build up status in layman english".
+
+
+def _built(call_change, put_change, spot=23_000.0):
+    ch = _LevelChain({(spot, True): 1_000, (spot, False): 1_000}, spot=spot)
+    for i in range(len(ch.strike)):
+        ch.oi_change[i] = call_change if bool(ch.is_call[i]) else put_change
+    return cv.overall_buildup(ch, "2026-10-06")
+
+
+def test_call_writing_is_said_as_price_being_capped():
+    words, tag = _built(10_000, 0)
+    assert "call sellers" in words and "capped" in words
+    assert tag == "bad"
+
+
+def test_put_writing_is_said_as_price_being_held_up():
+    words, tag = _built(0, 10_000)
+    assert "put sellers" in words and "held up" in words
+    assert tag == "good"
+
+
+def test_calls_being_given_up_loosens_the_cap():
+    words, tag = _built(-10_000, 0)
+    assert "backing off" in words
+    assert tag == "good"
+
+
+def test_puts_being_given_up_thins_the_floor():
+    words, tag = _built(0, -10_000)
+    assert "thinning" in words
+    assert tag == "bad"
+
+
+def test_even_building_on_both_sides_claims_no_lean():
+    words, tag = _built(10_000, 10_000)
+    assert "both sides" in words
+    assert tag == "warn"
+
+
+def test_nothing_built_yet_says_so():
+    assert "no position building" in _built(0, 0)[0]
+
+
+def test_the_buildup_words_use_no_jargon():
+    for change in ((10_000, 0), (0, 10_000), (-10_000, 0), (0, -10_000),
+                   (10_000, 10_000), (0, 0)):
+        words = _built(*change)[0]
+        for jargon in ("buildup", "unwinding", "covering", "OI", "PCR"):
+            assert jargon.lower() not in words.lower(), words
