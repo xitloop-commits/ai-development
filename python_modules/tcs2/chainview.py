@@ -102,8 +102,6 @@ class StrikeView:
     call: LegView
     put: LegView
     is_atm: bool = False
-    reach: str = ""           # the chance price gets to this strike, in words
-    reach_tag: str = "dim"
 
     @property
     def dead(self) -> bool:
@@ -310,23 +308,6 @@ def buildup_words(*, is_call: bool, price: float, price_open: float,
     # four cases produced it - so the colour follows the leg's own price.
     good = up if is_call else not up
     return word, ("good" if good else "bad")
-
-
-# How likely price is to get somewhere, in words a reader does not have to
-# translate. The boundaries are round numbers on purpose - the underlying figure
-# is an estimate, and decimal places on an estimate are false precision.
-REACH_WORDS = ((0.80, "sure"), (0.60, "likely"), (0.40, "even"),
-               (0.20, "maybe"), (0.05, "unlikely"), (0.0, "long shot"))
-
-
-def reach_words(chance: float | None) -> tuple[str, str]:
-    """The chance of price reaching a strike, as a number and a plain word."""
-    if chance is None or not (0.0 <= chance <= 1.0):
-        return "", "dim"
-    word = next(w for edge, w in REACH_WORDS if chance >= edge)
-    tag = ("good" if chance >= 0.60 else
-           "warn" if chance >= 0.20 else "dim")
-    return f"{chance * 100:.0f}% {word}", tag
 
 
 def reach_chance(strike: float, forward: float, vol: float,
@@ -592,8 +573,6 @@ def build_rows(chain, expiry: str, flow: dict | None = None,
             legs[flag] = lv
         view = StrikeView(strike=float(k), call=legs[True], put=legs[False],
                           is_atm=(k == atm))
-        view.reach, view.reach_tag = reach_words(
-            reach_chance(float(k), fwd, _strike_vol(chain, m, k), t_years))
         # The at-the-money row always stays, even if quiet - losing your place on
         # the ladder is worse than one empty line.
         if hide_dead and view.dead and not view.is_atm:
@@ -750,6 +729,181 @@ class Control:
         strong = ("firmly" if self.strength >= 75 else
                   "" if self.strength >= 50 else "narrowly ")
         return f"{self.side.lower()} in control {strong}".strip()
+
+
+@dataclass
+class Breakout:
+    """Which way the current strike is likely to go.
+
+    Partha 2026-09-29: "all i need current strike will be broken down / up".
+    """
+
+    strike: float = 0.0
+    side: str = "UNCLEAR"        # UP | DOWN | UNCLEAR
+    agree: int = 0
+    total: int = 0
+    reasons: list = None
+
+    def __post_init__(self):
+        if self.reasons is None:
+            self.reasons = []
+
+    @property
+    def strength(self) -> int:
+        return int(round(100 * self.agree / max(self.total, 1)))
+
+    @property
+    def phrase(self) -> str:
+        if not self.strike:
+            return "waiting for the current strike"
+        where = f"{self.strike:,.0f}"
+        if self.side == "UNCLEAR":
+            return f"CURRENT STRIKE {where} - no clear break either way"
+        # A bare majority must not read like a certainty: three of five is
+        # "slightly", and the count is printed beside it either way.
+        how = ("strongly" if self.strength >= 80 else
+               "" if self.strength >= 65 else "slightly ")
+        return f"CURRENT STRIKE {where} - breaking {self.side} {how}".strip()
+
+
+# How far either side of the money to look when weighing what is stacked up.
+BREAK_REACH = 3
+
+# How one-sided a reading has to be before it votes at all.
+BREAK_BAND = 0.20
+
+
+def breakout(chain, expiry: str, flow: dict | None = None,
+             futures_ids: tuple = (), tracker=None,
+             now: float | None = None) -> Breakout:
+    """Is the strike price is sitting on about to give way upward or downward?
+
+    Five readings, each of which can be absent, and each of which is a thing we
+    have measured rather than a rule of thumb:
+
+      1. **the tape** - who is crossing the spread on the futures
+      2. **what is stacked up** - puts being written below the money hold price up;
+         calls being written above it cap price
+      3. **price itself** - where it has actually been going
+      4. **which side is nearer** - the chain's own odds of touching the next
+         strike up against the next strike down, from our implied volatility and
+         the implied forward
+      5. **what has already happened here** - whether the strikes either side have
+         been broken through before or pushed back from
+
+    A direction is claimed only on a MAJORITY of the readings we could take. Two
+    of two is a direction; two of five is not, and saying "no clear break either
+    way" is the useful answer there - it is the difference between a screen you
+    can act on and one you learn to ignore.
+    """
+    b = Breakout()
+    m = chain.expiry == expiry
+    if not m.any():
+        return b
+    summary = chain.summary(expiry, now)
+    atm = float(getattr(summary, "atm_strike", 0.0) or 0.0)
+    if atm <= 0:
+        return b
+    b.strike = atm
+    step = float(getattr(chain.cap, "strike_step", 50.0) or 50.0)
+
+    votes: list[int] = []
+
+    # 1. the tape
+    fut = None
+    for sid in (futures_ids or ()):
+        fs = (flow or {}).get(int(sid))
+        if fs is not None and fs.prints:
+            fut = fs
+            break
+    if fut is not None:
+        a = fut.aggression(900)
+        if a["total_qty"] > 0:
+            buy, sell = a["buy_share"], a["sell_share"]
+            if abs(buy - sell) >= 0.10:
+                votes.append(1 if buy > sell else -1)
+                who = "buyers" if buy > sell else "sellers"
+                b.reasons.append(f"{who} are crossing the spread")
+            else:
+                votes.append(0)
+                b.reasons.append("tape is balanced")
+
+    # 2. what is stacked up either side of the money
+    reach = step * BREAK_REACH
+    near = m & (np.abs(chain.strike - atm) <= reach)
+    held_up = int(np.clip(chain.oi_change[near & ~chain.is_call
+                                         & (chain.strike <= atm)], 0, None).sum())
+    capped = int(np.clip(chain.oi_change[near & chain.is_call
+                                        & (chain.strike >= atm)], 0, None).sum())
+    if held_up + capped > 0:
+        lean = (held_up - capped) / (held_up + capped)
+        if abs(lean) >= BREAK_BAND:
+            votes.append(1 if lean > 0 else -1)
+            b.reasons.append("puts stacking up below" if lean > 0
+                             else "calls stacking up above")
+        else:
+            votes.append(0)
+            b.reasons.append("both sides stacked evenly")
+
+    # 3. price
+    if fut is not None:
+        px = [p.price for p in fut._in(900)]
+        if len(px) >= 5:
+            move, span = px[-1] - px[0], max(px) - min(px)
+            if span > 0 and abs(move) / span >= 0.3:
+                votes.append(1 if move > 0 else -1)
+                b.reasons.append("price is heading up" if move > 0
+                                 else "price is heading down")
+            else:
+                votes.append(0)
+                b.reasons.append("price is going nowhere")
+
+    # 4. which side the chain itself thinks is nearer
+    fwd = float(chain.forward.get(expiry, 0.0) or chain.reference)
+    try:
+        t_years = float(chain.time_to_expiry(expiry, now))
+    except Exception:                                 # noqa: BLE001
+        t_years = 0.0
+    up = reach_chance(atm + step, fwd, _strike_vol(chain, m, atm + step), t_years)
+    down = reach_chance(atm - step, fwd, _strike_vol(chain, m, atm - step), t_years)
+    if up is not None and down is not None and (up + down) > 0:
+        lean = (up - down) / (up + down)
+        if abs(lean) >= 0.10:
+            votes.append(1 if lean > 0 else -1)
+            b.reasons.append("the next strike up is nearer" if lean > 0
+                             else "the next strike down is nearer")
+        else:
+            votes.append(0)
+            b.reasons.append("both sides equally near")
+
+    # 5. what has already happened at the strikes either side
+    if tracker is not None:
+        above, below = tracker.at(atm + step), tracker.at(atm - step)
+        gave_way = (above.breaks - above.rejections) - (below.breaks
+                                                        - below.rejections)
+        if above.touches or below.touches:
+            if gave_way > 0:
+                votes.append(1)
+                b.reasons.append("the level above has given way before")
+            elif gave_way < 0:
+                votes.append(-1)
+                b.reasons.append("the level below has given way before")
+            else:
+                votes.append(0)
+                b.reasons.append("both sides have held so far")
+
+    b.total = len(votes)
+    if not votes:
+        return b
+    ups = sum(1 for v in votes if v > 0)
+    downs = sum(1 for v in votes if v < 0)
+    if ups > downs and ups > b.total / 2:
+        b.side, b.agree = "UP", ups
+    elif downs > ups and downs > b.total / 2:
+        b.side, b.agree = "DOWN", downs
+    else:
+        b.side, b.agree = "UNCLEAR", max(ups, downs)
+    return b
 
 
 def control_status(chain, expiry: str, flow: dict | None = None,

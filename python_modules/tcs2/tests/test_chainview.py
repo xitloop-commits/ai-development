@@ -678,32 +678,6 @@ def test_no_volatility_means_NO_answer_rather_than_a_zero():
     assert cv.reach_chance(23_600.0, F, VOL, 0.0) is None
 
 
-def test_a_refused_chance_shows_nothing_at_all():
-    assert cv.reach_words(None) == ("", "dim")
-
-
-def test_the_chance_is_said_in_words_as_well_as_a_number():
-    assert cv.reach_words(0.95)[0] == "95% sure"
-    assert cv.reach_words(0.65)[0] == "65% likely"
-    assert cv.reach_words(0.45)[0] == "45% even"
-    assert cv.reach_words(0.25)[0] == "25% maybe"
-    assert cv.reach_words(0.10)[0] == "10% unlikely"
-    assert cv.reach_words(0.01)[0] == "1% long shot"
-
-
-def test_a_likely_reach_is_coloured_and_a_long_shot_is_not():
-    assert cv.reach_words(0.80)[1] == "good"
-    assert cv.reach_words(0.30)[1] == "warn"
-    assert cv.reach_words(0.02)[1] == "dim"
-
-
-def test_every_row_carries_the_chance_of_being_reached():
-    ch = _LevelChain({(23_000.0, True): 500, (23_100.0, True): 500}, spot=23_000.0)
-    rows = cv.build_rows(ch, "2026-10-06", hide_dead=False)
-    assert rows
-    assert all(r.reach for r in rows)
-
-
 # -- what today's buildup adds up to ------------------------------------
 #
 # Partha 2026-09-29: "add build up status in layman english".
@@ -756,3 +730,107 @@ def test_the_buildup_words_use_no_jargon():
         words = _built(*change)[0]
         for jargon in ("buildup", "unwinding", "covering", "OI", "PCR"):
             assert jargon.lower() not in words.lower(), words
+
+
+# -- will the current strike break up or down ---------------------------
+#
+# Partha 2026-09-29: "all i need current strike will be broken down / up".
+
+
+class _BreakChain(_LevelChain):
+    """A chain where the building either side of the money can be set directly."""
+
+    def __init__(self, spot=23_000.0, step=50.0, below_puts=0, above_calls=0):
+        strikes = [spot + step * i for i in range(-3, 4)]
+        oi = {(k, f): 1_000 for k in strikes for f in (True, False)}
+        super().__init__(oi, spot=spot)
+        self.cap = type("C", (), {"strike_step": step})()
+        for i in range(len(self.strike)):
+            k, is_call = float(self.strike[i]), bool(self.is_call[i])
+            if not is_call and k <= spot:
+                self.oi_change[i] = below_puts
+            elif is_call and k >= spot:
+                self.oi_change[i] = above_calls
+
+
+def _brk(**kw):
+    flow = kw.pop("flow", None)
+    ids = kw.pop("futures_ids", ())
+    tracker = kw.pop("tracker", None)
+    ch = _BreakChain(**kw)
+    return cv.breakout(ch, "2026-10-06", flow=flow, futures_ids=ids,
+                       tracker=tracker)
+
+
+def test_nothing_measured_means_no_direction_is_claimed():
+    ch = _BreakChain()
+    ch.iv = ch.iv * float("nan")
+    b = cv.breakout(ch, "2026-10-06", flow={}, futures_ids=())
+    assert b.side == "UNCLEAR"
+    assert "no clear break" in b.phrase
+
+
+def test_the_current_strike_is_named():
+    assert "23,000" in _brk(spot=23_000.0).phrase
+
+
+def test_puts_stacking_up_below_with_buyers_crossing_reads_break_UP():
+    flow = {7: _Flow(0.75, prices=[100, 101, 102, 103, 104])}
+    b = _brk(below_puts=50_000, flow=flow, futures_ids=(7,))
+    assert b.side == "UP"
+    assert "breaking UP" in b.phrase
+    assert any("puts stacking up below" in r for r in b.reasons)
+
+
+def test_calls_stacking_up_above_with_sellers_crossing_reads_break_DOWN():
+    flow = {7: _Flow(0.25, prices=[104, 103, 102, 101, 100])}
+    b = _brk(above_calls=50_000, flow=flow, futures_ids=(7,))
+    assert b.side == "DOWN"
+    assert any("calls stacking up above" in r for r in b.reasons)
+
+
+def test_a_direction_needs_a_MAJORITY_of_what_we_could_read():
+    """Two of five is not a direction, and saying so is the useful answer."""
+    # tape says up, but the stacking says down and price is going nowhere
+    flow = {7: _Flow(0.75, prices=[100, 101, 100, 101, 100])}
+    b = _brk(above_calls=50_000, flow=flow, futures_ids=(7,))
+    assert b.side == "UNCLEAR"
+    assert b.total >= 3
+
+
+def test_the_reasons_are_given_so_the_call_can_be_checked():
+    flow = {7: _Flow(0.75, prices=[100, 101, 102, 103, 104])}
+    b = _brk(below_puts=50_000, flow=flow, futures_ids=(7,))
+    assert b.reasons
+    assert all(isinstance(r, str) and r for r in b.reasons)
+
+
+def test_a_level_above_that_has_given_way_before_counts_toward_breaking_up():
+    from tcs2.levels import LevelTracker
+    t = LevelTracker(50.0)
+    # 23,050 has been broken through twice; 22,950 has held
+    for px in (23_000, 23_050, 23_100, 23_000, 23_050, 23_100,
+               23_000, 22_950, 23_000):
+        t.on_price(float(px), 1.0)
+    b = _brk(tracker=t)
+    assert any("above has given way" in r for r in b.reasons)
+
+
+def test_strength_says_how_one_sided_the_reading_was():
+    flow = {7: _Flow(0.90, prices=[100, 102, 104, 106, 108])}
+    b = _brk(below_puts=50_000, flow=flow, futures_ids=(7,))
+    assert b.side == "UP"
+    assert b.strength >= 60
+
+
+def test_a_narrow_call_is_said_to_be_narrow():
+    """A slight lean must not read like a certainty."""
+    b = cv.Breakout(strike=23_000.0, side="UP", agree=3, total=5)
+    assert "slightly" in b.phrase
+    assert "strongly" in cv.Breakout(strike=23_000.0, side="UP",
+                                     agree=5, total=5).phrase
+
+
+def test_an_even_split_either_side_does_not_vote():
+    b = _brk(below_puts=10_000, above_calls=10_000)
+    assert any("evenly" in r for r in b.reasons)

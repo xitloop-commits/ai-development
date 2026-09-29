@@ -362,12 +362,11 @@ def test_the_strike_sits_in_the_same_columns_as_its_heading():
 
 
 def test_the_strike_column_is_what_gets_centred():
-    """The line is not symmetric - the breakout chance sits beside the strike
-    rather than out at an edge - so centring keys off the strike column, and the
-    two must stay consistent."""
-    from tcs2.screen import STRIKE_AT, REACH_W
+    """Centring keys off the strike column, not the line, so the strike stays at
+    the middle of the window whatever else a row carries."""
+    from tcs2.screen import STRIKE_AT
     assert STRIKE_AT == HALF_W
-    assert CHAIN_W == HALF_W * 2 + STRIKE_W + REACH_W
+    assert CHAIN_W == HALF_W * 2 + STRIKE_W
     head = _text(chain_header())
     assert "STRIKE" in head[STRIKE_AT:STRIKE_AT + STRIKE_W]
 

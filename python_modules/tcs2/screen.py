@@ -263,17 +263,13 @@ OI_W = 10
 PX_W = 10
 STRIKE_W = 11
 
-REACH_W = 14
-
 HALF_W = BAR_W + PHRASE_W + BUILD_W + WHO_W + LVL_W + OI_W + PX_W
 
-# Where the strike column starts within a line, and the whole line's width. The
-# line is NOT symmetric any more - the breakout chance sits beside the strike,
-# where it can be read against it, rather than out at an edge. So centring keys
-# off the strike column itself (see centre_pad), which is what was actually
-# asked for: "strike should be horizontally center always".
+# Where the strike column starts within a line, and the whole line's width.
+# Centring keys off the strike column rather than the whole line, so the strike
+# stays at the middle of the window whatever else the row carries.
 STRIKE_AT = HALF_W
-CHAIN_W = HALF_W + STRIKE_W + REACH_W + HALF_W
+CHAIN_W = HALF_W * 2 + STRIKE_W
 
 
 def maximise(win) -> None:
@@ -308,7 +304,7 @@ def chain_header() -> list[tuple[str, str]]:
         (f"{'':{BAR_W}}{'WHAT IS HAPPENING (CALLS)':<{PHRASE_W}}"
          f"{'TODAY':<{BUILD_W}}{'WHO':^{WHO_W}}"
          f"{'LVL':^{LVL_W}}{'OI':>{OI_W}}{'PRICE':>{PX_W}}", "head"),
-        (f"{'STRIKE':^{STRIKE_W}}{'GET HERE?':^{REACH_W}}", "head"),
+        (f"{'STRIKE':^{STRIKE_W}}", "head"),
         (f"{'PRICE':<{PX_W}}{'OI':<{OI_W}}{'LVL':^{LVL_W}}"
          f"{'WHO':^{WHO_W}}{'TODAY':<{BUILD_W}}"
          f"{'WHAT IS HAPPENING (PUTS)':<{PHRASE_W}}{'':{BAR_W}}", "head"),
@@ -337,7 +333,6 @@ def chain_row(r) -> list[tuple[str, str]]:
         (f"{fmt_oi(c.oi):>{OI_W}}", "plain"),
         (f"{fmt_num(c.ltp):>{PX_W}}", "plain" if c.live else "dim"),
         (f"{strike:^{STRIKE_W}}", "warn" if r.is_atm else "plain"),
-        (f"{r.reach:^{REACH_W}}", r.reach_tag),
         (f"{fmt_num(pu.ltp):<{PX_W}}", "plain" if pu.live else "dim"),
         (f"{fmt_oi(pu.oi):<{OI_W}}", "plain"),
         (f"{pu.level:^{LVL_W}}", "warn" if pu.level else "dim"),
@@ -368,7 +363,8 @@ def verdict_summary(snap) -> tuple[str, str] | None:
 
 def status_lines(control, levels: list, tug=None,
                  verdict: tuple[str, str] | None = None,
-                 buildup: tuple[str, str] | None = None) -> list[tuple[str, str]]:
+                 buildup: tuple[str, str] | None = None,
+                 brk=None) -> list[tuple[str, str]]:
     """The overall reading, in plain words (Partha 2026-09-29).
 
     Who is in control, how clearly, and why - then the levels that matter, each
@@ -377,6 +373,20 @@ def status_lines(control, levels: list, tug=None,
     worth reading if you can see what it rests on.
     """
     out: list[tuple[str, str]] = []
+
+    if brk is not None:
+        # First line on the screen, because it is the one question being asked of
+        # it (Partha 2026-09-29): is the strike price is sitting on about to give
+        # way upward or downward.
+        tag = ("good" if brk.side == "UP" else
+               "bad" if brk.side == "DOWN" else "warn")
+        out.append(("  " + brk.phrase, tag))
+        if brk.total:
+            out.append((f"   ({brk.agree} of {brk.total} signs agree)", "dim"))
+        out.append(("\n", "plain"))
+        if brk.reasons:
+            out.append(("  because: " + "; ".join(brk.reasons) + "\n", "dim"))
+
     if verdict is not None:
         out.append((verdict[0], verdict[1]))
         out.append(("\n", "plain"))
@@ -478,8 +488,11 @@ def render_chain(w: "tk.Text", rt, expiry: str,
     if board is not w:
         board.config(state="normal")
         board.delete("1.0", "end")
+    futures = tuple(getattr(ch, "_futures_ids", ()) or ())
+    brk = cv.breakout(ch, expiry, rt.flow, futures_ids=futures,
+                      tracker=getattr(rt, "levels", None))
     for text, tag in status_lines(control, levels, tug, verdict_summary(snap),
-                                  cv.overall_buildup(ch, expiry)):
+                                  cv.overall_buildup(ch, expiry), brk):
         board.insert("end", text, tag)
     if board is not w:
         board.config(state="disabled")
@@ -748,7 +761,7 @@ class Screen(tk.Tk):
         # Tall enough for the verdict, who is in control and why, the tug of war
         # and all five levels. Too short and the levels fall off the bottom
         # silently, which is the failure this panel exists to prevent.
-        self.status_text.config(height=10)
+        self.status_text.config(height=12)
         self.chain_text = make_chain_widget(left)
 
         # A Text widget, not a Label: a Label paints one colour for the whole
