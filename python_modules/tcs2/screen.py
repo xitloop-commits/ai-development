@@ -42,6 +42,10 @@ AMBER = "#e8a33d"
 BLUE = "#4c9ae8"
 MONO = ("Consolas", 10)
 MONO_SMALL = ("Consolas", 9)
+# The chain is the thing being read all day, so it gets its own larger size
+# (Partha 2026-09-29). The grid is 173 characters wide; at this size that is
+# about 1,560 pixels, which fits the display with room to spare.
+MONO_CHAIN = ("Consolas", 12)
 MONO_BIG = ("Consolas", 15, "bold")
 
 STATUS_COLOUR = {OK: GREEN, IDLE: DIM, LATE: AMBER, DEAD: RED}
@@ -243,10 +247,45 @@ def point_rows(points: dict) -> list[tuple[int, str, str]]:
 CHAIN_TAGS = (("good", GREEN), ("bad", RED), ("warn", AMBER), ("dim", DIM),
               ("plain", FG), ("head", DIM))
 
+# One declaration of the grid, used by the header and every row alike.
+#
+# Partha 2026-09-29: the data was not lining up under its headings. The cause was
+# two hand-written format strings - the header spent 15 characters around the
+# strike and the rows spent 13, so everything from the strike rightward sat two
+# characters adrift. The widths now live here and nowhere else, and a test asserts
+# every line comes out exactly CHAIN_W wide, so the two cannot drift again.
+BAR_W = 6
+PHRASE_W = cv.MAX_PHRASE
+BUILD_W = 15
+WHO_W = 7
+LVL_W = 5
+OI_W = 10
+PX_W = 10
+STRIKE_W = 11
+
+HALF_W = BAR_W + PHRASE_W + BUILD_W + WHO_W + LVL_W + OI_W + PX_W
+CHAIN_W = HALF_W * 2 + STRIKE_W
+
+
+def maximise(win) -> None:
+    """Open the window filling the screen (Partha 2026-09-29).
+
+    The chain is 131 characters wide and is read outward from the money, so it
+    wants the whole display. `zoomed` is the Windows state; the fallback sizes to
+    the screen by hand for anything else.
+    """
+    try:
+        win.state("zoomed")
+    except Exception:                                 # noqa: BLE001
+        try:
+            win.geometry(f"{win.winfo_screenwidth()}x{win.winfo_screenheight()}+0+0")
+        except Exception:                             # noqa: BLE001
+            pass
+
 
 def make_chain_widget(parent) -> "tk.Text":
     """A Text widget set up to draw the chain. Used by both windows."""
-    w = tk.Text(parent, bg=BG, fg=FG, font=MONO_SMALL, relief="flat",
+    w = tk.Text(parent, bg=BG, fg=FG, font=MONO_CHAIN, relief="flat",
                 highlightthickness=0, insertwidth=0, wrap="none",
                 cursor="arrow")
     for name, colour in CHAIN_TAGS:
@@ -254,12 +293,147 @@ def make_chain_widget(parent) -> "tk.Text":
     return w
 
 
-def render_chain(w: "tk.Text", rt, expiry: str) -> str:
+def chain_header() -> list[tuple[str, str]]:
+    """The heading row, as (text, tag) pieces."""
+    return [
+        (f"{'':{BAR_W}}{'WHAT IS HAPPENING (CALLS)':<{PHRASE_W}}"
+         f"{'TODAY':<{BUILD_W}}{'WHO':^{WHO_W}}"
+         f"{'LVL':^{LVL_W}}{'OI':>{OI_W}}{'PRICE':>{PX_W}}", "head"),
+        (f"{'STRIKE':^{STRIKE_W}}", "head"),
+        (f"{'PRICE':<{PX_W}}{'OI':<{OI_W}}{'LVL':^{LVL_W}}"
+         f"{'WHO':^{WHO_W}}{'TODAY':<{BUILD_W}}"
+         f"{'WHAT IS HAPPENING (PUTS)':<{PHRASE_W}}{'':{BAR_W}}", "head"),
+    ]
+
+
+def chain_row(r) -> list[tuple[str, str]]:
+    """One strike, as (text, tag) pieces. Mirror-symmetric about the strike.
+
+    The bars grow outward from the middle on both sides, so the two halves read as
+    one picture rather than as two tables that happen to sit side by side.
+    """
+    c, pu = r.call, r.put
+    strike = ("*" if r.is_atm else "") + format(r.strike, ",.0f")
+    # Partha 2026-09-29: "we dont need to show the no position left strike / no
+    # live market". A strike dead on BOTH sides loses its row in build_rows; one
+    # dead side beside a live one keeps the row and leaves its own cell blank,
+    # because the live side is the reason the row is still here.
+    c_say = "" if c.dead else c.phrase
+    p_say = "" if pu.dead else pu.phrase
+    return [
+        (f"{'#' * c.bar:>{BAR_W}}{c_say:<{PHRASE_W}}", c.tag),
+        (f"{c.buildup:<{BUILD_W}}", c.buildup_tag),
+        (f"{c.who:^{WHO_W}}", c.who_tag),
+        (f"{c.level:^{LVL_W}}", "warn" if c.level else "dim"),
+        (f"{fmt_oi(c.oi):>{OI_W}}", "plain"),
+        (f"{fmt_num(c.ltp):>{PX_W}}", "plain" if c.live else "dim"),
+        (f"{strike:^{STRIKE_W}}", "warn" if r.is_atm else "plain"),
+        (f"{fmt_num(pu.ltp):<{PX_W}}", "plain" if pu.live else "dim"),
+        (f"{fmt_oi(pu.oi):<{OI_W}}", "plain"),
+        (f"{pu.level:^{LVL_W}}", "warn" if pu.level else "dim"),
+        (f"{pu.who:^{WHO_W}}", pu.who_tag),
+        (f"{pu.buildup:<{BUILD_W}}", pu.buildup_tag),
+        (f"{p_say:<{PHRASE_W}}{'#' * pu.bar:<{BAR_W}}", pu.tag),
+    ]
+
+
+def verdict_summary(snap) -> tuple[str, str] | None:
+    """The verdict on one line, for the top of the chain view.
+
+    The verdict panel is hidden while the chain is on screen, so its headline
+    comes with it. Losing a reading because a layout changed would be the worst
+    kind of regression - silent.
+    """
+    p = (snap.points.get(25) if snap is not None and snap.points else None)
+    if p is None or p.value is None:
+        return None
+    bits = [str(p.value)]
+    d = p.detail or {}
+    if d.get("direction"):
+        bits.append(f"direction {d['direction']}")
+    if p.score is not None:
+        bits.append(f"confidence {p.score:.0f}/100")
+    return "  " + "   ".join(bits), verdict_tag(p.value)
+
+
+def status_lines(control, levels: list, tug=None,
+                 verdict: tuple[str, str] | None = None) -> list[tuple[str, str]]:
+    """The overall reading, in plain words (Partha 2026-09-29).
+
+    Who is in control, how clearly, and why - then the levels that matter, each
+    with whether it is being defended or given up. The reasons are printed rather
+    than kept behind the verdict, because a claim about who is in control is only
+    worth reading if you can see what it rests on.
+    """
+    out: list[tuple[str, str]] = []
+    if verdict is not None:
+        out.append((verdict[0], verdict[1]))
+        out.append(("\n", "plain"))
+
+    tag = ("good" if control.side == "BUYERS" else
+           "bad" if control.side == "SELLERS" else "dim")
+    out.append((f"  {control.phrase.upper()}", tag))
+    if control.total:
+        out.append((f"   ({control.agree} of {control.total} signs agree)", "dim"))
+    out.append(("\n", "plain"))
+    if control.reasons:
+        out.append(("  because: " + "; ".join(control.reasons) + "\n", "dim"))
+    else:
+        out.append(("  nothing measured yet - waiting for the tape" + "\n", "dim"))
+
+    if tug is not None and tug.phrase:
+        # Partha 2026-09-29: "thug war need to be identified". Both sides
+        # committing at the same strikes is the one state where neither the walls
+        # nor the tape tells you much on its own.
+        out.append(("  " + tug.phrase, "warn"))
+        out.append((f"  ({tug.strikes} strikes - {tug.reason})\n", "dim"))
+
+    if levels:
+        for lv in levels:
+            out.append((f"  {lv.label} {lv.strike:>9,.0f}",
+                        "bad" if lv.kind == "R" else "good"))
+            note = f"  {lv.tested}"
+            if lv.note:
+                note += ", built just now"
+            out.append((note + "\n", "dim"))
+    return out
+
+
+def centre_pad(w: "tk.Text", width: int = CHAIN_W) -> str:
+    """Spaces that put the middle of a `width`-wide block at the middle of the WINDOW.
+
+    Partha 2026-09-29: the strike column is centred horizontally, always. It is
+    measured against the window rather than against this widget, because the widget
+    sits to the left of the verdict panel - centring inside the widget would leave
+    the strike visibly off-centre on screen, which is the thing being asked for.
+    """
+    try:
+        char = getattr(w, "_char_px", 0)
+        if not char:
+            import tkinter.font as tkfont
+            char = max(1, tkfont.Font(font=w.cget("font")).measure("0"))
+            w._char_px = char
+        top = w.winfo_toplevel()
+        offset = w.winfo_rootx() - top.winfo_rootx()
+        mid = top.winfo_width() / 2 - offset
+        cols = max(1, w.winfo_width() // char)
+        pad = int(round(mid / char)) - width // 2
+        return " " * max(0, min(pad, cols - width))
+    except Exception:                                 # noqa: BLE001
+        return ""
+
+
+def render_chain(w: "tk.Text", rt, expiry: str,
+                 status: "tk.Text | None" = None, snap=None) -> str:
     """Draw the plain-English chain into `w`. Returns the one-line summary.
 
-    Shared by the main screen and the comparison window so the two can never
-    drift apart - a chain that reads differently in two places is worse than
-    having only one.
+    Shared by the main screen and the comparison window so the two can never drift
+    apart - a chain that reads differently in two places is worse than having only
+    one.
+
+    `status` is a separate widget for the overall reading. It has to be separate:
+    the chain scrolls to keep the at-the-money strike centred, and a status block
+    drawn inside it would scroll away exactly when the chain got interesting.
     """
     ch = rt.chain
     w.config(state="normal")
@@ -267,32 +441,53 @@ def render_chain(w: "tk.Text", rt, expiry: str) -> str:
 
     rows = cv.build_rows(ch, expiry, rt.flow)
     hidden = cv.hidden_count(ch, expiry, rows)
+    levels = cv.key_levels(ch, expiry, tracker=getattr(rt, "levels", None))
+    tug = cv.tug_zone(ch, expiry)
+    # The same futures ids the verdict reads (runtime.py), so the control panel
+    # and the verdict can never disagree about whose tape they are looking at.
+    control = cv.control_status(
+        ch, expiry, rt.flow,
+        futures_ids=tuple(getattr(ch, "_futures_ids", ()) or ()))
 
-    w.insert("end", f"  {'WHAT IS HAPPENING (CALLS)':<36}{'OI':>9}{'price':>9}"
-                    f"   {'STRIKE':^9}   {'price':<9}{'OI':<9}"
-                    f"{'WHAT IS HAPPENING (PUTS)':<36}\n", "head")
+    board = status if status is not None else w
+    if board is not w:
+        board.config(state="normal")
+        board.delete("1.0", "end")
+    for text, tag in status_lines(control, levels, tug, verdict_summary(snap)):
+        board.insert("end", text, tag)
+    if board is not w:
+        board.config(state="disabled")
+    else:
+        w.insert("end", "\n")
+
+    pad = centre_pad(w)
+    w.insert("end", pad)
+    for text, tag in chain_header():
+        w.insert("end", text, tag)
+    w.insert("end", "\n")
+
+    # How many lines stand above the first strike, so the at-the-money row can be
+    # centred vertically: the status block, the blank line, and the heading.
+    head_lines = int(w.index("end-1c").split(".")[0])
 
     atm_line = None
     for n, r in enumerate(rows):
         if r.is_atm:
-            atm_line = n + 2              # +1 for the header, +1 for 1-based
-        mark = "*" if r.is_atm else " "
-        w.insert("end", f"  {'#' * r.call.bar + ' ' + r.call.phrase:<36}",
-                 r.call.tag)
-        w.insert("end", f"{fmt_oi(r.call.oi):>9}{fmt_num(r.call.ltp):>9}", "plain")
-        w.insert("end", f"  {mark}{r.strike:>8,.0f}  ",
-                 "warn" if r.is_atm else "plain")
-        w.insert("end", f"{fmt_num(r.put.ltp):<9}{fmt_oi(r.put.oi):<9}", "plain")
-        w.insert("end", f"{'#' * r.put.bar + ' ' + r.put.phrase:<36}\n", r.put.tag)
+            atm_line = n + head_lines
+        w.insert("end", pad)
+        for text, tag in chain_row(r):
+            w.insert("end", text, tag)
+        w.insert("end", "\n")
 
     if hidden:
         # Say what was left out. Filtering silently is the same fault as a blank
-        # cell that means zero: the reader cannot tell "nothing there" from "we
-        # did not show you".
-        w.insert("end", f"\n  {hidden} strike(s) hidden - no live market\n", "dim")
+        # cell that means zero: the reader cannot tell "nothing there" from "we did
+        # not show you".
+        w.insert("end", "\n" + pad +
+                 f"  {hidden} strike(s) hidden - no live market" + "\n", "dim")
     w.config(state="disabled")
 
-    centre_on(w, atm_line, len(rows) + 2)
+    centre_on(w, atm_line, len(rows) + head_lines)
     spot = ch.reference
     return (f"{spot:,.2f}   {cv.summary_line(rows, spot)}"
             if rows else "waiting for the chain to fill ...")
@@ -356,6 +551,7 @@ class OptionChainWindow(tk.Toplevel):
         self.title(f"{rt.instrument} - option chain (built from ticks)")
         self.configure(bg=BG)
         self.geometry("1500x820")
+        maximise(self)
 
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=10, pady=(10, 4))
@@ -482,6 +678,7 @@ class Screen(tk.Tk):
         self.title(f"TCS2 - {rt.instrument}")
         self.configure(bg=BG)
         self.geometry("1180x740")
+        maximise(self)
         self._chain_window: OptionChainWindow | None = None
 
         # Health FIRST, at the top (D17).
@@ -519,6 +716,13 @@ class Screen(tk.Tk):
         self.body_label = tk.Label(left, text="", bg=BG, fg=DIM,
                                    font=MONO_SMALL, anchor="w")
         self.body_label.pack(fill="x")
+        # Who is in control and the levels that matter, above the chain and always
+        # on screen (Partha 2026-09-29).
+        self.status_text = make_chain_widget(left)
+        # Tall enough for the verdict, who is in control and why, the tug of war
+        # and all five levels. Too short and the levels fall off the bottom
+        # silently, which is the failure this panel exists to prevent.
+        self.status_text.config(height=10)
         self.chain_text = make_chain_widget(left)
 
         # A Text widget, not a Label: a Label paints one colour for the whole
@@ -535,9 +739,12 @@ class Screen(tk.Tk):
                                        background=GREEN)
         self._rises = RiseTracker()
         self._paints = 0
-        self._show_body()
 
-        right = tk.Frame(body, bg=BG, width=470)
+        # Kept as an attribute: in chain view it is hidden, so the chain has the
+        # full width and the strike column can sit at the middle of the WINDOW
+        # (Partha 2026-09-29). Nothing is lost - the verdict headline moves to the
+        # top of the chain, and `p` brings the whole panel back with the points.
+        self.right = right = tk.Frame(body, bg=BG, width=470)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
         tk.Label(right, text="VERDICT", bg=BG, fg=DIM, font=MONO_SMALL,
@@ -555,10 +762,21 @@ class Screen(tk.Tk):
                                   justify="left", anchor="nw")
         self.flow_text.pack(fill="both", expand=True)
 
+        # LAST, not earlier: it shows or hides the right panel, so every widget it
+        # touches has to exist first. Crashed on startup once for this exact
+        # reason (2026-09-29) - the window is built in one order and there is no
+        # test that builds it, so the order is load-bearing.
+        self._show_body()
+
         self.bind("<KeyPress-c>", lambda _e: self.open_chain())
         self.bind("<KeyPress-p>", lambda _e: self._toggle_body())
         self.protocol("WM_DELETE_WINDOW", self._close)
+        self._paint_errors = 0
         self.after(REPAINT_MS, self._repaint)
+
+    def report_callback_exception(self, exc_type, exc, tb) -> None:
+        """Tk's own handler. Default prints to stderr, which pythonw discards."""
+        cfg.log_error(self.rt.instrument, exc, "tk callback")
 
     # -- actions ---------------------------------------------------------
 
@@ -567,14 +785,20 @@ class Screen(tk.Tk):
         self._show_body()
 
     def _show_body(self) -> None:
+        self.status_text.pack_forget()
         self.chain_text.pack_forget()
         self.points_text.pack_forget()
         if self.body_view == "chain":
+            self.right.pack_forget()
+            self.body_label.config(
+                text="THE OPTION CHAIN      [p] the 25 points and the verdict")
+            self.status_text.pack(fill="x", pady=(0, 4))
             self.chain_text.pack(fill="both", expand=True)
         else:
             self.body_label.config(
                 text="THE 25 POINTS   (scores DESCRIBE, they do not predict)"
                      "      [p] back to the chain")
+            self.right.pack(side="right", fill="y")
             self.points_text.pack(fill="both", expand=True)
 
     def open_chain(self) -> None:
@@ -600,9 +824,18 @@ class Screen(tk.Tk):
         # window stops beating and says so - rather than being beaten by the
         # feed thread, which would make a dead window look alive.
         self.rt.health.gui.beat()
-        snap = self.rt.latest()
-        if snap is not None:
-            self._render(snap)
+        try:
+            snap = self.rt.latest()
+            if snap is not None:
+                self._render(snap)
+        except Exception as exc:                      # noqa: BLE001
+            # The repaint must be rescheduled whatever happened. An exception
+            # escaping here breaks the `after` chain, and a window that has
+            # stopped updating but is still on screen is worse than one that
+            # closed: nothing about it looks wrong.
+            self._paint_errors += 1
+            if self._paint_errors <= 5:
+                cfg.log_error(self.rt.instrument, exc, "repaint")
         self.after(REPAINT_MS, self._repaint)
 
     def _render(self, snap: Snapshot) -> None:
@@ -643,7 +876,8 @@ class Screen(tk.Tk):
         if self.body_view == "chain":
             expiry = snap.expiries[0] if snap.expiries else ""
             if expiry:
-                line = render_chain(self.chain_text, self.rt, expiry)
+                line = render_chain(self.chain_text, self.rt, expiry,
+                                    status=self.status_text, snap=snap)
                 self.body_label.config(text=f"OPTION CHAIN  {expiry}   {line}"
                                             f"      [p] the 25 points   "
                                             f"[c] compare with your broker")

@@ -301,3 +301,199 @@ def test_the_phase_alternates_evenly_on_the_repaint_counter():
 def test_the_phase_never_sticks():
     seen = {RiseTracker.phase_on(i) for i in range(20)}
     assert seen == {True, False}
+
+
+# -- the grid lines up ---------------------------------------------------
+#
+# Partha 2026-09-29: "data has to aligned with column". The cause was two
+# hand-written format strings - the header spent 15 characters around the strike
+# and the rows spent 13, so everything from the strike rightward sat two
+# characters adrift. These tests are why that cannot come back: the widths are
+# declared once and every line is asserted to come out the same width.
+
+from tcs2.screen import (CHAIN_W, HALF_W, STRIKE_W, chain_header, chain_row,
+                         status_lines)
+from tcs2 import chainview as cv
+
+
+def _leg(**kw):
+    args = dict(is_call=True, oi=100_000, oi_open=100_000, oi_recent=0,
+                biggest_oi=200_000, rank=0, buyers_aggressive=None,
+                ltp=123.45, price_open=0.0,
+                live=True, ticked=True, trail_seconds=3600.0)
+    args.update(kw)
+    return cv.leg_phrase(**args)
+
+
+def _row(strike=23_000.0, is_atm=False, **kw):
+    return cv.StrikeView(strike=strike, call=_leg(is_call=True, **kw),
+                         put=_leg(is_call=False, **kw), is_atm=is_atm)
+
+
+def _text(pieces):
+    return "".join(t for t, _ in pieces)
+
+
+def test_the_heading_is_exactly_the_declared_width():
+    assert len(_text(chain_header())) == CHAIN_W
+
+
+@pytest.mark.parametrize("row", [
+    _row(),
+    _row(is_atm=True),
+    _row(strike=1_234_500.0),                       # widest strike we could see
+    _row(oi=0, oi_open=0),
+    _row(oi=16_000_000, oi_open=16_000_000, rank=1, biggest_oi=16_000_000),
+    _row(oi=150_000, oi_open=100_000, buyers_aggressive=False, level="R1"),
+    _row(ticked=False),
+    _row(live=False),
+    _row(ltp=99_999.95),
+])
+def test_every_row_is_exactly_the_declared_width(row):
+    assert len(_text(chain_row(row))) == CHAIN_W
+
+
+def test_the_strike_sits_in_the_same_columns_as_its_heading():
+    """The column that everything is read against cannot be the one that drifts."""
+    head = _text(chain_header())
+    row = _text(chain_row(_row(is_atm=True)))
+    assert "STRIKE" in head[HALF_W:HALF_W + STRIKE_W]
+    assert "23,000" in row[HALF_W:HALF_W + STRIKE_W]
+
+
+def test_the_two_halves_are_the_same_width():
+    """The strike is centred in the block, so the halves must match exactly."""
+    assert CHAIN_W == HALF_W * 2 + STRIKE_W
+
+
+def test_no_two_columns_run_into_each_other():
+    """Numbers touching are unreadable even when they are correctly aligned."""
+    row = _text(chain_row(_row(oi=16_000_000, ltp=99_999.95,
+                              biggest_oi=16_000_000, rank=1)))
+    head = _text(chain_header())
+    for text in (row, head):
+        assert "  " in text[:HALF_W]              # a gap survives on the left
+    assert row[HALF_W - 1] == " " or row[HALF_W] == " "
+
+
+def test_a_long_phrase_cannot_push_the_columns_out():
+    """The phrase is clipped to its column, so it can never shift the grid."""
+    longest = max((_leg(oi=150_000, oi_open=100_000, buyers_aggressive=a,
+                        level=lv).phrase
+                   for a in (True, False, None) for lv in ("", "R1", "S5")),
+                  key=len)
+    assert len(longest) <= cv.MAX_PHRASE
+
+
+# -- the overall reading -------------------------------------------------
+
+def test_the_status_block_says_who_is_in_control_in_plain_words():
+    c = cv.Control(side="BUYERS", strength=100, agree=3, total=3,
+                   reasons=["buyers are crossing the spread (71%)"])
+    text = _text(status_lines(c, []))
+    assert "BUYERS IN CONTROL" in text
+    assert "3 of 3" in text
+    assert "because" in text
+
+
+def test_the_status_block_shows_the_reasons_not_just_the_verdict():
+    """A claim about who is in control is only worth reading if you can see what
+    it rests on."""
+    c = cv.Control(side="SELLERS", strength=67, agree=2, total=3,
+                   reasons=["sellers are crossing the spread (64%)",
+                            "price is going down"])
+    text = _text(status_lines(c, []))
+    assert "price is going down" in text
+
+
+def test_the_status_block_admits_when_nothing_is_measured():
+    text = _text(status_lines(cv.Control(), []))
+    assert "nobody in control" in text.lower()
+    assert "waiting" in text
+
+
+def test_the_levels_are_listed_with_their_names():
+    levels = [cv.Level(strike=23_200.0, kind="R", rank=1, oi=900),
+              cv.Level(strike=22_800.0, kind="S", rank=1, oi=800, note="new")]
+    text = _text(status_lines(cv.Control(), levels))
+    assert "R1" in text and "23,200" in text
+    assert "S1" in text and "22,800" in text
+    assert "built just now" in text
+
+
+def test_each_level_says_how_often_it_has_been_tested():
+    """Open interest says how much is standing there; this says whether the
+    standing has ever been tested."""
+    levels = [cv.Level(strike=23_200.0, kind="R", rank=1, oi=900,
+                       touches=4, rejections=3, breaks=1),
+              cv.Level(strike=22_800.0, kind="S", rank=1, oi=800)]
+    text = _text(status_lines(cv.Control(), levels))
+    assert "4x hit" in text and "3 held" in text and "1 broke" in text
+    assert "untested" in text
+
+
+def test_resistance_and_support_are_coloured_apart():
+    levels = [cv.Level(strike=23_200.0, kind="R", rank=1),
+              cv.Level(strike=22_800.0, kind="S", rank=1)]
+    tags = {t.strip(): tag for t, tag in status_lines(cv.Control(), levels)
+            if t.strip().startswith(("R1", "S1"))}
+    assert tags["R1    23,200"] == "bad"
+    assert tags["S1    22,800"] == "good"
+
+
+def test_the_tug_of_war_is_named_when_both_sides_are_committing():
+    tug = cv.Tug(low=23_400.0, high=23_600.0, strikes=3,
+                 reason="calls and puts both being written here")
+    text = _text(status_lines(cv.Control(), [], tug))
+    assert "TUG OF WAR" in text
+    assert "23,400" in text and "23,600" in text
+    assert "3 strikes" in text
+
+
+def test_no_tug_of_war_line_when_there_is_no_fight():
+    assert "TUG" not in _text(status_lines(cv.Control(), [], None))
+
+
+def test_the_verdict_headline_survives_the_panel_being_hidden():
+    """The verdict panel is hidden while the chain is on screen, so its headline
+    comes with it. Losing a reading to a layout change would be a silent one."""
+    text = _text(status_lines(cv.Control(), [], None,
+                              verdict=("  TRADE   direction UP", "good")))
+    assert "TRADE" in text and "direction UP" in text
+
+
+def test_a_dead_leg_shows_nothing_rather_than_the_words_no_live_market():
+    """Partha 2026-09-29: a strike with no live market is not worth words. A row
+    only survives because its OTHER side is live, and that is the side to read."""
+    dead = _leg(live=False)
+    live = _leg(oi=150_000, oi_open=100_000, buyers_aggressive=False)
+    row = cv.StrikeView(strike=23_000.0, call=dead, put=live)
+    text = _text(chain_row(row))
+    assert "no live market" not in text
+    assert "CEILING" in text or "FLOOR" in text
+    assert len(text) == CHAIN_W
+
+
+def test_a_leg_with_no_position_left_shows_nothing_either():
+    row = cv.StrikeView(strike=23_000.0, call=_leg(oi=0, oi_open=0),
+                        put=_leg(oi=150_000, oi_open=100_000))
+    text = _text(chain_row(row))
+    assert "no position left" not in text
+    assert len(text) == CHAIN_W
+
+
+def test_the_buildup_and_who_columns_both_appear_in_a_row():
+    """The two answer different questions and are meant to be read together: the
+    buildup is inferred from price, WHO is measured from who crossed."""
+    leg = _leg(oi=150_000, oi_open=100_000, buyers_aggressive=True,
+               buy_share=0.78, ltp=120.0, price_open=100.0)
+    row = cv.StrikeView(strike=23_000.0, call=leg, put=_leg())
+    text = _text(chain_row(row))
+    assert "new buyers in" in text
+    assert "B 78%" in text
+
+
+def test_a_contested_leg_is_named_a_tug_rather_than_a_side():
+    leg = _leg(oi=150_000, oi_open=100_000, buyers_aggressive=True, buy_share=0.51)
+    assert leg.who == "TUG"
+    assert leg.who_tag == "warn"

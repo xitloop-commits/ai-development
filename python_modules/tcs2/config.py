@@ -144,3 +144,29 @@ EXPECTED_LEGS = {
     "crudeoil": (600, 1000),    # measured   786 = month 414 + next 370 + 2
     "naturalgas": (250, 500),   # measured   356 = month 184 + next 170 + 2
 }
+
+
+def log_error(instrument: str, exc: BaseException, what: str = "") -> None:
+    """Append a failure to this instrument's log.
+
+    The screen runs under `pythonw.exe`, which has no console and DISCARDS stdout
+    and stderr, so a process has to record its own trouble or the trouble is
+    invisible. Used for repaint failures as well as startup crashes: a Tk callback
+    that raises breaks the `after` chain, which leaves a window on screen that has
+    quietly stopped updating - the worst failure this system can have, because it
+    still looks alive.
+
+    Never raises. A logging failure must not replace the error being logged.
+    """
+    import datetime
+    import traceback
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOGS_DIR / f"tcs2-{instrument}.log", "a",
+                  encoding="utf-8") as f:
+            stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            head = f" - {what}" if what else ""
+            f.write(f"\n=== {stamp}{head} ===\n")
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=f)
+    except Exception:                                 # noqa: BLE001
+        pass

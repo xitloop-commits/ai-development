@@ -36,6 +36,7 @@ from .analysis import Analysis
 from .chain import Chain, ChainSummary
 from .flow import FlowState
 from .health import Health
+from .levels import LevelTracker
 from .recorder import TickRecorder
 from .store import Store, current_rows, eod_rows
 from .wire import Disconnect, RequestCode, Tick
@@ -137,6 +138,18 @@ class InstrumentRuntime:
         # 1,496 end-of-day rows became 1.
         self._was_in_session = False
 
+        # How often each strike has been reached and held (Partha 2026-09-29).
+        # Fed from the reference price on the feed thread; see levels.py for why
+        # the count cannot be reconstructed after the fact.
+        self.levels = LevelTracker(self.chain.cap.strike_step)
+        # Only the ticks that move the reference price drive the count: the index
+        # where there is one, the futures otherwise. Running it on every option
+        # leg would count the same approach hundreds of times.
+        feed_ids = [int(c.security_id) for c in self.resolved.futures]
+        if self.resolved.index is not None:
+            feed_ids.append(int(self.resolved.index.security_id))
+        self._level_feed_ids = frozenset(feed_ids)
+
         # Flow is tracked per security, for the futures and a band of options.
         self.flow: dict[int, FlowState] = {}
         for c in self.resolved.futures:
@@ -181,6 +194,11 @@ class InstrumentRuntime:
             # Queued, never written here: the feed thread must not wait on disk.
             self.recorder.write(_tick_row(t))
         self.chain.on_tick(t)
+        # Touch counting follows the reference price - the index where there is
+        # one, the front futures otherwise (D41) - so it measures the market, not
+        # whichever leg happened to print.
+        if t.security_id in self._level_feed_ids:
+            self.levels.on_price(self.chain.reference, t.recv_ts)
         fs = self.flow.get(t.security_id)
         if fs is not None:
             fs.on_tick(t)
@@ -222,6 +240,7 @@ class InstrumentRuntime:
         h.legs_seen = int((self.chain.tick_count > 0).sum())
         h.analytics_ms = ms
         h.unknown_prints = sum(f.unknown_prints for f in self.flow.values())
+        h.in_session = self.in_session(now)
         h.in_session = self.in_session(now)
         if self.recorder is not None:
             rs = self.recorder.stats
